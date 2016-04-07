@@ -2995,6 +2995,7 @@ libsss_ldap_la_LDFLAGS = \
 
 libsss_proxy_la_SOURCES = \
     src/providers/proxy/proxy_init.c \
+    src/providers/proxy/proxy_client.c \
     src/providers/proxy/proxy_id.c \
     src/providers/proxy/proxy_netgroup.c \
     src/providers/proxy/proxy_services.c \

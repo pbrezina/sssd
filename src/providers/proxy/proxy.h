@@ -137,6 +137,8 @@ struct pc_init_ctx {
     struct sbus_connection *conn;
 };
 
+//int proxy_client_init(struct sbus_connection *conn, void *data);
+
 #define PROXY_CHILD_PIPE "private/proxy_child"
 #define DEFAULT_BUFSIZE 4096
 #define MAX_BUF_SIZE 1024*1024 /* max 1MiB */
@@ -166,5 +168,7 @@ get_serv_byport(struct proxy_id_ctx *ctx,
 errno_t enum_services(struct proxy_id_ctx *ctx,
                       struct sysdb_ctx *sysdb,
                       struct sss_domain_info *dom);
+
+int proxy_client_init(struct sbus_connection *conn, void *data);
 
 #endif /* __PROXY_H__ */
