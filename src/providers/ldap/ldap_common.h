@@ -78,10 +78,6 @@ struct sdap_auth_ctx {
     struct sdap_service *chpass_service;
 };
 
-int sssm_ldap_id_init(struct be_ctx *bectx,
-                      struct bet_ops **ops,
-                      void **pvt_data);
-
 void sdap_check_online(struct be_req *breq);
 void sdap_do_online_check(struct be_req *be_req, struct sdap_id_ctx *ctx);
 

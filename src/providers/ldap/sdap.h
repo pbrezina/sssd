@@ -477,6 +477,8 @@ struct sdap_options {
 
     bool support_matching_rule;
     enum dc_functional_level dc_functional_level;
+
+    struct sdap_auth_ctx *auth_ctx;
 };
 
 struct sdap_server_opts {
