@@ -247,6 +247,7 @@ if HAVE_CMOCKA
         test_cert_utils \
         test_ldap_id_cleanup \
         test_data_provider_be \
+        test_dp_req \
         test_ipa_dn \
         $(NULL)
 
@@ -2682,6 +2683,26 @@ test_data_provider_be_LDFLAGS = \
 test_data_provider_be_LDADD = \
     $(CMOCKA_LIBS) \
     $(PAM_LIBS) \
+    $(SSSD_LIBS) \
+    $(SSSD_INTERNAL_LTLIBS) \
+    $(LIBADD_DL) \
+    libsss_test_common.la \
+    libdlopen_test_providers.la \
+    $(NULL)
+
+test_dp_req_SOURCES = \
+    src/providers/data_provider/dp_request_table.c \
+    src/tests/cmocka/test_dp_req.c \
+    src/tests/cmocka/common_mock_be.c \
+    $(NULL)
+test_dp_req_CFLAGS = \
+    $(AM_CFLAGS) \
+    -DUNIT_TESTING \
+    $(NULL)
+test_dp_req_LDFLAGS = \
+    $(NULL)
+test_dp_req_LDADD = \
+    $(CMOCKA_LIBS) \
     $(SSSD_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     $(LIBADD_DL) \
