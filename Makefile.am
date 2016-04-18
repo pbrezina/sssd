@@ -2978,7 +2978,7 @@ libsss_krb5_common_la_LDFLAGS = \
     -avoid-version
 
 libsss_ldap_la_SOURCES = \
-    src/providers/ldap/ldap_init.c \
+    src/providers/ldap/ldap_init_new.c \
     src/providers/ldap/ldap_access.c
 libsss_ldap_la_CFLAGS = \
     $(AM_CFLAGS) \
@@ -2994,7 +2994,7 @@ libsss_ldap_la_LDFLAGS = \
 
 
 libsss_proxy_la_SOURCES = \
-    src/providers/proxy/proxy_init.c \
+    src/providers/proxy/proxy_init_new.c \
     src/providers/proxy/proxy_client.c \
     src/providers/proxy/proxy_id.c \
     src/providers/proxy/proxy_netgroup.c \
@@ -3020,7 +3020,7 @@ libsss_simple_la_LDFLAGS = \
     -module
 
 libsss_krb5_la_SOURCES = \
-    src/providers/krb5/krb5_init.c
+    src/providers/krb5/krb5_init_new.c
 libsss_krb5_la_CFLAGS = \
     $(AM_CFLAGS) \
     $(DHASH_CFLAGS) \
@@ -3035,7 +3035,7 @@ libsss_krb5_la_LDFLAGS = \
     -module
 
 libsss_ipa_la_SOURCES = \
-    src/providers/ipa/ipa_init.c \
+    src/providers/ipa/ipa_init_new.c \
     src/providers/ipa/ipa_opts.c \
     src/providers/ipa/ipa_common.c \
     src/providers/ipa/ipa_config.c \
