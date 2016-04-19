@@ -23,9 +23,9 @@
 #include <time.h>
 #include <ldb.h>
 
-#include "providers/dp_backend.h"
-#include "providers/dp_ptask.h"
-#include "providers/dp_refresh.h"
+#include "providers/backend.h"
+#include "providers/be_ptask.h"
+#include "providers/be_refresh.h"
 #include "util/util_errors.h"
 #include "db/sysdb.h"
 

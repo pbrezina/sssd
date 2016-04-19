@@ -247,6 +247,7 @@ if HAVE_CMOCKA
         test_cert_utils \
         test_ldap_id_cleanup \
         test_data_provider_be \
+        test_dp_req \
         test_ipa_dn \
         $(NULL)
 
@@ -602,11 +603,15 @@ dist_noinst_HEADERS = \
     src/providers/data_provider.h \
     src/providers/data_provider_req.h \
     src/providers/data_provider_iface_generated.h \
-    src/providers/dp_backend.h \
-    src/providers/dp_dyndns.h \
-    src/providers/dp_ptask_private.h \
-    src/providers/dp_ptask.h \
-    src/providers/dp_refresh.h \
+    src/providers/data_provider/dp.h \
+    src/providers/data_provider/dp_private.h \
+    src/providers/data_provider/dp_iface_generated.h \
+    src/providers/data_provider/dp_iface.h \
+    src/providers/backend.h \
+    src/providers/be_dyndns.h \
+    src/providers/be_ptask_private.h \
+    src/providers/be_ptask.h \
+    src/providers/be_refresh.h \
     src/providers/fail_over.h \
     src/providers/fail_over_srv.h \
     src/util/child_common.h \
@@ -826,7 +831,7 @@ libsss_util_la_SOURCES = \
     src/monitor/monitor_sbus.c \
     src/providers/dp_auth_util.c \
     src/providers/dp_pam_data_util.c \
-    src/providers/dp_sbus.c \
+    src/providers/data_provider/dp_sbus.c \
     src/sbus/sbus_client.c \
     src/sbus/sssd_dbus_common.c \
     src/sbus/sssd_dbus_connection.c \
@@ -1071,6 +1076,7 @@ CODEGEN_XML = \
     $(srcdir)/src/tests/sbus_codegen_tests.xml \
     $(srcdir)/src/monitor/monitor_iface.xml \
     $(srcdir)/src/providers/data_provider_iface.xml \
+    $(srcdir)/src/providers/data_provider/dp_iface.xml \
     $(srcdir)/src/responder/ifp/ifp_iface.xml
 
 SBUS_CODEGEN = src/sbus/sbus_codegen
@@ -1232,11 +1238,21 @@ sssd_be_SOURCES = \
     src/providers/data_provider_fo.c \
     src/providers/data_provider_opts.c \
     src/providers/data_provider_callbacks.c \
-    src/providers/dp_dyndns.c \
-    src/providers/dp_ptask.c \
-    src/providers/dp_refresh.c \
+    src/providers/be_dyndns.c \
+    src/providers/be_ptask.c \
+    src/providers/be_refresh.c \
     src/monitor/monitor_iface_generated.c \
     src/providers/data_provider_iface_generated.c \
+    src/providers/data_provider/dp.c \
+    src/providers/data_provider/dp_modules.c \
+    src/providers/data_provider/dp_targets.c \
+    src/providers/data_provider/dp_iface.c \
+    src/providers/data_provider/dp_client.c \
+    src/providers/data_provider/dp_iface_generated.c \
+    src/providers/data_provider/dp_request.c \
+    src/providers/data_provider/dp_request_reply.c \
+    src/providers/data_provider/dp_request_table.c \
+    src/providers/data_provider/dp_reply_std.c \
     $(SSSD_FAILOVER_OBJ)
 sssd_be_LDADD = \
     $(LIBADD_DL) \
@@ -2403,7 +2419,7 @@ test_sysdb_utils_LDADD = \
 test_be_ptask_SOURCES = \
     src/tests/cmocka/common_mock_be.c \
     src/tests/cmocka/test_be_ptask.c \
-    src/providers/dp_ptask.c \
+    src/providers/be_ptask.c \
     $(NULL)
 test_be_ptask_CFLAGS = \
     $(AM_CFLAGS) \
@@ -2667,6 +2683,26 @@ test_data_provider_be_LDFLAGS = \
 test_data_provider_be_LDADD = \
     $(CMOCKA_LIBS) \
     $(PAM_LIBS) \
+    $(SSSD_LIBS) \
+    $(SSSD_INTERNAL_LTLIBS) \
+    $(LIBADD_DL) \
+    libsss_test_common.la \
+    libdlopen_test_providers.la \
+    $(NULL)
+
+test_dp_req_SOURCES = \
+    src/providers/data_provider/dp_request_table.c \
+    src/tests/cmocka/test_dp_req.c \
+    src/tests/cmocka/common_mock_be.c \
+    $(NULL)
+test_dp_req_CFLAGS = \
+    $(AM_CFLAGS) \
+    -DUNIT_TESTING \
+    $(NULL)
+test_dp_req_LDFLAGS = \
+    $(NULL)
+test_dp_req_LDADD = \
+    $(CMOCKA_LIBS) \
     $(SSSD_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     $(LIBADD_DL) \
@@ -2963,7 +2999,7 @@ libsss_krb5_common_la_LDFLAGS = \
     -avoid-version
 
 libsss_ldap_la_SOURCES = \
-    src/providers/ldap/ldap_init.c \
+    src/providers/ldap/ldap_init_new.c \
     src/providers/ldap/ldap_access.c
 libsss_ldap_la_CFLAGS = \
     $(AM_CFLAGS) \
@@ -2979,7 +3015,8 @@ libsss_ldap_la_LDFLAGS = \
 
 
 libsss_proxy_la_SOURCES = \
-    src/providers/proxy/proxy_init.c \
+    src/providers/proxy/proxy_init_new.c \
+    src/providers/proxy/proxy_client.c \
     src/providers/proxy/proxy_id.c \
     src/providers/proxy/proxy_netgroup.c \
     src/providers/proxy/proxy_services.c \
@@ -3004,7 +3041,7 @@ libsss_simple_la_LDFLAGS = \
     -module
 
 libsss_krb5_la_SOURCES = \
-    src/providers/krb5/krb5_init.c
+    src/providers/krb5/krb5_init_new.c
 libsss_krb5_la_CFLAGS = \
     $(AM_CFLAGS) \
     $(DHASH_CFLAGS) \
@@ -3019,7 +3056,7 @@ libsss_krb5_la_LDFLAGS = \
     -module
 
 libsss_ipa_la_SOURCES = \
-    src/providers/ipa/ipa_init.c \
+    src/providers/ipa/ipa_init_new.c \
     src/providers/ipa/ipa_opts.c \
     src/providers/ipa/ipa_common.c \
     src/providers/ipa/ipa_config.c \

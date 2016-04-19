@@ -49,6 +49,9 @@ typedef int errno_t;
 enum sssd_errors {
     ERR_INVALID = ERR_BASE + 0,
     ERR_INTERNAL,
+    ERR_OFFLINE,
+    ERR_TERMINATED,
+    ERR_INVALID_DATA_TYPE,
     ERR_ACCOUNT_UNKNOWN,
     ERR_INVALID_CRED_TYPE,
     ERR_NO_CREDS,

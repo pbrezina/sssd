@@ -22,7 +22,7 @@
 #ifndef _SDAP_H_
 #define _SDAP_H_
 
-#include "providers/dp_backend.h"
+#include "providers/backend.h"
 #include <ldap.h>
 #include "util/sss_ldap.h"
 
@@ -477,6 +477,8 @@ struct sdap_options {
 
     bool support_matching_rule;
     enum dc_functional_level dc_functional_level;
+
+    struct sdap_auth_ctx *auth_ctx;
 };
 
 struct sdap_server_opts {

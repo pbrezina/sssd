@@ -26,8 +26,8 @@
 #define SDAP_DYNDNS_H_
 
 #include "util/util.h"
-#include "providers/dp_backend.h"
-#include "providers/dp_dyndns.h"
+#include "providers/backend.h"
+#include "providers/be_dyndns.h"
 #include "providers/ldap/ldap_common.h"
 
 struct tevent_req *

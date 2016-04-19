@@ -34,8 +34,8 @@
 #include "confdb/confdb.h"
 #include "util/child_common.h"
 #include "providers/data_provider.h"
-#include "providers/dp_backend.h"
-#include "providers/dp_dyndns.h"
+#include "providers/backend.h"
+#include "providers/be_dyndns.h"
 #include "resolv/async_resolv.h"
 
 #ifndef DYNDNS_TIMEOUT
