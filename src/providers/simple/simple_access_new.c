@@ -107,7 +107,7 @@ done:
     return ret;
 }
 
-static int simple_access_obtain_filter_lists(struct simple_ctx *ctx)
+int simple_access_obtain_filter_lists(struct simple_ctx *ctx)
 {
     struct be_ctx *bectx = ctx->be_ctx;
     int ret;
