@@ -57,8 +57,8 @@ dp_access_permit_handler_send(TALLOC_CTX *mem_ctx,
 
 errno_t
 dp_access_permit_handler_recv(TALLOC_CTX *mem_ctx,
-                             struct tevent_req *req,
-                             struct pam_data **_data)
+                              struct tevent_req *req,
+                              struct pam_data **_data)
 {
     struct dp_access_permit_handler_state *state = NULL;
 
@@ -77,9 +77,9 @@ struct dp_access_deny_handler_state {
 
 struct tevent_req *
 dp_access_deny_handler_send(TALLOC_CTX *mem_ctx,
-                              void *data,
-                              struct pam_data *pd,
-                              struct dp_req_params *params)
+                            void *data,
+                            struct pam_data *pd,
+                            struct dp_req_params *params)
 {
     struct dp_access_deny_handler_state *state;
     struct tevent_req *req;

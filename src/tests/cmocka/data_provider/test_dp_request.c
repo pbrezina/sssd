@@ -19,10 +19,12 @@
 #include <tevent.h>
 #include <errno.h>
 #include <popt.h>
+#include <security/pam_modules.h>
 
 #include "providers/backend.h"
 #include "providers/data_provider/dp_private.h"
 #include "providers/data_provider/dp.h"
+#include "providers/data_provider/dp_special.h"
 #include "tests/cmocka/common_mock.h"
 #include "tests/common.h"
 #include "tests/cmocka/common_mock_be.h"
