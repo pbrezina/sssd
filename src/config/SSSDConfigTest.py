@@ -289,10 +289,10 @@ class SSSDConfigTestSSSDService(unittest.TestCase):
 
         options = service.list_options()
         control_list = [
+            'config_file_version',
             'services',
             'domains',
             'timeout',
-            'force_timeout',
             'sbus_timeout',
             're_expression',
             'full_name_format',
@@ -308,9 +308,9 @@ class SSSDConfigTestSSSDService(unittest.TestCase):
             'reconnection_retries',
             'fd_limit',
             'client_idle_timeout',
-            'diag_cmd',
             'description',
-            'certificate_verification']
+            'certificate_verification',
+            'override_space']
 
         self.assertTrue(type(options) == dict,
                         "Options should be a dictionary")
@@ -504,7 +504,6 @@ class SSSDConfigTestSSSDDomain(unittest.TestCase):
             'min_id',
             'max_id',
             'timeout',
-            'force_timeout',
             'offline_timeout',
             'try_inotify',
             'command',
@@ -552,12 +551,14 @@ class SSSDConfigTestSSSDDomain(unittest.TestCase):
             'chpass_provider',
             'sudo_provider',
             'autofs_provider',
-            'session_provider',
             'hostid_provider',
             'subdomains_provider',
+            'selinux_provider',
             'realmd_tags',
             'subdomain_refresh_interval',
             'subdomain_inherit',
+            'full_name_format',
+            're_expression',
             'cached_auth_timeout']
 
         self.assertTrue(type(options) == dict,
@@ -871,7 +872,6 @@ class SSSDConfigTestSSSDDomain(unittest.TestCase):
             'min_id',
             'max_id',
             'timeout',
-            'force_timeout',
             'offline_timeout',
             'try_inotify',
             'command',
@@ -919,12 +919,14 @@ class SSSDConfigTestSSSDDomain(unittest.TestCase):
             'chpass_provider',
             'sudo_provider',
             'autofs_provider',
-            'session_provider',
             'hostid_provider',
             'subdomains_provider',
+            'selinux_provider',
             'realmd_tags',
             'subdomain_refresh_interval',
             'subdomain_inherit',
+            'full_name_format',
+            're_expression',
             'cached_auth_timeout']
 
         self.assertTrue(type(options) == dict,

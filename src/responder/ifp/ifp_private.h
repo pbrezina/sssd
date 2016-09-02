@@ -27,9 +27,7 @@
 #include "responder/common/responder.h"
 #include "responder/common/negcache.h"
 #include "providers/data_provider.h"
-#include "responder/ifp/ifp_iface_generated.h"
-
-#define IFP_PATH "/org/freedesktop/sssd/infopipe"
+#include "responder/ifp/ifp_iface.h"
 
 struct sysbus_ctx {
     struct sbus_connection *conn;
@@ -103,5 +101,13 @@ struct ifp_list_ctx *ifp_list_ctx_new(struct sbus_request *sbus_req,
 
 size_t ifp_list_ctx_remaining_capacity(struct ifp_list_ctx *list_ctx,
                                        size_t entries);
+
+errno_t ifp_ldb_el_output_name(struct resp_ctx *rctx,
+                               struct ldb_message *msg,
+                               const char *el_name,
+                               struct sss_domain_info *dom);
+
+char *ifp_format_name_attr(TALLOC_CTX *mem_ctx, struct ifp_ctx *ifp_ctx,
+                           const char *in_name, struct sss_domain_info *dom);
 
 #endif /* _IFPSRV_PRIVATE_H_ */

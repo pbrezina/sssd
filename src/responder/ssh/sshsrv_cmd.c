@@ -67,7 +67,7 @@ sss_ssh_cmd_get_user_pubkeys(struct cli_ctx *cctx)
            cmd_ctx->name, cmd_ctx->domname ? cmd_ctx->domname : "<ALL>");
 
     if (strcmp(cmd_ctx->name, "root") == 0) {
-        ret = ENOENT;
+        ret = ERR_NON_SSSD_USER;
         goto done;
     }
 
@@ -168,6 +168,20 @@ ssh_user_pubkeys_search_dp_callback(uint16_t err_maj,
                                     void *ptr);
 
 static errno_t
+ssh_user_handle_not_found(const char *username)
+{
+    struct passwd *pwd;
+
+    pwd = getpwnam(username);
+    if (pwd != NULL) {
+        DEBUG(SSSDBG_TRACE_ALL, "%s is a non-SSSD user\n", username);
+        return ERR_NON_SSSD_USER;
+    }
+
+    return ENOENT;
+}
+
+static errno_t
 ssh_user_pubkeys_search(struct ssh_cmd_ctx *cmd_ctx)
 {
     struct tevent_req *req;
@@ -182,14 +196,21 @@ ssh_user_pubkeys_search(struct ssh_cmd_ctx *cmd_ctx)
     if (!cmd_ctx->domain) {
         DEBUG(SSSDBG_OP_FAILURE,
               "No matching domain found for [%s], fail!\n", cmd_ctx->name);
-        return ENOENT;
+        return ssh_user_handle_not_found(cmd_ctx->name);
+    }
+
+    talloc_zfree(cmd_ctx->fqdn);
+    cmd_ctx->fqdn = sss_resp_create_fqname(cmd_ctx, cmd_ctx->cctx->rctx,
+                                           cmd_ctx->domain, false, cmd_ctx->name);
+    if (cmd_ctx->fqdn == NULL) {
+        return ENOMEM;
     }
 
     /* refresh the user's cache entry */
     if (NEED_CHECK_PROVIDER(cmd_ctx->domain->provider)) {
         req = sss_dp_get_account_send(cmd_ctx, cmd_ctx->cctx->rctx,
                                       cmd_ctx->domain, false, SSS_DP_USER,
-                                      cmd_ctx->name, 0, NULL);
+                                      cmd_ctx->fqdn, 0, NULL);
         if (!req) {
             DEBUG(SSSDBG_CRIT_FAILURE,
                   "Out of memory sending data provider request\n");
@@ -235,7 +256,7 @@ ssh_user_pubkeys_search_next(struct ssh_cmd_ctx *cmd_ctx)
     }
 
     ret = sysdb_get_user_attr_with_views(cmd_ctx, cmd_ctx->domain,
-                                         cmd_ctx->name, attrs, &res);
+                                         cmd_ctx->fqdn, attrs, &res);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "Failed to make request to our cache!\n");
@@ -256,10 +277,10 @@ ssh_user_pubkeys_search_next(struct ssh_cmd_ctx *cmd_ctx)
             return ssh_user_pubkeys_search(cmd_ctx);
         }
 
-        DEBUG(SSSDBG_OP_FAILURE,
+        DEBUG(SSSDBG_MINOR_FAILURE,
               "No attributes for user [%s] found.\n", cmd_ctx->name);
 
-        return ENOENT;
+        return ssh_user_handle_not_found(cmd_ctx->name);
     }
 
     cmd_ctx->result = res->msgs[0];
@@ -662,9 +683,8 @@ done:
 static errno_t
 ssh_cmd_parse_request(struct ssh_cmd_ctx *cmd_ctx)
 {
-    struct cli_ctx *cctx = cmd_ctx->cctx;
-    struct ssh_ctx *ssh_ctx = talloc_get_type(cctx->rctx->pvt_ctx,
-                                              struct ssh_ctx);
+    struct cli_protocol *pctx;
+    struct ssh_ctx *ssh_ctx;
     errno_t ret;
     uint8_t *body;
     size_t body_len;
@@ -677,7 +697,10 @@ ssh_cmd_parse_request(struct ssh_cmd_ctx *cmd_ctx)
     uint32_t domain_len;
     char *domain = NULL;
 
-    sss_packet_get_body(cctx->creq->in, &body, &body_len);
+    ssh_ctx = talloc_get_type(cmd_ctx->cctx->rctx->pvt_ctx, struct ssh_ctx);
+    pctx = talloc_get_type(cmd_ctx->cctx->protocol_ctx, struct cli_protocol);
+
+    sss_packet_get_body(pctx->creq->in, &body, &body_len);
 
     SAFEALIGN_COPY_UINT32_CHECK(&flags, body+c, body_len, &c);
     if (flags & ~(uint32_t)SSS_SSH_REQ_MASK) {
@@ -752,7 +775,8 @@ ssh_cmd_parse_request(struct ssh_cmd_ctx *cmd_ctx)
         DEBUG(SSSDBG_TRACE_FUNC,
               "Parsing name [%s][%s]\n", name, domain ? domain : "<ALL>");
 
-        ret = sss_parse_name_for_domains(cmd_ctx, cctx->rctx->domains,
+        ret = sss_parse_name_for_domains(cmd_ctx,
+                                         cmd_ctx->cctx->rctx->domains,
                                          domain, name,
                                          &cmd_ctx->domname,
                                          &cmd_ctx->name);
@@ -819,14 +843,12 @@ static errno_t get_valid_certs_keys(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    if (cert_verification_opts != NULL) {
-        ret = parse_cert_verify_opts(tmp_ctx, cert_verification_opts,
-                                     &cert_verify_opts);
-        if (ret != EOK) {
-            DEBUG(SSSDBG_FATAL_FAILURE,
-                  "Failed to parse verifiy option.\n");
-            goto done;
-        }
+    ret = parse_cert_verify_opts(tmp_ctx, cert_verification_opts,
+                                 &cert_verify_opts);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to parse verifiy option.\n");
+        goto done;
     }
 
     el_res = talloc_zero(tmp_ctx, struct ldb_message_element);
@@ -882,7 +904,7 @@ static errno_t decode_and_add_base64_data(struct ssh_cmd_ctx *cmd_ctx,
                                           const char *fqname,
                                           size_t *c)
 {
-    struct cli_ctx *cctx = cmd_ctx->cctx;
+    struct cli_protocol *pctx;
     uint8_t *key;
     size_t key_len;
     uint8_t *body;
@@ -902,6 +924,8 @@ static errno_t decode_and_add_base64_data(struct ssh_cmd_ctx *cmd_ctx,
         return ENOMEM;
     }
 
+    pctx = talloc_get_type(cmd_ctx->cctx->protocol_ctx, struct cli_protocol);
+
     for (d = 0; d < el->num_values; d++) {
         if (skip_base64_decode) {
             key = el->values[d].data;
@@ -916,13 +940,13 @@ static errno_t decode_and_add_base64_data(struct ssh_cmd_ctx *cmd_ctx,
             }
         }
 
-        ret = sss_packet_grow(cctx->creq->out,
+        ret = sss_packet_grow(pctx->creq->out,
                               3*sizeof(uint32_t) + key_len + fqname_len);
         if (ret != EOK) {
             DEBUG(SSSDBG_OP_FAILURE, "sss_packet_grow failed.\n");
             goto done;
         }
-        sss_packet_get_body(cctx->creq->out, &body, &body_len);
+        sss_packet_get_body(pctx->creq->out, &body, &body_len);
 
         SAFEALIGN_SET_UINT32(body+(*c), 0, c);
         SAFEALIGN_SET_UINT32(body+(*c), fqname_len, c);
@@ -943,7 +967,6 @@ done:
 static errno_t
 ssh_cmd_build_reply(struct ssh_cmd_ctx *cmd_ctx)
 {
-    struct cli_ctx *cctx = cmd_ctx->cctx;
     errno_t ret;
     uint8_t *body;
     size_t body_len;
@@ -957,13 +980,16 @@ ssh_cmd_build_reply(struct ssh_cmd_ctx *cmd_ctx)
     const char *name;
     char *fqname;
     uint32_t fqname_len;
-    struct ssh_ctx *ssh_ctx = talloc_get_type(cctx->rctx->pvt_ctx,
-                                              struct ssh_ctx);
     TALLOC_CTX *tmp_ctx;
+    struct ssh_ctx *ssh_ctx;
+    struct cli_protocol *pctx;
 
-    ret = sss_packet_new(cctx->creq, 0,
-                         sss_packet_get_cmd(cctx->creq->in),
-                         &cctx->creq->out);
+    ssh_ctx = talloc_get_type(cmd_ctx->cctx->rctx->pvt_ctx, struct ssh_ctx);
+    pctx = talloc_get_type(cmd_ctx->cctx->protocol_ctx, struct cli_protocol);
+
+    ret = sss_packet_new(pctx->creq, 0,
+                         sss_packet_get_cmd(pctx->creq->in),
+                         &pctx->creq->out);
     if (ret != EOK) {
         return ret;
     }
@@ -1007,11 +1033,11 @@ ssh_cmd_build_reply(struct ssh_cmd_ctx *cmd_ctx)
         }
     }
 
-    ret = sss_packet_grow(cctx->creq->out, 2*sizeof(uint32_t));
+    ret = sss_packet_grow(pctx->creq->out, 2*sizeof(uint32_t));
     if (ret != EOK) {
         goto done;
     }
-    sss_packet_get_body(cctx->creq->out, &body, &body_len);
+    sss_packet_get_body(pctx->creq->out, &body, &body_len);
 
     SAFEALIGN_SET_UINT32(body+c, count, &c);
     SAFEALIGN_SET_UINT32(body+c, 0, &c);
@@ -1096,8 +1122,10 @@ ssh_cmd_send_error(struct ssh_cmd_ctx *cmd_ctx,
 static errno_t
 ssh_cmd_send_reply(struct ssh_cmd_ctx *cmd_ctx)
 {
-    struct cli_ctx *cctx = cmd_ctx->cctx;
+    struct cli_protocol *pctx;
     errno_t ret;
+
+    pctx = talloc_get_type(cmd_ctx->cctx->protocol_ctx, struct cli_protocol);
 
     /* create response packet */
     ret = ssh_cmd_build_reply(cmd_ctx);
@@ -1105,8 +1133,8 @@ ssh_cmd_send_reply(struct ssh_cmd_ctx *cmd_ctx)
         return ret;
     }
 
-    sss_packet_set_error(cctx->creq->out, EOK);
-    sss_cmd_done(cctx, cmd_ctx);
+    sss_packet_set_error(pctx->creq->out, EOK);
+    sss_cmd_done(cmd_ctx->cctx, cmd_ctx);
 
     return EOK;
 }

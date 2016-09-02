@@ -42,6 +42,7 @@ if [[ "$DISTRO_BRANCH" == -redhat-* ]]; then
         openldap-servers
         pytest
         python-ldap
+        pyldb
         rpm-build
         uid_wrapper
     )
@@ -112,9 +113,12 @@ if [[ "$DISTRO_BRANCH" == -debian-* ]]; then
         libuid-wrapper
         python-pytest
         python-ldap
+        python-ldb
         ldap-utils
         slapd
         systemtap-sdt-dev
+        libhttp-parser-dev
+        libjansson-dev
     )
     DEPS_INTGCHECK_SATISFIED=true
 fi

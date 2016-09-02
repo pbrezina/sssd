@@ -21,13 +21,13 @@
 #include <stdlib.h>
 
 #include "config.h"
-#include "tools/tools_util.h"
+#include "tools/common/sss_process.h"
 
 int main(int argc, const char **argv)
 {
     int ret;
 
-    ret = signal_sssd(SIGUSR2);
+    ret = sss_signal(SIGUSR2);
     if (ret != EOK) {
         ERROR("Could not signal SSSD. Is SSSD running?\n");
         return EXIT_FAILURE;

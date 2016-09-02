@@ -83,6 +83,8 @@ sss_sifp_init_ex(void *alloc_pvt,
         goto done;
     }
 
+    *_ctx = ctx;
+
     dbus_error_init(ctx->io_error);
 
     conn = dbus_bus_get(DBUS_BUS_SYSTEM, &dbus_error);
@@ -93,7 +95,6 @@ sss_sifp_init_ex(void *alloc_pvt,
     }
 
     ctx->conn = conn;
-    *_ctx = ctx;
 
     ret = SSS_SIFP_OK;
 
@@ -132,6 +133,35 @@ sss_sifp_get_last_io_error_message(sss_sifp_ctx *ctx)
     }
 
     return ctx->io_error->message;
+}
+
+const char *
+sss_sifp_strerr(sss_sifp_error error)
+{
+    switch (error) {
+    case SSS_SIFP_OK:
+        return "Success";
+    case SSS_SIFP_OUT_OF_MEMORY:
+        return "Out of memory";
+    case SSS_SIFP_INVALID_ARGUMENT:
+        return "Invalid argument";
+    case SSS_SIFP_IO_ERROR:
+        return "Communication error";
+    case SSS_SIFP_INTERNAL_ERROR:
+        return "Internal error";
+    case SSS_SIFP_NOT_SUPPORTED:
+        return "Not supported";
+    case SSS_SIFP_ATTR_MISSING:
+        return "Attribute does not exist";
+    case SSS_SIFP_ATTR_NULL:
+        return "Attribute does not have any value set";
+    case SSS_SIFP_INCORRECT_TYPE:
+        return "Incorrect type";
+    case SSS_SIFP_ERROR_SENTINEL:
+        return "Invalid error code";
+    }
+
+    return "Invalid error code";
 }
 
 sss_sifp_error

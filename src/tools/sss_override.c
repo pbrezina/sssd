@@ -32,6 +32,7 @@
 struct override_user {
     const char *input_name;
     const char *orig_name;
+    const char *sysdb_name;
     struct sss_domain_info *domain;
 
     const char *name;
@@ -46,29 +47,31 @@ struct override_user {
 struct override_group {
     const char *input_name;
     const char *orig_name;
+    const char *sysdb_name;
     struct sss_domain_info *domain;
 
     const char *name;
     gid_t gid;
 };
 
-static int parse_cmdline(struct sss_cmdline *cmdline,
-                         struct sss_tool_ctx *tool_ctx,
-                         struct poptOption *options,
-                         const char **_input_name,
-                         const char **_orig_name,
-                         struct sss_domain_info **_domain)
+static errno_t parse_cmdline(struct sss_cmdline *cmdline,
+                             struct sss_tool_ctx *tool_ctx,
+                             struct poptOption *options,
+                             const char **_input_name,
+                             const char **_orig_name,
+                             struct sss_domain_info **_domain)
 {
     enum sss_tool_opt require;
     const char *input_name;
     const char *orig_name;
     struct sss_domain_info *domain;
-    int ret;
+    errno_t ret;
 
     require = options == NULL ? SSS_TOOL_OPT_OPTIONAL : SSS_TOOL_OPT_REQUIRED;
 
     ret = sss_tool_popt_ex(cmdline, options, require,
-                           NULL, NULL, "NAME", _("Specify name."), &input_name);
+                           NULL, NULL, "NAME", _("Specify name."),
+                           &input_name, NULL);
     if (ret != EXIT_SUCCESS) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command arguments\n");
         return ret;
@@ -88,9 +91,9 @@ static int parse_cmdline(struct sss_cmdline *cmdline,
     return EXIT_SUCCESS;
 }
 
-static int parse_cmdline_user_add(struct sss_cmdline *cmdline,
-                                  struct sss_tool_ctx *tool_ctx,
-                                  struct override_user *user)
+static errno_t parse_cmdline_user_add(struct sss_cmdline *cmdline,
+                                      struct sss_tool_ctx *tool_ctx,
+                                      struct override_user *user)
 {
     struct poptOption options[] = {
         {"name", 'n', POPT_ARG_STRING, &user->name, 0, _("Override name"), NULL },
@@ -107,25 +110,25 @@ static int parse_cmdline_user_add(struct sss_cmdline *cmdline,
                          &user->orig_name, &user->domain);
 }
 
-static int parse_cmdline_user_del(struct sss_cmdline *cmdline,
-                                  struct sss_tool_ctx *tool_ctx,
-                                  struct override_user *user)
+static errno_t parse_cmdline_user_del(struct sss_cmdline *cmdline,
+                                      struct sss_tool_ctx *tool_ctx,
+                                      struct override_user *user)
 {
     return parse_cmdline(cmdline, tool_ctx, NULL, &user->input_name,
                          &user->orig_name, &user->domain);
 }
 
-static int parse_cmdline_user_show(struct sss_cmdline *cmdline,
-                                   struct sss_tool_ctx *tool_ctx,
-                                   struct override_user *user)
+static errno_t parse_cmdline_user_show(struct sss_cmdline *cmdline,
+                                       struct sss_tool_ctx *tool_ctx,
+                                       struct override_user *user)
 {
     return parse_cmdline(cmdline, tool_ctx, NULL, &user->input_name,
                          &user->orig_name, &user->domain);
 }
 
-static int parse_cmdline_group_add(struct sss_cmdline *cmdline,
-                                   struct sss_tool_ctx *tool_ctx,
-                                   struct override_group *group)
+static errno_t parse_cmdline_group_add(struct sss_cmdline *cmdline,
+                                       struct sss_tool_ctx *tool_ctx,
+                                       struct override_group *group)
 {
     struct poptOption options[] = {
         {"name", 'n', POPT_ARG_STRING, &group->name, 0, _("Override name"), NULL },
@@ -137,29 +140,29 @@ static int parse_cmdline_group_add(struct sss_cmdline *cmdline,
                          &group->orig_name, &group->domain);
 }
 
-static int parse_cmdline_group_del(struct sss_cmdline *cmdline,
-                                   struct sss_tool_ctx *tool_ctx,
-                                   struct override_group *group)
+static errno_t parse_cmdline_group_del(struct sss_cmdline *cmdline,
+                                       struct sss_tool_ctx *tool_ctx,
+                                       struct override_group *group)
 {
     return parse_cmdline(cmdline, tool_ctx, NULL, &group->input_name,
                          &group->orig_name, &group->domain);
 }
 
-static int parse_cmdline_group_show(struct sss_cmdline *cmdline,
-                                    struct sss_tool_ctx *tool_ctx,
-                                    struct override_group *group)
+static errno_t parse_cmdline_group_show(struct sss_cmdline *cmdline,
+                                        struct sss_tool_ctx *tool_ctx,
+                                        struct override_group *group)
 {
     return parse_cmdline(cmdline, tool_ctx, NULL, &group->input_name,
                          &group->orig_name, &group->domain);
 }
 
-static int parse_cmdline_find(struct sss_cmdline *cmdline,
-                              struct sss_tool_ctx *tool_ctx,
-                              struct sss_domain_info **_dom)
+static errno_t parse_cmdline_find(struct sss_cmdline *cmdline,
+                                  struct sss_tool_ctx *tool_ctx,
+                                  struct sss_domain_info **_dom)
 {
     struct sss_domain_info *dom;
     const char *domname = NULL;
-    int ret;
+    errno_t ret;
     struct poptOption options[] = {
         {"domain", 'd', POPT_ARG_STRING | POPT_ARGFLAG_OPTIONAL,
             &domname, 0, _("Domain name"), NULL },
@@ -167,59 +170,59 @@ static int parse_cmdline_find(struct sss_cmdline *cmdline,
     };
 
     ret = sss_tool_popt_ex(cmdline, options, SSS_TOOL_OPT_OPTIONAL,
-                           NULL, NULL, NULL, NULL, NULL);
-    if (ret != EXIT_SUCCESS) {
+                           NULL, NULL, NULL, NULL, NULL, NULL);
+    if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command arguments\n");
         return ret;
     }
 
     if (domname == NULL) {
         *_dom = NULL;
-        return EXIT_SUCCESS;
+        return EOK;
     }
 
     dom = find_domain_by_name(tool_ctx->domains, domname, true);
     if (dom == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to find domain %s\n", domname);
         fprintf(stderr, _("Unable to find domain %s\n"), domname);
-        return EXIT_FAILURE;
+        return EINVAL;
     }
 
     *_dom = dom;
 
-    return EXIT_SUCCESS;
+    return EOK;
 }
 
-static int parse_cmdline_import(struct sss_cmdline *cmdline,
-                                const char **_file)
+static errno_t parse_cmdline_import(struct sss_cmdline *cmdline,
+                                    const char **_file)
 {
-    int ret;
+    errno_t ret;
 
     ret = sss_tool_popt_ex(cmdline, NULL, SSS_TOOL_OPT_OPTIONAL,
                            NULL, NULL, "FILE", "File to import the data from.",
-                           _file);
-    if (ret != EXIT_SUCCESS) {
+                           _file, NULL);
+    if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command arguments\n");
         return ret;
     }
 
-    return EXIT_SUCCESS;
+    return EOK;
 }
 
-static int parse_cmdline_export(struct sss_cmdline *cmdline,
-                                const char **_file)
+static errno_t parse_cmdline_export(struct sss_cmdline *cmdline,
+                                    const char **_file)
 {
-    int ret;
+    errno_t ret;
 
     ret = sss_tool_popt_ex(cmdline, NULL, SSS_TOOL_OPT_OPTIONAL,
                            NULL, NULL, "FILE", "File to export the data to.",
-                           _file);
-    if (ret != EXIT_SUCCESS) {
+                           _file, NULL);
+    if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command arguments\n");
         return ret;
     }
 
-    return EXIT_SUCCESS;
+    return EOK;
 }
 
 static errno_t prepare_view(struct sss_domain_info *domain)
@@ -294,6 +297,7 @@ static char *build_anchor(TALLOC_CTX *mem_ctx, const char *obj_dn)
 }
 
 static struct sysdb_attrs *build_attrs(TALLOC_CTX *mem_ctx,
+                                       struct sss_domain_info *dom,
                                        const char *name,
                                        uid_t uid,
                                        gid_t gid,
@@ -304,6 +308,7 @@ static struct sysdb_attrs *build_attrs(TALLOC_CTX *mem_ctx,
 {
     struct sysdb_attrs *attrs;
     errno_t ret;
+    char *fqname;
 
     attrs = sysdb_new_attrs(mem_ctx);
     if (attrs == NULL) {
@@ -311,7 +316,13 @@ static struct sysdb_attrs *build_attrs(TALLOC_CTX *mem_ctx,
     }
 
     if (name != NULL) {
-        ret = sysdb_attrs_add_string(attrs, SYSDB_NAME, name);
+        fqname = sss_create_internal_fqname(attrs, name, dom->name);
+        if (fqname == NULL) {
+            return NULL;
+        }
+
+        ret = sysdb_attrs_add_string(attrs, SYSDB_NAME, fqname);
+        talloc_free(fqname);
         if (ret != EOK) {
             goto done;
         }
@@ -373,76 +384,55 @@ done:
 static struct sysdb_attrs *build_user_attrs(TALLOC_CTX *mem_ctx,
                                             struct override_user *user)
 {
-    return build_attrs(mem_ctx, user->name, user->uid, user->gid, user->home,
-                       user->shell, user->gecos, user->cert);
+    return build_attrs(mem_ctx, user->domain, user->name, user->uid, user->gid,
+                       user->home, user->shell, user->gecos, user->cert);
 }
 
 static struct sysdb_attrs *build_group_attrs(TALLOC_CTX *mem_ctx,
                                              struct override_group *group)
 {
-    return build_attrs(mem_ctx, group->name, 0, group->gid, 0, NULL, NULL, NULL);
+    return build_attrs(mem_ctx, group->domain, group->name, 0, group->gid,
+                       0, NULL, NULL, NULL);
 }
 
 static char *get_fqname(TALLOC_CTX *mem_ctx,
                         struct sss_domain_info *domain,
                         const char *name)
 {
-    char *fqname;
-    int fqlen;
-    int check;
+    char *fqname = NULL;
     char *dummy_domain = NULL;
-    int ret;
+    errno_t ret;
+    TALLOC_CTX *tmp_ctx;
+    char *shortname;
+    struct sss_domain_info *dom;
 
     if (domain == NULL || domain->names == NULL) {
         return NULL;
     }
 
-    /* check if the name already contains domain part */
-    ret = sss_parse_name(mem_ctx, domain->names, name, &dummy_domain, NULL);
-    if (ret == ERR_REGEX_NOMATCH) {
-        DEBUG(SSSDBG_TRACE_FUNC,
-              "sss_parse_name could not parse domain from [%s]. "
-              "Assuming it is not FQDN.\n", name);
-    } else if (ret != EOK) {
-        DEBUG(SSSDBG_TRACE_FUNC,
-              "sss_parse_name failed [%d]: %s\n", ret, sss_strerror(ret));
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
         return NULL;
     }
 
-    if (dummy_domain != NULL) {
-        talloc_free(dummy_domain);
-        DEBUG(SSSDBG_TRACE_FUNC, "Name is already fully qualified.\n");
-        fqname = talloc_strdup(mem_ctx, name);
-        if (fqname == NULL) {
-            DEBUG(SSSDBG_CRIT_FAILURE, "talloc_strdup failed.\n");
-            return NULL;
-        }
+    /* the name stored in sysdb already contains the lowercased domain */
+    ret = sss_parse_internal_fqname(tmp_ctx, name, &shortname, &dummy_domain);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_TRACE_FUNC,
+              "sss_parse_internal_fqname failed [%d]: %s\n",
+              ret, sss_strerror(ret));
+        goto done;
+    }
 
-        return fqname;
+    dom = find_domain_by_name(get_domains_head(domain), dummy_domain, true);
+    if (dom == NULL) {
+        goto done;
     }
 
     /* Get length. */
-    fqlen = sss_fqname(NULL, 0, domain->names, domain, name);
-    if (fqlen > 0) {
-        fqlen++; /* \0 */
-    } else {
-        return NULL;
-    }
-
-    fqname = talloc_zero_array(mem_ctx, char, fqlen);
-    if (fqname == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_zero_array() failed\n");
-        return NULL;
-    }
-
-    check = sss_fqname(fqname, fqlen, domain->names, domain, name);
-    if (check < 0 || check != fqlen - 1) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Failed to generate a fully qualified name "
-              "for user [%s] in [%s]! Skipping user.\n", name, domain->name);
-        talloc_free(fqname);
-        return NULL;
-    }
-
+    fqname = sss_tc_fqname(mem_ctx, dom->names, dom, shortname);
+done:
+    talloc_free(tmp_ctx);
     return fqname;
 }
 
@@ -454,7 +444,7 @@ static char *get_sysname(TALLOC_CTX *mem_ctx,
         return talloc_strdup(mem_ctx, name);
     }
 
-    return get_fqname(mem_ctx, domain, name);
+    return sss_tc_fqname(mem_ctx, domain->names, domain, name);
 }
 
 static struct sss_domain_info *
@@ -468,6 +458,7 @@ get_object_domain(enum sysdb_member_type type,
     struct ldb_result *res;
     const char *strtype;
     char *sysname;
+    char *fqname = NULL;
     bool check_next;
     errno_t ret;
 
@@ -512,17 +503,24 @@ get_object_domain(enum sysdb_member_type type,
     }
 
     do {
+        talloc_zfree(fqname);
+        fqname = sss_create_internal_fqname(tmp_ctx, name, dom->name);
+        if (fqname == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+
         switch (type) {
         case SYSDB_MEMBER_USER:
             DEBUG(SSSDBG_TRACE_FUNC, "Trying to find user %s@%s\n",
                   name, dom->name);
-            ret = sysdb_getpwnam(tmp_ctx, dom, name, &res);
+            ret = sysdb_getpwnam(tmp_ctx, dom, fqname, &res);
             strtype = "user";
             break;
         case SYSDB_MEMBER_GROUP:
             DEBUG(SSSDBG_TRACE_FUNC, "Trying to find group %s@%s\n",
                   name, dom->name);
-            ret = sysdb_getgrnam(tmp_ctx, dom, name, &res);
+            ret = sysdb_getgrnam(tmp_ctx, dom, fqname, &res);
             strtype = "group";
             break;
         default:
@@ -587,6 +585,12 @@ static errno_t get_user_domain_msg(struct sss_tool_ctx *tool_ctx,
         return ENOENT;
     }
 
+    user->sysdb_name = sss_create_internal_fqname(tool_ctx, user->orig_name,
+                                                  newdom->name);
+    if (user->sysdb_name == NULL) {
+        return ENOMEM;
+    }
+
     user->domain = newdom;
     return EOK;
 }
@@ -604,6 +608,12 @@ static errno_t get_group_domain_msg(struct sss_tool_ctx *tool_ctx,
         fprintf(stderr, _("Unable to find group %s@%s.\n"),
                 group->orig_name, domname);
         return ENOENT;
+    }
+
+    group->sysdb_name = sss_create_internal_fqname(tool_ctx, group->orig_name,
+                                                   newdom->name);
+    if (group->sysdb_name == NULL) {
+        return ENOMEM;
     }
 
     group->domain = newdom;
@@ -796,7 +806,7 @@ static errno_t override_user(struct sss_tool_ctx *tool_ctx,
     }
 
     ret = override_object_add(user.domain, SYSDB_MEMBER_USER, attrs,
-                              user.orig_name);
+                              user.sysdb_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to add override object.\n");
         goto done;
@@ -845,7 +855,7 @@ static errno_t override_group(struct sss_tool_ctx *tool_ctx,
     }
 
     ret = override_object_add(group.domain, SYSDB_MEMBER_GROUP, attrs,
-                              group.orig_name);
+                              group.sysdb_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to add override object.\n");
         goto done;
@@ -1045,7 +1055,7 @@ static errno_t list_overrides(TALLOC_CTX *mem_ctx,
     struct ldb_message **msgs;
     const char *filter;
     size_t i;
-    int ret;
+    errno_t ret;
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
@@ -1073,7 +1083,12 @@ static errno_t list_overrides(TALLOC_CTX *mem_ctx,
 
     ret = sysdb_search_entry(tmp_ctx, domain->sysdb, dn, LDB_SCOPE_SUBTREE,
                              filter, attrs, &count, &msgs);
-    if (ret != EOK) {
+    if (ret == ENOENT) {
+        *_msgs = NULL;
+        *_count = 0;
+        ret = EOK;
+        goto done;
+    } else if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "sysdb_search_entry() failed [%d]: %s\n",
               ret, sss_strerror(ret));
         goto done;
@@ -1113,6 +1128,8 @@ list_user_overrides(TALLOC_CTX *mem_ctx,
     errno_t ret;
     const char *attrs[] = SYSDB_PW_ATTRS;
     struct ldb_message_element *el;
+    const char *fqname;
+    char *name;
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
@@ -1141,7 +1158,14 @@ list_user_overrides(TALLOC_CTX *mem_ctx,
             goto done;
         }
 
-        objs[i].name = ldb_msg_find_attr_as_string(msgs[i], SYSDB_NAME, NULL);
+        fqname = ldb_msg_find_attr_as_string(msgs[i], SYSDB_NAME, NULL);
+        ret = sss_parse_internal_fqname(tmp_ctx, fqname, &name, NULL);
+        if (ret != EOK) {
+            ret = ERR_WRONG_NAME_FORMAT;
+            goto done;
+        }
+        objs[i].name = talloc_steal(objs, name);
+
         objs[i].uid = ldb_msg_find_attr_as_uint(msgs[i], SYSDB_UIDNUM, 0);
         objs[i].gid = ldb_msg_find_attr_as_uint(msgs[i], SYSDB_GIDNUM, 0);
         objs[i].home = ldb_msg_find_attr_as_string(msgs[i], SYSDB_HOMEDIR, NULL);
@@ -1163,7 +1187,6 @@ list_user_overrides(TALLOC_CTX *mem_ctx,
         }
 
         talloc_steal(objs, objs[i].orig_name);
-        talloc_steal(objs, objs[i].name);
         talloc_steal(objs, objs[i].home);
         talloc_steal(objs, objs[i].shell);
         talloc_steal(objs, objs[i].gecos);
@@ -1193,6 +1216,8 @@ list_group_overrides(TALLOC_CTX *mem_ctx,
     size_t i;
     errno_t ret;
     const char *attrs[] = SYSDB_GRSRC_ATTRS;
+    const char *fqname;
+    char *name;
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
@@ -1220,12 +1245,17 @@ list_group_overrides(TALLOC_CTX *mem_ctx,
             ret = ERR_INTERNAL;
             goto done;
         }
-
-        objs[i].name = ldb_msg_find_attr_as_string(msgs[i], SYSDB_NAME, NULL);
-        objs[i].gid = ldb_msg_find_attr_as_uint(msgs[i], SYSDB_GIDNUM, 0);
-
         talloc_steal(objs, objs[i].orig_name);
-        talloc_steal(objs, objs[i].name);
+
+        fqname = ldb_msg_find_attr_as_string(msgs[i], SYSDB_NAME, NULL);
+        ret = sss_parse_internal_fqname(tmp_ctx, fqname, &name, NULL);
+        if (ret != EOK) {
+            ret = ERR_WRONG_NAME_FORMAT;
+            goto done;
+        }
+        objs[i].name = talloc_steal(objs, name);
+
+        objs[i].gid = ldb_msg_find_attr_as_uint(msgs[i], SYSDB_GIDNUM, 0);
     }
 
     talloc_steal(mem_ctx, objs);
@@ -1379,25 +1409,25 @@ static int override_user_add(struct sss_cmdline *cmdline,
                              void *pvt)
 {
     struct override_user user = {NULL};
-    int ret;
+    errno_t ret;
 
     ret = parse_cmdline_user_add(cmdline, tool_ctx, &user);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command line.\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
     ret = get_user_domain_msg(tool_ctx, &user);
     if (ret != EOK) {
-        return EXIT_FAILURE;
+        return ret;
     }
 
     ret = override_user(tool_ctx, &user);
     if (ret != EOK) {
-        return EXIT_FAILURE;
+        return ret;
     }
 
-    return EXIT_SUCCESS;
+    return EOK;
 }
 
 static int override_user_del(struct sss_cmdline *cmdline,
@@ -1405,26 +1435,26 @@ static int override_user_del(struct sss_cmdline *cmdline,
                              void *pvt)
 {
     struct override_user user = {NULL};
-    int ret;
+    errno_t ret;
 
     ret = parse_cmdline_user_del(cmdline, tool_ctx, &user);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command line.\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
     ret = get_user_domain_msg(tool_ctx, &user);
     if (ret != EOK) {
-        return EXIT_FAILURE;
+        return ret;
     }
 
-    ret = override_object_del(user.domain, SYSDB_MEMBER_USER, user.orig_name);
+    ret = override_object_del(user.domain, SYSDB_MEMBER_USER, user.sysdb_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to delete override object.\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
-    return EXIT_SUCCESS;
+    return EOK;
 }
 
 static int override_user_find(struct sss_cmdline *cmdline,
@@ -1438,7 +1468,7 @@ static int override_user_find(struct sss_cmdline *cmdline,
     ret = parse_cmdline_find(cmdline, tool_ctx, &dom);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command line.\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
     if (dom == NULL) {
@@ -1451,10 +1481,10 @@ static int override_user_find(struct sss_cmdline *cmdline,
     ret = user_export(NULL, dom, iterate, NULL);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to export users\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
-    return EXIT_SUCCESS;
+    return EOK;
 }
 
 static int override_user_show(struct sss_cmdline *cmdline,
@@ -1466,12 +1496,12 @@ static int override_user_show(struct sss_cmdline *cmdline,
     const char *dn;
     char *anchor;
     const char *filter;
-    int ret;
+    errno_t ret;
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "talloc_new() failed.\n");
-        return EXIT_FAILURE;
+        return ENOMEM;
     }
 
     ret = parse_cmdline_user_show(cmdline, tool_ctx, &input);
@@ -1487,7 +1517,7 @@ static int override_user_show(struct sss_cmdline *cmdline,
     }
 
     ret = get_object_dn(tmp_ctx, input.domain, SYSDB_MEMBER_USER,
-                        input.orig_name, NULL, &dn);
+                        input.sysdb_name, NULL, &dn);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to get object dn\n");
         goto done;
@@ -1523,12 +1553,7 @@ static int override_user_show(struct sss_cmdline *cmdline,
 
 done:
     talloc_free(tmp_ctx);
-
-    if (ret != EOK) {
-        return EXIT_FAILURE;
-    }
-
-    return EXIT_SUCCESS;
+    return ret;
 }
 
 static int override_user_import(struct sss_cmdline *cmdline,
@@ -1541,7 +1566,6 @@ static int override_user_import(struct sss_cmdline *cmdline,
     struct override_user obj;
     int linenum = 1;
     errno_t ret;
-    int rc;
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
@@ -1567,14 +1591,13 @@ static int override_user_import(struct sss_cmdline *cmdline,
     ret = parse_cmdline_import(cmdline, &filename);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command line.\n");
-        rc = EXIT_FAILURE;
         goto done;
     }
 
     db = sss_colondb_open(tool_ctx, SSS_COLONDB_READ, filename);
     if (db == NULL) {
         fprintf(stderr, _("Unable to open %s.\n"), filename);
-        rc = EXIT_FAILURE;
+        ret = EIO;
         goto done;
     }
 
@@ -1585,19 +1608,16 @@ static int override_user_import(struct sss_cmdline *cmdline,
                                   &obj.orig_name, &obj.domain);
         if (ret != EOK) {
             fprintf(stderr, _("Unable to parse name %s.\n"), obj.input_name);
-            rc = EXIT_FAILURE;
             goto done;
         }
 
         ret = get_user_domain_msg(tool_ctx, &obj);
         if (ret != EOK) {
-            rc = EXIT_FAILURE;
             goto done;
         }
 
         ret = override_user(tool_ctx, &obj);
         if (ret != EOK) {
-            rc = EXIT_FAILURE;
             goto done;
         }
 
@@ -1607,15 +1627,14 @@ static int override_user_import(struct sss_cmdline *cmdline,
     if (ret != EOF) {
         fprintf(stderr, _("Invalid format on line %d. "
                 "Use --debug option for more information.\n"), linenum);
-        rc = EXIT_FAILURE;
         goto done;
     }
 
-    rc = EXIT_SUCCESS;
+    ret = EOK;
 
 done:
     talloc_free(tmp_ctx);
-    return rc;
+    return ret;
 }
 
 static int override_user_export(struct sss_cmdline *cmdline,
@@ -1628,16 +1647,16 @@ static int override_user_export(struct sss_cmdline *cmdline,
     ret = parse_cmdline_export(cmdline, &filename);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command line.\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
     ret = user_export(filename, tool_ctx->domains, true, NULL);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to export users\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
-    return EXIT_SUCCESS;
+    return EOK;
 }
 
 static int override_group_add(struct sss_cmdline *cmdline,
@@ -1645,25 +1664,25 @@ static int override_group_add(struct sss_cmdline *cmdline,
                               void *pvt)
 {
     struct override_group group = {NULL};
-    int ret;
+    errno_t ret;
 
     ret = parse_cmdline_group_add(cmdline, tool_ctx, &group);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command line.\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
     ret = get_group_domain_msg(tool_ctx, &group);
     if (ret != EOK) {
-        return EXIT_FAILURE;
+        return ret;
     }
 
     ret = override_group(tool_ctx, &group);
     if (ret != EOK) {
-        return EXIT_FAILURE;
+        return ret;
     }
 
-    return EXIT_SUCCESS;
+    return EOK;
 }
 
 static int override_group_del(struct sss_cmdline *cmdline,
@@ -1671,27 +1690,27 @@ static int override_group_del(struct sss_cmdline *cmdline,
                               void *pvt)
 {
     struct override_group group = {NULL};
-    int ret;
+    errno_t ret;
 
     ret = parse_cmdline_group_del(cmdline, tool_ctx, &group);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command line.\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
     ret = get_group_domain_msg(tool_ctx, &group);
     if (ret != EOK) {
-        return EXIT_FAILURE;
+        return ret;
     }
 
     ret = override_object_del(group.domain, SYSDB_MEMBER_GROUP,
-                              group.orig_name);
+                              group.sysdb_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to delete override object.\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
-    return EXIT_SUCCESS;
+    return EOK;
 }
 
 static int override_group_find(struct sss_cmdline *cmdline,
@@ -1705,7 +1724,7 @@ static int override_group_find(struct sss_cmdline *cmdline,
     ret = parse_cmdline_find(cmdline, tool_ctx, &dom);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command line.\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
     if (dom == NULL) {
@@ -1718,10 +1737,10 @@ static int override_group_find(struct sss_cmdline *cmdline,
     ret = group_export(NULL, dom, iterate, NULL);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to export groups\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
-    return EXIT_SUCCESS;
+    return EOK;
 }
 
 static int override_group_show(struct sss_cmdline *cmdline,
@@ -1733,12 +1752,12 @@ static int override_group_show(struct sss_cmdline *cmdline,
     const char *dn;
     char *anchor;
     const char *filter;
-    int ret;
+    errno_t ret;
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "talloc_new() failed.\n");
-        return EXIT_FAILURE;
+        return ENOMEM;
     }
 
     ret = parse_cmdline_group_show(cmdline, tool_ctx, &input);
@@ -1754,7 +1773,7 @@ static int override_group_show(struct sss_cmdline *cmdline,
     }
 
     ret = get_object_dn(tmp_ctx, input.domain, SYSDB_MEMBER_GROUP,
-                        input.orig_name, NULL, &dn);
+                        input.sysdb_name, NULL, &dn);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to get object dn\n");
         goto done;
@@ -1790,12 +1809,7 @@ static int override_group_show(struct sss_cmdline *cmdline,
 
 done:
     talloc_free(tmp_ctx);
-
-    if (ret != EOK) {
-        return EXIT_FAILURE;
-    }
-
-    return EXIT_SUCCESS;
+    return ret;
 }
 
 static int override_group_import(struct sss_cmdline *cmdline,
@@ -1808,12 +1822,11 @@ static int override_group_import(struct sss_cmdline *cmdline,
     struct override_group obj;
     int linenum = 1;
     errno_t ret;
-    int rc;
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "talloc_new() failed.\n");
-        return EXIT_FAILURE;
+        return ENOMEM;
     }
 
     /**
@@ -1829,14 +1842,13 @@ static int override_group_import(struct sss_cmdline *cmdline,
     ret = parse_cmdline_import(cmdline, &filename);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command line.\n");
-        rc = EXIT_FAILURE;
         goto done;
     }
 
     db = sss_colondb_open(tool_ctx, SSS_COLONDB_READ, filename);
     if (db == NULL) {
         fprintf(stderr, _("Unable to open %s.\n"), filename);
-        rc = EXIT_FAILURE;
+        ret = EIO;
         goto done;
     }
 
@@ -1847,19 +1859,16 @@ static int override_group_import(struct sss_cmdline *cmdline,
                                   &obj.orig_name, &obj.domain);
         if (ret != EOK) {
             fprintf(stderr, _("Unable to parse name %s.\n"), obj.input_name);
-            rc = EXIT_FAILURE;
             goto done;
         }
 
         ret = get_group_domain_msg(tool_ctx, &obj);
         if (ret != EOK) {
-            rc = EXIT_FAILURE;
             goto done;
         }
 
         ret = override_group(tool_ctx, &obj);
         if (ret != EOK) {
-            rc = EXIT_FAILURE;
             goto done;
         }
 
@@ -1869,15 +1878,14 @@ static int override_group_import(struct sss_cmdline *cmdline,
     if (ret != EOF) {
         fprintf(stderr, _("Invalid format on line %d. "
                 "Use --debug option for more information.\n"), linenum);
-        rc = EXIT_FAILURE;
         goto done;
     }
 
-    rc = EXIT_SUCCESS;
+    ret = EOK;
 
 done:
     talloc_free(tmp_ctx);
-    return rc;
+    return ret;
 }
 
 static int override_group_export(struct sss_cmdline *cmdline,
@@ -1890,34 +1898,34 @@ static int override_group_export(struct sss_cmdline *cmdline,
     ret = parse_cmdline_export(cmdline, &filename);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse command line.\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
     ret = group_export(filename, tool_ctx->domains, true, NULL);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to export groups\n");
-        return EXIT_FAILURE;
+        return ret;
     }
 
-    return EXIT_SUCCESS;
+    return EOK;
 }
 
 int main(int argc, const char **argv)
 {
     struct sss_route_cmd commands[] = {
-        {"user-add", override_user_add},
-        {"user-del", override_user_del},
-        {"user-find", override_user_find},
-        {"user-show", override_user_show},
-        {"user-import", override_user_import},
-        {"user-export", override_user_export},
-        {"group-add", override_group_add},
-        {"group-del", override_group_del},
-        {"group-find", override_group_find},
-        {"group-show", override_group_show},
-        {"group-import", override_group_import},
-        {"group-export", override_group_export},
-        {NULL, NULL}
+        SSS_TOOL_COMMAND_NOMSG("user-add", 0, override_user_add),
+        SSS_TOOL_COMMAND_NOMSG("user-del", 0, override_user_del),
+        SSS_TOOL_COMMAND_NOMSG("user-find", 0, override_user_find),
+        SSS_TOOL_COMMAND_NOMSG("user-show", 0, override_user_show),
+        SSS_TOOL_COMMAND_NOMSG("user-import", 0, override_user_import),
+        SSS_TOOL_COMMAND_NOMSG("user-export", 0, override_user_export),
+        SSS_TOOL_COMMAND_NOMSG("group-add", 0, override_group_add),
+        SSS_TOOL_COMMAND_NOMSG("group-del", 0, override_group_del),
+        SSS_TOOL_COMMAND_NOMSG("group-find", 0, override_group_find),
+        SSS_TOOL_COMMAND_NOMSG("group-show", 0, override_group_show),
+        SSS_TOOL_COMMAND_NOMSG("group-import", 0, override_group_import),
+        SSS_TOOL_COMMAND_NOMSG("group-export", 0, override_group_export),
+        SSS_TOOL_LAST
     };
 
     return sss_tool_main(argc, argv, commands, NULL);

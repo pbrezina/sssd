@@ -739,7 +739,8 @@ static int sdap_save_group(TALLOC_CTX *memctx,
         goto done;
     }
 
-    ret = sdap_save_all_names(group_name, attrs, dom, group_attrs);
+    ret = sdap_save_all_names(group_name, attrs, dom,
+                              SYSDB_MEMBER_GROUP, group_attrs);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Failed to save group names\n");
         goto done;
@@ -1500,6 +1501,7 @@ sdap_process_missing_member_2307(struct sdap_process_group_state *state,
     const char *filter;
     const char *username;
     const char *user_dn;
+    char *sanitized_name;
     size_t count;
     struct ldb_message **msgs = NULL;
     static const char *attrs[] = { SYSDB_NAME, NULL };
@@ -1507,8 +1509,16 @@ sdap_process_missing_member_2307(struct sdap_process_group_state *state,
     tmp_ctx = talloc_new(NULL);
     if (!tmp_ctx) return ENOMEM;
 
+    ret = sss_filter_sanitize(tmp_ctx, member_name, &sanitized_name);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Failed to sanitize the given name:'%s'.\n", member_name);
+        goto done;
+    }
+
     /* Check for the alias in the sysdb */
-    filter = talloc_asprintf(tmp_ctx, "(%s=%s)", SYSDB_NAME_ALIAS, member_name);
+    filter = talloc_asprintf(tmp_ctx, "(%s=%s)", SYSDB_NAME_ALIAS,
+                             sanitized_name);
     if (!filter) {
         ret = ENOMEM;
         goto done;
@@ -1543,7 +1553,7 @@ sdap_process_missing_member_2307(struct sdap_process_group_state *state,
         if (ret != EOK) {
             DEBUG(SSSDBG_OP_FAILURE, "Could not add group member %s\n", username);
         }
-    } else if (ret == ENOENT || count == 0) {
+    } else if (ret == ENOENT) {
         /* The entry really does not exist, add a ghost */
         DEBUG(SSSDBG_TRACE_FUNC, "Adding a ghost entry\n");
         ret = sdap_add_group_member_2307(state->ghost_dns, member_name);
@@ -1565,16 +1575,26 @@ sdap_process_group_members_2307(struct sdap_process_group_state *state,
                                 struct ldb_message_element *ghostel)
 {
     struct ldb_message *msg;
+    char *member_attr_val;
     char *member_name;
     char *userdn;
     int ret;
     int i;
 
     for (i=0; i < memberel->num_values; i++) {
-        member_name = (char *)memberel->values[i].data;
+        member_attr_val = (char *)memberel->values[i].data;
 
         /* We need to skip over zero-length usernames */
-        if (member_name[0] == '\0') continue;
+        if (member_attr_val[0] == '\0') continue;
+
+        /* RFC2307 stores members as plain usernames in the member attribute.
+         * Internally, we use fqdns in the cache..
+         */
+        member_name = sss_create_internal_fqname(state, member_attr_val,
+                                                 state->dom->name);
+        if (member_name == NULL) {
+            return ENOMEM;
+        }
 
         ret = sysdb_search_user_by_name(state, state->dom, member_name,
                                         NULL, &msg);
@@ -1953,7 +1973,7 @@ static void sdap_get_groups_process(struct tevent_req *subreq)
     bool next_base = false;
     size_t count;
     struct sysdb_attrs **groups;
-    char **groupnamelist;
+    char **sysdb_groupnamelist;
 
     ret = sdap_get_and_parse_generic_recv(subreq, state,
                                           &count, &groups);
@@ -2009,10 +2029,10 @@ static void sdap_get_groups_process(struct tevent_req *subreq)
     }
 
     if (state->no_members) {
-        ret = sysdb_attrs_primary_name_list(state->sysdb, state,
+        ret = sysdb_attrs_primary_fqdn_list(state->dom, state,
                                 state->groups, state->count,
                                 state->opts->group_map[SDAP_AT_GROUP_NAME].name,
-                                &groupnamelist);
+                                &sysdb_groupnamelist);
         if (ret != EOK) {
             DEBUG(SSSDBG_OP_FAILURE,
                   "sysdb_attrs_primary_name_list failed.\n");
@@ -2021,7 +2041,7 @@ static void sdap_get_groups_process(struct tevent_req *subreq)
         }
 
         ret = sdap_add_incomplete_groups(state->sysdb, state->dom, state->opts,
-                                         groupnamelist, state->groups,
+                                         sysdb_groupnamelist, state->groups,
                                          state->count);
         if (ret == EOK) {
             DEBUG(SSSDBG_TRACE_LIBS,
@@ -2583,6 +2603,7 @@ static errno_t sdap_nested_group_populate_users(TALLOC_CTX *mem_ctx,
             key.type = HASH_KEY_STRING;
             key.str = talloc_steal(ghosts, discard_const(original_dn));
             value.type = HASH_VALUE_PTR;
+            /* Already qualified from sdap_get_user_primary_name() */
             value.ptr = talloc_steal(ghosts, discard_const(username));
             ret = hash_enter(ghosts, &key, &value);
             if (ret != HASH_SUCCESS) {

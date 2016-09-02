@@ -25,7 +25,7 @@
 #ifndef _IPA_SUBDOMAINS_H_
 #define _IPA_SUBDOMAINS_H_
 
-#include "providers/dp_backend.h"
+#include "providers/backend.h"
 #include "providers/ipa/ipa_common.h"
 #include "config.h"
 
@@ -37,12 +37,10 @@
 #define EXOP_SID2NAME_OID "2.16.840.1.113730.3.8.10.4"
 #define EXOP_SID2NAME_V1_OID "2.16.840.1.113730.3.8.10.4.1"
 
-struct be_ctx *ipa_get_subdomains_be_ctx(struct be_ctx *be_ctx);
-
-int ipa_subdom_init(struct be_ctx *be_ctx,
-                    struct ipa_id_ctx *id_ctx,
-                    struct bet_ops **ops,
-                    void **pvt_data);
+errno_t ipa_subdomains_init(TALLOC_CTX *mem_ctx,
+                            struct be_ctx *be_ctx,
+                            struct ipa_id_ctx *ipa_id_ctx,
+                            struct dp_method *dp_methods);
 
 /* The following are used in server mode only */
 struct ipa_ad_server_ctx {
@@ -132,7 +130,7 @@ struct req_input {
 
 struct tevent_req *ipa_get_ad_memberships_send(TALLOC_CTX *mem_ctx,
                                         struct tevent_context *ev,
-                                        struct be_acct_req *ar,
+                                        struct dp_id_data *ar,
                                         struct ipa_server_mode_ctx *server_mode,
                                         struct sss_domain_info *user_dom,
                                         struct sdap_id_ctx *sdap_id_ctx,

@@ -28,9 +28,9 @@
 #include "providers/ldap/sdap_async.h"
 #include "providers/ipa/ipa_id.h"
 
-static errno_t be_acct_req_to_override_filter(TALLOC_CTX *mem_ctx,
+static errno_t dp_id_data_to_override_filter(TALLOC_CTX *mem_ctx,
                                               struct ipa_options *ipa_opts,
-                                              struct be_acct_req *ar,
+                                              struct dp_id_data *ar,
                                               char **override_filter)
 {
     char *filter;
@@ -38,23 +38,30 @@ static errno_t be_acct_req_to_override_filter(TALLOC_CTX *mem_ctx,
     char *endptr;
     char *cert_filter;
     int ret;
+    char *shortname;
 
     switch (ar->filter_type) {
     case BE_FILTER_NAME:
+        ret = sss_parse_internal_fqname(mem_ctx, ar->filter_value,
+                                        &shortname, NULL);
+        if (ret != EOK) {
+            return ret;
+        }
+
         switch ((ar->entry_type & BE_REQ_TYPE_MASK)) {
         case BE_REQ_USER:
         case BE_REQ_INITGROUPS:
             filter = talloc_asprintf(mem_ctx, "(&(objectClass=%s)(%s=%s))",
                          ipa_opts->override_map[IPA_OC_OVERRIDE_USER].name,
                          ipa_opts->override_map[IPA_AT_OVERRIDE_USER_NAME].name,
-                         ar->filter_value);
+                         shortname);
             break;
 
          case BE_REQ_GROUP:
             filter = talloc_asprintf(mem_ctx, "(&(objectClass=%s)(%s=%s))",
                         ipa_opts->override_map[IPA_OC_OVERRIDE_GROUP].name,
                         ipa_opts->override_map[IPA_AT_OVERRIDE_GROUP_NAME].name,
-                        ar->filter_value);
+                        shortname);
             break;
 
          case BE_REQ_USER_AND_GROUP:
@@ -63,13 +70,15 @@ static errno_t be_acct_req_to_override_filter(TALLOC_CTX *mem_ctx,
                         ipa_opts->override_map[IPA_AT_OVERRIDE_USER_NAME].name,
                         ar->filter_value,
                         ipa_opts->override_map[IPA_AT_OVERRIDE_GROUP_NAME].name,
-                        ar->filter_value);
+                        shortname);
             break;
         default:
             DEBUG(SSSDBG_CRIT_FAILURE, "Unexpected entry type [%d] for name filter.\n",
                                        ar->entry_type);
+            talloc_free(shortname);
             return EINVAL;
         }
+        talloc_free(shortname);
         break;
 
     case BE_FILTER_IDNUM:
@@ -180,14 +189,14 @@ static errno_t be_acct_req_to_override_filter(TALLOC_CTX *mem_ctx,
     return EOK;
 }
 
-static errno_t get_be_acct_req_for_xyz(TALLOC_CTX *mem_ctx, const char *val,
+static errno_t get_dp_id_data_for_xyz(TALLOC_CTX *mem_ctx, const char *val,
                                        const char *domain_name,
                                        int type,
-                                       struct be_acct_req **_ar)
+                                       struct dp_id_data **_ar)
 {
-    struct be_acct_req *ar;
+    struct dp_id_data *ar;
 
-    ar = talloc_zero(mem_ctx, struct be_acct_req);
+    ar = talloc_zero(mem_ctx, struct dp_id_data);
     if (ar == NULL) {
         DEBUG(SSSDBG_OP_FAILURE, "talloc_zero failed.\n");
         return ENOMEM;
@@ -226,28 +235,28 @@ static errno_t get_be_acct_req_for_xyz(TALLOC_CTX *mem_ctx, const char *val,
     return EOK;
 }
 
-errno_t get_be_acct_req_for_sid(TALLOC_CTX *mem_ctx, const char *sid,
+errno_t get_dp_id_data_for_sid(TALLOC_CTX *mem_ctx, const char *sid,
                                 const char *domain_name,
-                                struct be_acct_req **_ar)
+                                struct dp_id_data **_ar)
 {
-    return get_be_acct_req_for_xyz(mem_ctx, sid, domain_name, BE_REQ_BY_SECID,
+    return get_dp_id_data_for_xyz(mem_ctx, sid, domain_name, BE_REQ_BY_SECID,
                                    _ar);
 }
 
-errno_t get_be_acct_req_for_uuid(TALLOC_CTX *mem_ctx, const char *uuid,
+errno_t get_dp_id_data_for_uuid(TALLOC_CTX *mem_ctx, const char *uuid,
                                  const char *domain_name,
-                                 struct be_acct_req **_ar)
+                                 struct dp_id_data **_ar)
 {
-    return get_be_acct_req_for_xyz(mem_ctx, uuid, domain_name, BE_REQ_BY_UUID,
+    return get_dp_id_data_for_xyz(mem_ctx, uuid, domain_name, BE_REQ_BY_UUID,
                                    _ar);
 }
 
-errno_t get_be_acct_req_for_user_name(TALLOC_CTX *mem_ctx,
+errno_t get_dp_id_data_for_user_name(TALLOC_CTX *mem_ctx,
                                       const char *user_name,
                                       const char *domain_name,
-                                      struct be_acct_req **_ar)
+                                      struct dp_id_data **_ar)
 {
-    return get_be_acct_req_for_xyz(mem_ctx, user_name, domain_name, BE_REQ_USER,
+    return get_dp_id_data_for_xyz(mem_ctx, user_name, domain_name, BE_REQ_USER,
                                    _ar);
 }
 
@@ -257,7 +266,7 @@ struct ipa_get_ad_override_state {
     struct ipa_options *ipa_options;
     const char *ipa_realm;
     const char *ipa_view_name;
-    struct be_acct_req *ar;
+    struct dp_id_data *ar;
 
     struct sdap_id_op *sdap_op;
     int dp_error;
@@ -266,6 +275,8 @@ struct ipa_get_ad_override_state {
 };
 
 static void ipa_get_ad_override_connect_done(struct tevent_req *subreq);
+static errno_t ipa_get_ad_override_qualify_name(
+                                struct ipa_get_ad_override_state *state);
 static void ipa_get_ad_override_done(struct tevent_req *subreq);
 
 struct tevent_req *ipa_get_ad_override_send(TALLOC_CTX *mem_ctx,
@@ -274,7 +285,7 @@ struct tevent_req *ipa_get_ad_override_send(TALLOC_CTX *mem_ctx,
                                             struct ipa_options *ipa_options,
                                             const char *ipa_realm,
                                             const char *view_name,
-                                            struct be_acct_req *ar)
+                                            struct dp_id_data *ar)
 {
     int ret;
     struct tevent_req *req;
@@ -380,10 +391,10 @@ static void ipa_get_ad_override_connect_done(struct tevent_req *subreq)
         goto fail;
     }
 
-    ret = be_acct_req_to_override_filter(state, state->ipa_options, state->ar,
+    ret = dp_id_data_to_override_filter(state, state->ipa_options, state->ar,
                                          &state->filter);
     if (ret != EOK) {
-        DEBUG(SSSDBG_OP_FAILURE, "be_acct_req_to_override_filter failed.\n");
+        DEBUG(SSSDBG_OP_FAILURE, "dp_id_data_to_override_filter failed.\n");
         goto fail;
     }
 
@@ -448,8 +459,14 @@ static void ipa_get_ad_override_done(struct tevent_req *subreq)
 
     DEBUG(SSSDBG_TRACE_ALL, "Found override for object with filter [%s].\n",
                             state->filter);
-
     state->override_attrs = reply[0];
+
+    ret = ipa_get_ad_override_qualify_name(state);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, "Cannot qualify object name\n");
+        goto fail;
+    }
+
     state->dp_error = DP_ERR_OK;
     tevent_req_done(req);
     return;
@@ -458,6 +475,33 @@ fail:
     state->dp_error = DP_ERR_FATAL;
     tevent_req_error(req, ret);
     return;
+}
+
+static errno_t ipa_get_ad_override_qualify_name(
+                                struct ipa_get_ad_override_state *state)
+{
+    int ret;
+    struct ldb_message_element *name;
+    char *fqdn;
+
+    ret = sysdb_attrs_get_el_ext(state->override_attrs, SYSDB_NAME,
+                                 false, &name);
+    if (ret == ENOENT) {
+        return EOK; /* Does not override name */
+    } else if (ret != EOK && ret != ENOENT) {
+        return ret;
+    }
+
+    fqdn = sss_create_internal_fqname(name->values,
+                                      (const char *) name->values[0].data,
+                                      state->ar->domain);
+    if (fqdn == NULL) {
+        return ENOMEM;
+    }
+
+    name->values[0].data = (uint8_t *) fqdn;
+    name->values[0].length = strlen(fqdn);
+    return EOK;
 }
 
 errno_t ipa_get_ad_override_recv(struct tevent_req *req, int *dp_error_out,

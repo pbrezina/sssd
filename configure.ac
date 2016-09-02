@@ -126,6 +126,7 @@ WITH_KRB5_CONF
 WITH_PYTHON2_BINDINGS
 WITH_PYTHON3_BINDINGS
 WITH_CIFS_PLUGIN_PATH
+WITH_WINBIND_PLUGIN_PATH
 WITH_SELINUX
 WITH_NSCD
 WITH_IPA_GETKEYTAB
@@ -146,6 +147,9 @@ WITH_NFS
 WITH_NFS_LIB_PATH
 WITH_LIBWBCLIENT
 WITH_SSSD_USER
+SSSD_RUNSTATEDIR
+WITH_SECRETS
+WITH_SECRETS_DB_PATH
 
 m4_include([src/external/pkg.m4])
 m4_include([src/external/libpopt.m4])
@@ -185,6 +189,11 @@ m4_include([src/external/libresolv.m4])
 m4_include([src/external/intgcheck.m4])
 m4_include([src/external/systemtap.m4])
 
+if test x$with_secrets = xyes; then
+    m4_include([src/external/libhttp_parser.m4])
+    m4_include([src/external/libjansson.m4])
+fi
+
 if test x$build_config_lib = xyes; then
     m4_include([src/external/libaugeas.m4])
 fi
@@ -211,6 +220,11 @@ WITH_INITSCRIPT
 if test x$initscript = xsystemd; then
     WITH_SYSTEMD_UNIT_DIR
     WITH_SYSTEMD_CONF_DIR
+else
+    AC_CHECK_PROG(HAVE_SERVICE, service, yes, no)
+    AS_IF([test x$HAVE_SERVICE = xyes],
+          [AC_DEFINE(HAVE_SERVICE, 1,
+                     [Whether the service command is available])])
 fi
 
 PKG_CHECK_MODULES([DBUS],[dbus-1])
@@ -342,10 +356,6 @@ fi
 
 if test x$HAVE_SEMANAGE != x -a x$HAVE_SELINUX != x; then
     AM_CHECK_SEMANAGE
-fi
-
-if test x$HAVE_SYSTEMD_UNIT != x; then
-    AM_CHECK_SYSTEMD
 fi
 
 dnl If journald was selected for logging, configure journald

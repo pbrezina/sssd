@@ -28,7 +28,7 @@
 #include "providers/ldap/sdap_async_ad.h"
 
 static errno_t find_user_entry(TALLOC_CTX *mem_ctx, struct sss_domain_info *dom,
-                               struct be_acct_req *ar,
+                               struct dp_id_data *ar,
                                struct ldb_message **_msg)
 {
     const char *user_attrs[] = { SYSDB_NAME, SYSDB_OBJECTCLASS,
@@ -36,7 +36,6 @@ static errno_t find_user_entry(TALLOC_CTX *mem_ctx, struct sss_domain_info *dom,
                                  NULL };
     struct ldb_message *msg;
     struct ldb_result *res;
-    char *user_name;
     int ret;
     TALLOC_CTX *tmp_ctx = NULL;
 
@@ -77,16 +76,8 @@ static errno_t find_user_entry(TALLOC_CTX *mem_ctx, struct sss_domain_info *dom,
             }
             break;
         case BE_FILTER_NAME:
-
-            user_name = sss_get_domain_name(tmp_ctx, ar->filter_value, dom);
-            if (user_name == NULL) {
-                DEBUG(SSSDBG_OP_FAILURE, "sss_get_domain_name failed.\n");
-                ret = EINVAL;
-                goto done;
-            } else {
-                ret = sysdb_search_user_by_name(tmp_ctx, dom, user_name,
-                                                user_attrs, &msg);
-            }
+            ret = sysdb_search_user_by_name(tmp_ctx, dom, ar->filter_value,
+                                            user_attrs, &msg);
             break;
         default:
             DEBUG(SSSDBG_OP_FAILURE, "Unsupported filter type [%d].\n",
@@ -118,7 +109,7 @@ done:
 
 errno_t check_if_pac_is_available(TALLOC_CTX *mem_ctx,
                                   struct sss_domain_info *dom,
-                                  struct be_acct_req *ar,
+                                  struct dp_id_data *ar,
                                   struct ldb_message **_msg)
 {
     struct ldb_message *msg;
@@ -439,7 +430,7 @@ done:
 }
 
 struct ad_handle_pac_initgr_state {
-    struct be_acct_req *ar;
+    struct dp_id_data *ar;
     const char *err;
     int dp_error;
     int sdap_ret;
@@ -456,7 +447,7 @@ static void ad_handle_pac_initgr_lookup_sids_done(struct tevent_req *subreq);
 
 struct tevent_req *ad_handle_pac_initgr_send(TALLOC_CTX *mem_ctx,
                                              struct be_ctx *be_ctx,
-                                             struct be_acct_req *ar,
+                                             struct dp_id_data *ar,
                                              struct sdap_id_ctx *id_ctx,
                                              struct sdap_domain *sdom,
                                              struct sdap_id_conn_ctx *conn,

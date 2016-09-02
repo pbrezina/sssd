@@ -55,6 +55,95 @@ struct dom_list_test_ctx {
     struct sss_domain_info *dom_list;
 };
 
+static int setup_dom_list_with_subdomains(void **state)
+{
+    struct dom_list_test_ctx *test_ctx;
+    struct sss_domain_info *dom = NULL;
+    struct sss_domain_info *c = NULL;
+
+    assert_true(leak_check_setup());
+
+    test_ctx = talloc_zero(global_talloc_context, struct dom_list_test_ctx);
+    assert_non_null(test_ctx);
+
+    dom = talloc_zero(test_ctx, struct sss_domain_info);
+    assert_non_null(dom);
+
+    dom->name = talloc_asprintf(dom, "configured.dom");
+    assert_non_null(dom->name);
+
+    dom->realm = talloc_asprintf(dom, "CONFIGURED.DOM");
+    assert_non_null(dom->realm);
+
+    dom->flat_name = talloc_asprintf(dom, "CONFIGURED");
+    assert_non_null(dom->flat_name);
+
+    dom->domain_id = talloc_asprintf(dom, "S-1-5-21-1-2-1");
+    assert_non_null(dom->domain_id);
+
+    DLIST_ADD(test_ctx->dom_list, dom);
+
+    c = talloc_zero(test_ctx, struct sss_domain_info);
+    assert_non_null(c);
+
+    c->name = talloc_asprintf(c, "subdom1.dom");
+    assert_non_null(c->name);
+
+    c->realm = talloc_asprintf(c, "SUBDOM1.DOM");
+    assert_non_null(c->realm);
+
+    c->flat_name = talloc_asprintf(c, "subdom1");
+    assert_non_null(c->flat_name);
+
+    c->domain_id = talloc_asprintf(c, "S-1-5-21-1-2-2");
+    assert_non_null(c->domain_id);
+
+    c->parent = dom;
+
+    DLIST_ADD_END(test_ctx->dom_list, c, struct sss_domain_info *);
+
+    c = talloc_zero(test_ctx, struct sss_domain_info);
+    assert_non_null(c);
+
+    c->name = talloc_asprintf(c, "subdom2.dom");
+    assert_non_null(c->name);
+
+    c->realm = talloc_asprintf(c, "SUBDOM2.DOM");
+    assert_non_null(c->realm);
+
+    c->flat_name = talloc_asprintf(c, "subdom2");
+    assert_non_null(c->flat_name);
+
+    c->domain_id = talloc_asprintf(c, "S-1-5-21-1-2-3");
+    assert_non_null(c->domain_id);
+
+    c->parent = dom;
+
+    DLIST_ADD_END(test_ctx->dom_list, c, struct sss_domain_info *);
+
+    c = talloc_zero(test_ctx, struct sss_domain_info);
+    assert_non_null(c);
+
+    c->name = talloc_asprintf(c, "subdom3.dom");
+    assert_non_null(c->name);
+
+    c->realm = talloc_asprintf(c, "SUBDOM3.DOM");
+    assert_non_null(c->realm);
+
+    c->flat_name = talloc_asprintf(c, "subdom3");
+    assert_non_null(c->flat_name);
+
+    c->domain_id = talloc_asprintf(c, "S-1-5-21-1-2-4");
+    assert_non_null(c->domain_id);
+
+    c->parent = dom;
+
+    DLIST_ADD_END(test_ctx->dom_list, c, struct sss_domain_info *);
+
+    check_leaks_push(test_ctx);
+    *state = test_ctx;
+    return 0;
+}
 
 static int setup_dom_list(void **state)
 {
@@ -963,7 +1052,7 @@ void check_expanded_value(TALLOC_CTX *tmp_ctx,
 {
     char *homedir;
 
-    homedir = expand_homedir_template(tmp_ctx, template, homedir_ctx);
+    homedir = expand_homedir_template(tmp_ctx, template, false, homedir_ctx);
     if (exp_val != NULL) {
         assert_string_equal(homedir, exp_val);
     } else {
@@ -983,7 +1072,13 @@ static int setup_homedir_ctx(void **state)
                              struct sss_nss_homedir_ctx);
     assert_non_null(homedir_ctx);
 
-    homedir_ctx->username = USERNAME;
+    homedir_ctx->username = sss_create_internal_fqname(homedir_ctx,
+                                                       USERNAME, DOMAIN);
+    if (homedir_ctx->username == NULL) {
+        talloc_free(homedir_ctx);
+        return 1;
+    }
+
     homedir_ctx->uid = UID;
     homedir_ctx->original = ORIGINAL_HOME;
     homedir_ctx->domain = DOMAIN;
@@ -1027,10 +1122,10 @@ void test_expand_homedir_template_NULL(void **state)
     homedir_ctx = talloc_zero(tmp_ctx, struct sss_nss_homedir_ctx);
     assert_non_null(homedir_ctx);
 
-    homedir = expand_homedir_template(tmp_ctx, NULL, NULL);
+    homedir = expand_homedir_template(tmp_ctx, NULL, false, NULL);
     assert_null(homedir);
 
-    homedir = expand_homedir_template(tmp_ctx, "template", NULL);
+    homedir = expand_homedir_template(tmp_ctx, "template", false, NULL);
     assert_null(homedir);
 
     /* missing data in homedir_ctx */
@@ -1131,14 +1226,14 @@ void test_expand_homedir_template(void **state)
     talloc_free(tmp_ctx);
 }
 
-static int setup_add_strings_lists(void **state)
+static int setup_leak_tests(void **state)
 {
     assert_true(leak_check_setup());
 
     return 0;
 }
 
-static int teardown_add_strings_lists(void **state)
+static int teardown_leak_tests(void **state)
 {
     assert_true(leak_check_teardown());
     return 0;
@@ -1246,17 +1341,18 @@ void test_sss_write_krb5_conf_snippet(void **state)
     char *cwd;
     char *path;
     char *file;
+    char *file_krb5_libdefaults;
 
-    ret = sss_write_krb5_conf_snippet(NULL);
+    ret = sss_write_krb5_conf_snippet(NULL, false);
     assert_int_equal(ret, EINVAL);
 
-    ret = sss_write_krb5_conf_snippet("abc");
+    ret = sss_write_krb5_conf_snippet("abc", false);
     assert_int_equal(ret, EINVAL);
 
-    ret = sss_write_krb5_conf_snippet("");
+    ret = sss_write_krb5_conf_snippet("", false);
     assert_int_equal(ret, EOK);
 
-    ret = sss_write_krb5_conf_snippet("none");
+    ret = sss_write_krb5_conf_snippet("none", false);
     assert_int_equal(ret, EOK);
 
     cwd = getcwd(buf, PATH_MAX);
@@ -1268,11 +1364,15 @@ void test_sss_write_krb5_conf_snippet(void **state)
     ret = asprintf(&file, "%s/%s/localauth_plugin", cwd, TESTS_PATH);
     assert_true(ret > 0);
 
-    ret = sss_write_krb5_conf_snippet(path);
+    ret = asprintf(&file_krb5_libdefaults,
+                   "%s/%s/krb5_libdefaults", cwd, TESTS_PATH);
+    assert_true(ret > 0);
+
+    ret = sss_write_krb5_conf_snippet(path, true);
     assert_int_equal(ret, EOK);
 
     /* Check if writing a second time will work as well */
-    ret = sss_write_krb5_conf_snippet(path);
+    ret = sss_write_krb5_conf_snippet(path, true);
     assert_int_equal(ret, EOK);
 
 #ifdef HAVE_KRB5_LOCALAUTH_PLUGIN
@@ -1280,52 +1380,14 @@ void test_sss_write_krb5_conf_snippet(void **state)
     assert_int_equal(ret, EOK);
 #endif
 
+    ret = unlink(file_krb5_libdefaults);
+    assert_int_equal(ret, EOK);
+
     free(file);
+    free(file_krb5_libdefaults);
     free(path);
 }
 
-
-void test_fix_domain_in_name_list(void **state)
-{
-    struct name_init_test_ctx *test_ctx;
-
-    int ret;
-    struct sss_domain_info *sd;
-    struct sss_domain_info *dom;
-    const char *in[] = { "abc@test.case.dom", "def@TEST.case.DOM", NULL};
-    char **out = NULL;
-
-    test_ctx = talloc_get_type(*state, struct name_init_test_ctx);
-    assert_non_null(test_ctx);
-
-    ret = confdb_get_domains(test_ctx->confdb, &dom);
-    assert_int_equal(ret, EOK);
-
-    ret = sss_names_init(dom, test_ctx->confdb, NULL, &dom->names);
-    assert_int_equal(ret, EOK);
-
-    sd = talloc_zero(test_ctx, struct sss_domain_info);
-    assert_non_null(sd);
-    sd->name = talloc_strdup(sd, "TesT.CasE.DoM");
-    assert_non_null(sd->name);
-    sd->names = dom->names;
-    sd->fqnames = true;
-    DLIST_ADD(dom->subdomains, sd);
-    sd->parent = dom;
-
-    ret = fix_domain_in_name_list(test_ctx, dom, discard_const(in), &out);
-    assert_int_equal(ret, EOK);
-    assert_non_null(out);
-    assert_non_null(out[0]);
-    assert_string_equal(out[0], "abc@TesT.CasE.DoM");
-    assert_non_null(out[1]);
-    assert_string_equal(out[1], "def@TesT.CasE.DoM");
-    assert_null(out[2]);
-
-    talloc_free(out);
-    talloc_free(sd);
-    talloc_free(dom);
-}
 
 struct unique_file_test_ctx {
     char *filename;
@@ -1564,6 +1626,241 @@ static void test_parse_cert_verify_opts(void **state)
     talloc_free(cv_opts);
 }
 
+static void assert_parse_fqname(const char *fqname,
+                                const char *exp_shortname,
+                                const char *exp_domname)
+{
+    errno_t ret;
+    char *shortname = NULL;
+    char *domname = NULL;
+
+    check_leaks_push(global_talloc_context);
+
+    ret = sss_parse_internal_fqname(global_talloc_context, fqname,
+                                    exp_shortname ? &shortname : NULL,
+                                    exp_domname ? &domname : NULL);
+    assert_int_equal(ret, EOK);
+
+    if (exp_shortname) {
+        assert_string_equal(shortname, exp_shortname);
+    }
+    if (exp_domname) {
+        assert_string_equal(domname, exp_domname);
+    }
+
+    talloc_free(shortname);
+    talloc_free(domname);
+
+    assert_true(check_leaks_pop(global_talloc_context) == true);
+}
+
+static void assert_fqname_unparseable(const char *fqname, errno_t retval)
+{
+    errno_t ret;
+    char *shortname = NULL;
+    char *domname = NULL;
+
+    check_leaks_push(global_talloc_context);
+
+    ret = sss_parse_internal_fqname(global_talloc_context, fqname,
+                                    &shortname, &domname);
+    assert_int_equal(ret, retval);
+    assert_null(shortname);
+    assert_null(domname);
+
+    assert_true(check_leaks_pop(global_talloc_context) == true);
+}
+
+static void test_sss_parse_internal_fqname(void **state)
+{
+    assert_parse_fqname("foo@bar", "foo", "bar");
+    assert_parse_fqname("foo@bar", NULL, "bar");
+    assert_parse_fqname("foo@bar", "foo", NULL);
+    assert_parse_fqname("foo@bar", NULL, NULL);
+    assert_parse_fqname("foo@bar@baz", "foo@bar", "baz");
+
+    assert_fqname_unparseable("foo", ERR_WRONG_NAME_FORMAT);
+    assert_fqname_unparseable("foo@", ERR_WRONG_NAME_FORMAT);
+    assert_fqname_unparseable("@", ERR_WRONG_NAME_FORMAT);
+    assert_fqname_unparseable("@bar", ERR_WRONG_NAME_FORMAT);
+    assert_fqname_unparseable(NULL, EINVAL);
+}
+
+static void test_sss_create_internal_fqname(void **state)
+{
+    char *fqname = NULL;
+
+    check_leaks_push(global_talloc_context);
+
+    fqname = sss_create_internal_fqname(global_talloc_context, "foo", "bar");
+    assert_string_equal(fqname, "foo@bar");
+    talloc_zfree(fqname);
+
+    fqname = sss_create_internal_fqname(global_talloc_context, "foo", "BAR");
+    assert_string_equal(fqname, "foo@bar");
+    talloc_zfree(fqname);
+
+    fqname = sss_create_internal_fqname(global_talloc_context, "foo", NULL);
+    assert_null(fqname);
+
+    fqname = sss_create_internal_fqname(global_talloc_context, NULL, "bar");
+    assert_null(fqname);
+
+    fqname = sss_create_internal_fqname(global_talloc_context, NULL, NULL);
+    assert_null(fqname);
+
+    assert_true(check_leaks_pop(global_talloc_context) == true);
+}
+
+static void test_sss_create_internal_fqname_list(void **state)
+{
+    char **fqlist = NULL;
+    const char *in_list1[] = { "aaa", "bbb", NULL };
+
+    check_leaks_push(global_talloc_context);
+
+    fqlist = sss_create_internal_fqname_list(global_talloc_context,
+                                             in_list1, "DOM");
+    assert_string_equal(fqlist[0], "aaa@dom");
+    assert_string_equal(fqlist[1], "bbb@dom");
+    assert_null(fqlist[2]);
+    talloc_zfree(fqlist);
+
+    fqlist = sss_create_internal_fqname_list(global_talloc_context,
+                                             in_list1, NULL);
+    assert_null(fqlist);
+
+    fqlist = sss_create_internal_fqname_list(global_talloc_context,
+                                             NULL, "DOM");
+    assert_null(fqlist);
+
+    fqlist = sss_create_internal_fqname_list(global_talloc_context,
+                                             NULL, NULL);
+    assert_null(fqlist);
+
+    assert_true(check_leaks_pop(global_talloc_context) == true);
+}
+
+static void test_sss_output_name(void **state)
+{
+    char *outname;
+    char *fqname;
+
+    check_leaks_push(global_talloc_context);
+
+    fqname = sss_create_internal_fqname(global_talloc_context,
+                                        "Foo Bar", "DOM");
+    assert_non_null(fqname);
+
+    outname = sss_output_name(global_talloc_context, fqname, true, 0);
+    assert_non_null(outname);
+    assert_string_equal(outname, "Foo Bar");
+    talloc_zfree(outname);
+
+    outname = sss_output_name(global_talloc_context, fqname, false, 0);
+    assert_non_null(outname);
+    assert_string_equal(outname, "foo bar");
+    talloc_zfree(outname);
+
+    outname = sss_output_name(global_talloc_context, fqname, false, '-');
+    assert_non_null(outname);
+    assert_string_equal(outname, "foo-bar");
+    talloc_zfree(outname);
+
+    talloc_free(fqname);
+    assert_true(check_leaks_pop(global_talloc_context) == true);
+}
+
+static void test_sss_get_domain_mappings_content(void **state)
+{
+    struct dom_list_test_ctx *test_ctx;
+    int ret;
+    struct sss_domain_info *dom;
+    char *content;
+    struct sss_domain_info *c;
+
+    ret = sss_get_domain_mappings_content(NULL, NULL, NULL);
+    assert_int_equal(ret, EINVAL);
+
+    test_ctx = talloc_get_type(*state, struct dom_list_test_ctx);
+    assert_non_null(test_ctx);
+
+    dom = get_domains_head(test_ctx->dom_list);
+    assert_non_null(dom);
+
+    /* no forest */
+    ret = sss_get_domain_mappings_content(test_ctx, dom, &content);
+    assert_int_equal(ret, EOK);
+    assert_string_equal(content,
+                        "[domain_realm]\n"
+                        ".subdom1.dom = SUBDOM1.DOM\n"
+                        "subdom1.dom = SUBDOM1.DOM\n"
+                        ".subdom2.dom = SUBDOM2.DOM\n"
+                        "subdom2.dom = SUBDOM2.DOM\n"
+                        ".subdom3.dom = SUBDOM3.DOM\n"
+                        "subdom3.dom = SUBDOM3.DOM\n");
+    talloc_free(content);
+
+    /* IPA with forest */
+    c = find_domain_by_name(dom, "subdom2.dom", true);
+    assert_non_null(c);
+    c->forest_root = find_domain_by_name(dom, "subdom1.dom", true);
+    assert_non_null(c->forest_root);
+    c->forest = discard_const_p(char, "subdom1.dom");
+
+    c = find_domain_by_name(dom, "subdom3.dom", true);
+    assert_non_null(c);
+    c->forest_root = find_domain_by_name(dom, "subdom1.dom", true);
+    assert_non_null(c->forest_root);
+    c->forest = discard_const_p(char, "subdom1.dom");
+
+    ret = sss_get_domain_mappings_content(test_ctx, dom, &content);
+    assert_int_equal(ret, EOK);
+    assert_string_equal(content,
+                        "[domain_realm]\n"
+                        ".subdom1.dom = SUBDOM1.DOM\n"
+                        "subdom1.dom = SUBDOM1.DOM\n"
+                        ".subdom2.dom = SUBDOM2.DOM\n"
+                        "subdom2.dom = SUBDOM2.DOM\n"
+                        ".subdom3.dom = SUBDOM3.DOM\n"
+                        "subdom3.dom = SUBDOM3.DOM\n"
+                        "[capaths]\n"
+                        "SUBDOM2.DOM = {\n"
+                        "  CONFIGURED.DOM = SUBDOM1.DOM\n"
+                        "}\n"
+                        "SUBDOM3.DOM = {\n"
+                        "  CONFIGURED.DOM = SUBDOM1.DOM\n"
+                        "}\n"
+                        "CONFIGURED.DOM = {\n"
+                        "  SUBDOM2.DOM = SUBDOM1.DOM\n"
+                        "  SUBDOM3.DOM = SUBDOM1.DOM\n"
+                        "}\n");
+    talloc_free(content);
+
+    /* Next steps, test AD domain setup. If we join a child domain we have a
+     * similar case as with IPA but if we join the forest root the generate
+     * capaths might not be as expected. */
+}
+
+static void test_is_email_from_domain(void **state)
+{
+    struct dom_list_test_ctx *test_ctx = talloc_get_type(*state,
+                                                      struct dom_list_test_ctx);
+    struct sss_domain_info *d;
+
+    d = find_domain_by_name(test_ctx->dom_list, "name_0.dom", false);
+    assert_non_null(d);
+
+    assert_false(is_email_from_domain(NULL, NULL));
+    assert_false(is_email_from_domain("hello", NULL));
+    assert_false(is_email_from_domain(NULL, d));
+    assert_false(is_email_from_domain("hello", d));
+    assert_false(is_email_from_domain("hello@hello", d));
+
+    assert_true(is_email_from_domain("hello@name_0.dom", d));
+    assert_true(is_email_from_domain("hello@NaMe_0.DoM", d));
+}
+
 int main(int argc, const char *argv[])
 {
     poptContext pc;
@@ -1591,6 +1888,8 @@ int main(int argc, const char *argv[])
         cmocka_unit_test_setup_teardown(test_find_domain_by_name_missing_flat_name,
                                         setup_dom_list, teardown_dom_list),
         cmocka_unit_test_setup_teardown(test_find_domain_by_name_disabled,
+                                        setup_dom_list, teardown_dom_list),
+        cmocka_unit_test_setup_teardown(test_is_email_from_domain,
                                         setup_dom_list, teardown_dom_list),
 
         cmocka_unit_test_setup_teardown(test_sss_names_init,
@@ -1624,12 +1923,9 @@ int main(int argc, const char *argv[])
         cmocka_unit_test(test_get_last_x_chars),
         cmocka_unit_test(test_concatenate_string_array),
         cmocka_unit_test_setup_teardown(test_add_strings_lists,
-                                        setup_add_strings_lists,
-                                        teardown_add_strings_lists),
+                                        setup_leak_tests,
+                                        teardown_leak_tests),
         cmocka_unit_test(test_sss_write_krb5_conf_snippet),
-        cmocka_unit_test_setup_teardown(test_fix_domain_in_name_list,
-                                        confdb_test_setup,
-                                        confdb_test_teardown),
         cmocka_unit_test_setup_teardown(test_sss_unique_file,
                                         unique_file_test_setup,
                                         unique_file_test_teardown),
@@ -1644,8 +1940,23 @@ int main(int argc, const char *argv[])
                                         unique_file_test_setup,
                                         unique_file_test_teardown),
         cmocka_unit_test_setup_teardown(test_parse_cert_verify_opts,
-                                        setup_add_strings_lists,
-                                        teardown_add_strings_lists),
+                                        setup_leak_tests,
+                                        teardown_leak_tests),
+        cmocka_unit_test_setup_teardown(test_sss_parse_internal_fqname,
+                                        setup_leak_tests,
+                                        teardown_leak_tests),
+        cmocka_unit_test_setup_teardown(test_sss_create_internal_fqname,
+                                        setup_leak_tests,
+                                        teardown_leak_tests),
+        cmocka_unit_test_setup_teardown(test_sss_create_internal_fqname_list,
+                                        setup_leak_tests,
+                                        teardown_leak_tests),
+        cmocka_unit_test_setup_teardown(test_sss_output_name,
+                                        setup_leak_tests,
+                                        teardown_leak_tests),
+        cmocka_unit_test_setup_teardown(test_sss_get_domain_mappings_content,
+                                        setup_dom_list_with_subdomains,
+                                        teardown_dom_list),
     };
 
     /* Set debug level to invalid value so we can deside if -d 0 was used. */

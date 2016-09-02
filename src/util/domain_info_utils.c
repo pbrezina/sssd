@@ -187,8 +187,8 @@ find_domain_by_object_name(struct sss_domain_info *domain,
         return NULL;
     }
 
-    ret = sss_parse_name(tmp_ctx, domain->names, object_name,
-                         &domainname, NULL);
+    ret = sss_parse_internal_fqname(tmp_ctx, object_name,
+                                    NULL, &domainname);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse name '%s' [%d]: %s\n",
                                     object_name, ret, sss_strerror(ret));
@@ -262,11 +262,135 @@ sss_krb5_touch_config(void)
     return EOK;
 }
 
+errno_t sss_get_domain_mappings_content(TALLOC_CTX *mem_ctx,
+                                        struct sss_domain_info *domain,
+                                        char **content)
+{
+    int ret;
+    char *o = NULL;
+    struct sss_domain_info *dom;
+    struct sss_domain_info *parent_dom;
+    char *uc_parent = NULL;
+    char *uc_forest = NULL;
+    char *parent_capaths = NULL;
+    bool capaths_started = false;
+
+    if (domain == NULL || content == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Missing parameter.\n");
+        return EINVAL;
+    }
+
+    o = talloc_strdup(mem_ctx, "[domain_realm]\n");
+    if (o == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "talloc_strdup failed.\n");
+        ret = ENOMEM;
+        goto done;
+    }
+
+    /* This loops skips the starting parent and start rigth with the first
+     * subdomain. Although in all the interesting cases (AD and IPA) the
+     * default is that realm and DNS domain are the same strings (expect case)
+     * and no domain_realm mapping is needed we might consider to add this
+     * domain here as well to cover corner cases? */
+    for (dom = get_next_domain(domain, SSS_GND_DESCEND);
+                dom && IS_SUBDOMAIN(dom); /* if we get back to a parent, stop */
+                dom = get_next_domain(dom, 0)) {
+        o = talloc_asprintf_append(o, ".%s = %s\n%s = %s\n",
+                               dom->name, dom->realm, dom->name, dom->realm);
+        if (o == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf_append failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+    }
+
+    parent_dom = domain;
+    uc_parent = get_uppercase_realm(mem_ctx, parent_dom->name);
+    if (uc_parent == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "get_uppercase_realm failed.\n");
+        ret = ENOMEM;
+        goto done;
+    }
+
+    for (dom = get_next_domain(domain, SSS_GND_DESCEND);
+            dom && IS_SUBDOMAIN(dom); /* if we get back to a parent, stop */
+            dom = get_next_domain(dom, 0)) {
+
+        if (dom->forest == NULL) {
+            continue;
+        }
+
+        talloc_free(uc_forest);
+        uc_forest = get_uppercase_realm(mem_ctx, dom->forest);
+        if (uc_forest == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "get_uppercase_realm failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+
+        if (!capaths_started) {
+            o = talloc_asprintf_append(o, "[capaths]\n");
+            if (o == NULL) {
+                DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf_append failed.\n");
+                ret = ENOMEM;
+                goto done;
+            }
+            capaths_started = true;
+        }
+
+        o = talloc_asprintf_append(o, "%s = {\n  %s = %s\n}\n",
+                                   dom->realm, uc_parent, uc_forest);
+        if (o == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf_append failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+
+        if (parent_capaths == NULL) {
+            parent_capaths = talloc_asprintf(mem_ctx, "  %s = %s\n", dom->realm,
+                                                                     uc_forest);
+        } else {
+            parent_capaths = talloc_asprintf_append(parent_capaths,
+                                                    "  %s = %s\n", dom->realm,
+                                                    uc_forest);
+        }
+        if (parent_capaths == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "talloc_asprintf/talloc_asprintf_append failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+    }
+
+    if (parent_capaths != NULL) {
+        o = talloc_asprintf_append(o, "%s = {\n%s}\n", uc_parent,
+                                                       parent_capaths);
+        if (o == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf_append failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+    }
+
+    ret = EOK;
+
+done:
+    talloc_free(parent_capaths);
+    talloc_free(uc_parent);
+    talloc_free(uc_forest);
+
+    if (ret == EOK) {
+        *content = o;
+    } else {
+        talloc_free(o);
+    }
+
+    return ret;
+}
+
 errno_t
 sss_write_domain_mappings(struct sss_domain_info *domain)
 {
-    struct sss_domain_info *dom;
-    struct sss_domain_info *parent_dom;
     errno_t ret;
     errno_t err;
     TALLOC_CTX *tmp_ctx;
@@ -277,9 +401,7 @@ sss_write_domain_mappings(struct sss_domain_info *domain)
     mode_t old_mode;
     FILE *fstream = NULL;
     int i;
-    bool capaths_started = false;
-    char *uc_forest;
-    char *uc_parent;
+    char *content = NULL;
 
     if (domain == NULL || domain->name == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "No domain name provided\n");
@@ -288,6 +410,12 @@ sss_write_domain_mappings(struct sss_domain_info *domain)
 
     tmp_ctx = talloc_new(NULL);
     if (!tmp_ctx) return ENOMEM;
+
+    ret = sss_get_domain_mappings_content(tmp_ctx, domain, &content);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, "sss_get_domain_mappings_content failed.\n");
+        goto done;
+    }
 
     sanitized_domain = talloc_strdup(tmp_ctx, domain->name);
     if (sanitized_domain == NULL) {
@@ -348,64 +476,11 @@ sss_write_domain_mappings(struct sss_domain_info *domain)
         goto done;
     }
 
-    ret = fprintf(fstream, "[domain_realm]\n");
+    ret = fprintf(fstream, "%s", content);
     if (ret < 0) {
         DEBUG(SSSDBG_OP_FAILURE, "fprintf failed\n");
         ret = EIO;
         goto done;
-    }
-
-    for (dom = get_next_domain(domain, SSS_GND_DESCEND);
-         dom && IS_SUBDOMAIN(dom); /* if we get back to a parent, stop */
-         dom = get_next_domain(dom, 0)) {
-        ret = fprintf(fstream, ".%s = %s\n%s = %s\n",
-                               dom->name, dom->realm, dom->name, dom->realm);
-        if (ret < 0) {
-            DEBUG(SSSDBG_CRIT_FAILURE, "fprintf failed\n");
-            goto done;
-        }
-    }
-
-    parent_dom = domain;
-    uc_parent = get_uppercase_realm(tmp_ctx, parent_dom->name);
-    if (uc_parent == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE, "get_uppercase_realm failed.\n");
-        ret = ENOMEM;
-        goto done;
-    }
-
-    for (dom = get_next_domain(domain, SSS_GND_DESCEND);
-            dom && IS_SUBDOMAIN(dom); /* if we get back to a parent, stop */
-            dom = get_next_domain(dom, 0)) {
-
-        if (dom->forest == NULL) {
-            continue;
-        }
-
-        uc_forest = get_uppercase_realm(tmp_ctx, dom->forest);
-        if (uc_forest == NULL) {
-            DEBUG(SSSDBG_OP_FAILURE, "get_uppercase_realm failed.\n");
-            ret = ENOMEM;
-            goto done;
-        }
-
-        if (!capaths_started) {
-            ret = fprintf(fstream, "[capaths]\n");
-            if (ret < 0) {
-                DEBUG(SSSDBG_OP_FAILURE, "fprintf failed\n");
-                ret = EIO;
-                goto done;
-            }
-            capaths_started = true;
-        }
-
-        ret = fprintf(fstream, "%s = {\n  %s = %s\n}\n%s = {\n  %s = %s\n}\n",
-                                dom->realm, uc_parent, uc_forest,
-                                uc_parent, dom->realm, uc_forest);
-        if (ret < 0) {
-            DEBUG(SSSDBG_CRIT_FAILURE, "fprintf failed\n");
-            goto done;
-        }
     }
 
     ret = fclose(fstream);
@@ -527,21 +602,13 @@ done:
     return ret;
 }
 
-#define LOCALAUTH_PLUGIN_CONFIG \
-"[plugins]\n" \
-" localauth = {\n" \
-"  module = sssd:"APP_MODULES_PATH"/sssd_krb5_localauth_plugin.so\n" \
-"  enable_only = sssd\n" \
-" }"
-
-static errno_t sss_write_krb5_localauth_snippet(const char *path)
+static errno_t sss_write_krb5_snippet_common(const char *file_name,
+                                             const char *content)
 {
-#ifdef HAVE_KRB5_LOCALAUTH_PLUGIN
     int ret;
     errno_t err;
     TALLOC_CTX *tmp_ctx = NULL;
     char *tmp_file = NULL;
-    const char *file_name;
     int fd = -1;
     mode_t old_mode;
     ssize_t written;
@@ -552,16 +619,6 @@ static errno_t sss_write_krb5_localauth_snippet(const char *path)
         DEBUG(SSSDBG_OP_FAILURE, "talloc_new failed.\n");
         return ENOMEM;
     }
-
-    file_name = talloc_asprintf(tmp_ctx, "%s/localauth_plugin", path);
-    if (file_name == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
-        ret = ENOMEM;
-        goto done;
-    }
-
-    DEBUG(SSSDBG_FUNC_DATA, "File for localauth plugin configuration is [%s]\n",
-                             file_name);
 
     tmp_file = talloc_asprintf(tmp_ctx, "%sXXXXXX", file_name);
     if (tmp_file == NULL) {
@@ -575,15 +632,14 @@ static errno_t sss_write_krb5_localauth_snippet(const char *path)
     umask(old_mode);
     if (fd < 0) {
         DEBUG(SSSDBG_OP_FAILURE, "creating the temp file [%s] for "
-                                 "domain-realm mappings failed.\n", tmp_file);
+                                 "krb5 config snippet failed.\n", tmp_file);
         ret = EIO;
         talloc_zfree(tmp_ctx);
         goto done;
     }
 
-    size = sizeof(LOCALAUTH_PLUGIN_CONFIG) -1;
-    written = sss_atomic_write_s(fd, discard_const(LOCALAUTH_PLUGIN_CONFIG),
-                                 size);
+    size = strlen(content);
+    written = sss_atomic_write_s(fd, discard_const(content), size);
     close(fd);
     if (written == -1) {
         ret = errno;
@@ -629,13 +685,93 @@ done:
 
     talloc_free(tmp_ctx);
     return ret;
+}
+
+#define LOCALAUTH_PLUGIN_CONFIG \
+"[plugins]\n" \
+" localauth = {\n" \
+"  module = sssd:"APP_MODULES_PATH"/sssd_krb5_localauth_plugin.so\n" \
+" }\n"
+
+static errno_t sss_write_krb5_localauth_snippet(const char *path)
+{
+#ifdef HAVE_KRB5_LOCALAUTH_PLUGIN
+    int ret;
+    TALLOC_CTX *tmp_ctx = NULL;
+    const char *file_name;
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "talloc_new failed.\n");
+        return ENOMEM;
+    }
+
+    file_name = talloc_asprintf(tmp_ctx, "%s/localauth_plugin", path);
+    if (file_name == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
+        ret = ENOMEM;
+        goto done;
+    }
+
+    DEBUG(SSSDBG_FUNC_DATA, "File for localauth plugin configuration is [%s]\n",
+                             file_name);
+
+    ret = sss_write_krb5_snippet_common(file_name, LOCALAUTH_PLUGIN_CONFIG);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, "sss_write_krb5_snippet_common failed.\n");
+        goto done;
+    }
+
+done:
+
+    talloc_free(tmp_ctx);
+    return ret;
+
 #else
     DEBUG(SSSDBG_TRACE_ALL, "Kerberos localauth plugin not available.\n");
     return EOK;
 #endif
 }
 
-errno_t sss_write_krb5_conf_snippet(const char *path)
+#define KRB5_LIBDEFAUTLS_CONFIG \
+"[libdefaults]\n" \
+" canonicalize = true\n"
+
+static errno_t sss_write_krb5_libdefaults_snippet(const char *path)
+{
+    int ret;
+    TALLOC_CTX *tmp_ctx = NULL;
+    const char *file_name;
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "talloc_new failed.\n");
+        return ENOMEM;
+    }
+
+    file_name = talloc_asprintf(tmp_ctx, "%s/krb5_libdefaults", path);
+    if (file_name == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
+        ret = ENOMEM;
+        goto done;
+    }
+
+    DEBUG(SSSDBG_FUNC_DATA, "File for KRB5 kibdefaults configuration is [%s]\n",
+                             file_name);
+
+    ret = sss_write_krb5_snippet_common(file_name, KRB5_LIBDEFAUTLS_CONFIG);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, "sss_write_krb5_snippet_common failed.\n");
+        goto done;
+    }
+
+done:
+
+    talloc_free(tmp_ctx);
+    return ret;
+}
+
+errno_t sss_write_krb5_conf_snippet(const char *path, bool canonicalize)
 {
     errno_t ret;
     errno_t err;
@@ -657,6 +793,14 @@ errno_t sss_write_krb5_conf_snippet(const char *path)
         goto done;
     }
 
+    if (canonicalize) {
+        ret = sss_write_krb5_libdefaults_snippet(path);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_OP_FAILURE, "sss_write_krb5_libdefaults_snippet failed.\n");
+            goto done;
+        }
+    }
+
     ret = EOK;
 
 done:
@@ -670,78 +814,6 @@ done:
     return ret;
 }
 
-errno_t fix_domain_in_name_list(TALLOC_CTX *mem_ctx,
-                                struct sss_domain_info *dom,
-                                char **in, char ***_out)
-{
-    int ret;
-    size_t c;
-    TALLOC_CTX *tmp_ctx;
-    char **out;
-    struct sss_domain_info *head;
-    struct sss_domain_info *out_domain;
-    char *in_name;
-    char *in_domain;
-
-    head = get_domains_head(dom);
-
-    tmp_ctx = talloc_new(NULL);
-    if (tmp_ctx == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE, "talloc_new failed.\n");
-        return ENOMEM;
-    }
-
-    /* count elements */
-    for (c = 0; in[c] != NULL; c++);
-
-    out = talloc_zero_array(tmp_ctx, char *, c + 1);
-    if (out == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE, "talloc_array failed.\n");
-        ret = ENOMEM;
-        goto done;
-    }
-
-    for (c = 0; in[c] != NULL; c++) {
-        ret = sss_parse_name(tmp_ctx, head->names, in[c], &in_domain,
-                              &in_name);
-        if (ret != EOK) {
-            DEBUG(SSSDBG_OP_FAILURE, "sss_parse_name failed for [%s].\n",
-                                      in[c]);
-            goto done;
-        }
-
-        if (in_domain == NULL) {
-            out[c] = talloc_strdup(out, in_name);
-        } else {
-            out_domain = find_domain_by_name(head, in_domain, true);
-            if (out_domain == NULL) {
-                DEBUG(SSSDBG_CRIT_FAILURE,
-                      "Cannot find domain with name [%s].\n", in_domain);
-                ret = EINVAL;
-                goto done;
-            }
-
-            out[c] = sss_get_domain_name(out, in_name, out_domain);
-        }
-
-        if (out[c] == NULL) {
-            DEBUG(SSSDBG_OP_FAILURE, "%s failed.\n",
-                  in_domain == NULL ? "talloc_strdup" : "sss_tc_fqname");
-            ret = ENOMEM;
-            goto done;
-        }
-    }
-
-    *_out = talloc_steal(mem_ctx, out);
-
-    ret = EOK;
-
-done:
-    talloc_free(tmp_ctx);
-
-    return ret;
-}
-
 enum sss_domain_state sss_domain_get_state(struct sss_domain_info *dom)
 {
     return dom->state;
@@ -751,4 +823,31 @@ void sss_domain_set_state(struct sss_domain_info *dom,
                           enum sss_domain_state state)
 {
     dom->state = state;
+}
+
+bool is_email_from_domain(const char *email, struct sss_domain_info *dom)
+{
+    const char *p;
+
+    if (email == NULL || dom == NULL) {
+        return false;
+    }
+
+    p = strchr(email, '@');
+    if (p == NULL) {
+        DEBUG(SSSDBG_TRACE_ALL,
+              "Input [%s] does not look like an email address.\n", email);
+        return false;
+    }
+
+    if (strcasecmp(p+1, dom->name) == 0) {
+        DEBUG(SSSDBG_TRACE_ALL, "Email [%s] is from domain [%s].\n", email,
+                                                                     dom->name);
+        return true;
+    }
+
+    DEBUG(SSSDBG_TRACE_ALL, "Email [%s] is not from domain [%s].\n", email,
+                                                                     dom->name);
+
+    return false;
 }

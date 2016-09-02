@@ -990,13 +990,15 @@ static int unlink_dbg(const char *filename)
 
     ret = unlink(filename);
     if (ret != 0) {
-        if (errno == 2) {
+        ret = errno;
+        if (ret == ENOENT) {
             DEBUG(SSSDBG_TRACE_INTERNAL,
                   "File already removed: [%s]\n", filename);
             return 0;
         } else {
             DEBUG(SSSDBG_CRIT_FAILURE,
-                  "Cannot remove temporary file [%s]\n", filename);
+                  "Cannot remove temporary file [%s] %d [%s]\n",
+                  filename, ret, strerror(ret));
             return -1;
         }
     }
@@ -1243,4 +1245,35 @@ done:
     talloc_free(tmp_ctx);
 
     return ret;
+}
+
+bool is_user_or_group_name(const char *sudo_user_value)
+{
+    if (sudo_user_value == NULL) {
+        return false;
+    }
+
+    /* See man sudoers.ldap for explanation */
+    if (strcmp(sudo_user_value, "ALL") == 0) {
+        return false;
+    }
+
+    switch (sudo_user_value[0]) {
+    case '#':           /* user id */
+    case '+':           /* netgroup */
+    case '\0':          /* empty value */
+        return false;
+    }
+
+    if (sudo_user_value[0] == '%') {
+        switch (sudo_user_value[1]) {
+        case '#':           /* POSIX group ID */
+        case ':':           /* non-POSIX group */
+        case '\0':          /* empty value */
+            return false;
+        }
+    }
+
+    /* Now it's either a username or a groupname */
+    return true;
 }

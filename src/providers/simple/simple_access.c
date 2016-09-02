@@ -22,8 +22,9 @@
 #include <security/pam_modules.h>
 
 #include "providers/simple/simple_access.h"
+#include "providers/simple/simple_access_pvt.h"
 #include "util/sss_utf8.h"
-#include "providers/dp_backend.h"
+#include "providers/backend.h"
 #include "db/sysdb.h"
 
 #define CONFDB_SIMPLE_ALLOW_USERS "simple_allow_users"
@@ -34,13 +35,80 @@
 
 #define TIMEOUT_OF_REFRESH_FILTER_LISTS 5
 
-static void simple_access_check(struct tevent_req *req);
 static errno_t simple_access_parse_names(TALLOC_CTX *mem_ctx,
                                          struct be_ctx *be_ctx,
                                          char **list,
-                                         char ***_out);
+                                         char ***_out)
+{
+    TALLOC_CTX *tmp_ctx = NULL;
+    char **out = NULL;
+    size_t size;
+    size_t i;
+    errno_t ret;
+    char *domname = NULL;
+    char *shortname = NULL;
+    struct sss_domain_info *domain;
 
-static int simple_access_obtain_filter_lists(struct simple_ctx *ctx)
+    if (list == NULL) {
+        *_out = NULL;
+        return EOK;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_new() failed\n");
+        ret = ENOMEM;
+        goto done;
+    }
+
+    for (size = 0; list[size] != NULL; size++) {
+        /* count size */
+    }
+
+    out = talloc_zero_array(tmp_ctx, char*, size + 1);
+    if (out == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_zero_array() failed\n");
+        ret = ENOMEM;
+        goto done;
+    }
+
+    /* Since this is access provider, we should fail on any error so we don't
+     * allow unauthorized access. */
+    for (i = 0; i < size; i++) {
+        ret = sss_parse_name(tmp_ctx, be_ctx->domain->names, list[i],
+                             &domname, &shortname);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_OP_FAILURE, "sss_parse_name failed [%d]: %s\n",
+                ret, sss_strerror(ret));
+            goto done;
+        }
+
+        if (domname != NULL) {
+            domain = find_domain_by_name(be_ctx->domain, domname, true);
+            if (domain == NULL) {
+                ret = ERR_DOMAIN_NOT_FOUND;
+                goto done;
+            }
+        } else {
+            domain = be_ctx->domain;
+        }
+
+        out[i] = sss_create_internal_fqname(out, shortname, domain->name);
+        if (out[i] == NULL) {
+            ret = EIO;
+            goto done;
+        }
+    }
+
+    *_out = talloc_steal(mem_ctx, out);
+    ret = EOK;
+
+done:
+    talloc_free(tmp_ctx);
+    return ret;
+}
+
+int simple_access_obtain_filter_lists(struct simple_ctx *ctx)
 {
     struct be_ctx *bectx = ctx->be_ctx;
     int ret;
@@ -103,185 +171,137 @@ failed:
     return ret;
 }
 
-void simple_access_handler(struct be_req *be_req)
-{
-    struct be_ctx *be_ctx = be_req_get_be_ctx(be_req);
+struct simple_access_handler_state {
     struct pam_data *pd;
+};
+
+static void simple_access_handler_done(struct tevent_req *subreq);
+
+struct tevent_req *
+simple_access_handler_send(TALLOC_CTX *mem_ctx,
+                           struct simple_ctx *simple_ctx,
+                           struct pam_data *pd,
+                           struct dp_req_params *params)
+{
+    struct simple_access_handler_state *state;
+    struct tevent_req *subreq;
     struct tevent_req *req;
-    struct simple_ctx *ctx;
-    int ret;
+    errno_t ret;
     time_t now;
 
-    pd = talloc_get_type(be_req_get_data(be_req), struct pam_data);
+    req = tevent_req_create(mem_ctx, &state,
+                            struct simple_access_handler_state);
+    if (req == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "tevent_req_create() failed\n");
+        return NULL;
+    }
+
+    state->pd = pd;
 
     pd->pam_status = PAM_SYSTEM_ERR;
-
     if (pd->cmd != SSS_PAM_ACCT_MGMT) {
         DEBUG(SSSDBG_CONF_SETTINGS,
               "simple access does not handle pam task %d.\n", pd->cmd);
         pd->pam_status = PAM_MODULE_UNKNOWN;
-        goto done;
+        goto immediately;
     }
-
-    ctx = talloc_get_type(be_ctx->bet_info[BET_ACCESS].pvt_bet_data,
-                          struct simple_ctx);
-
 
     now = time(NULL);
-    if ((now - ctx->last_refresh_of_filter_lists)
+    if ((now - simple_ctx->last_refresh_of_filter_lists)
         > TIMEOUT_OF_REFRESH_FILTER_LISTS) {
 
-        ret = simple_access_obtain_filter_lists(ctx);
+        ret = simple_access_obtain_filter_lists(simple_ctx);
         if (ret != EOK) {
-            DEBUG(SSSDBG_MINOR_FAILURE, "Failed to refresh filter lists\n");
+            DEBUG(SSSDBG_CRIT_FAILURE,
+                  "Failed to refresh filter lists, denying all access\n");
+            pd->pam_status = PAM_PERM_DENIED;
+            goto immediately;
         }
-        ctx->last_refresh_of_filter_lists = now;
+        simple_ctx->last_refresh_of_filter_lists = now;
     }
 
-    req = simple_access_check_send(be_req, be_ctx->ev, ctx, pd->user);
-    if (!req) {
+    subreq = simple_access_check_send(state, params->ev, simple_ctx, pd->user);
+    if (subreq == NULL) {
         pd->pam_status = PAM_SYSTEM_ERR;
-        goto done;
+        goto immediately;
     }
-    tevent_req_set_callback(req, simple_access_check, be_req);
-    return;
 
-done:
-    be_req_terminate(be_req, DP_ERR_OK, pd->pam_status, NULL);
+    tevent_req_set_callback(subreq, simple_access_handler_done, req);
+
+    return req;
+
+immediately:
+    /* TODO For backward compatibility we always return EOK to DP now. */
+    tevent_req_done(req);
+    tevent_req_post(req, params->ev);
+
+    return req;
 }
 
-static void simple_access_check(struct tevent_req *req)
+static void simple_access_handler_done(struct tevent_req *subreq)
 {
-    bool access_granted = false;
+    struct simple_access_handler_state *state;
+    struct tevent_req *req;
+    bool access_granted;
     errno_t ret;
-    struct pam_data *pd;
-    struct be_req *be_req;
 
-    be_req = tevent_req_callback_data(req, struct be_req);
-    pd = talloc_get_type(be_req_get_data(be_req), struct pam_data);
+    req = tevent_req_callback_data(subreq, struct tevent_req);
+    state = tevent_req_data(req, struct simple_access_handler_state);
 
-    ret = simple_access_check_recv(req, &access_granted);
-    talloc_free(req);
+    ret = simple_access_check_recv(subreq, &access_granted);
+    talloc_free(subreq);
     if (ret != EOK) {
-        pd->pam_status = PAM_SYSTEM_ERR;
+        state->pd->pam_status = PAM_SYSTEM_ERR;
         goto done;
     }
 
     if (access_granted) {
-        pd->pam_status = PAM_SUCCESS;
+        state->pd->pam_status = PAM_SUCCESS;
     } else {
-        pd->pam_status = PAM_PERM_DENIED;
+        state->pd->pam_status = PAM_PERM_DENIED;
     }
 
 done:
-    be_req_terminate(be_req, DP_ERR_OK, pd->pam_status, NULL);
+    /* TODO For backward compatibility we always return EOK to DP now. */
+    tevent_req_done(req);
 }
 
-static errno_t simple_access_parse_names(TALLOC_CTX *mem_ctx,
-                                         struct be_ctx *be_ctx,
-                                         char **list,
-                                         char ***_out)
+errno_t
+simple_access_handler_recv(TALLOC_CTX *mem_ctx,
+                       struct tevent_req *req,
+                       struct pam_data **_data)
 {
-    TALLOC_CTX *tmp_ctx = NULL;
-    char **out = NULL;
-    char *domain = NULL;
-    char *name = NULL;
-    size_t size;
-    size_t i;
-    errno_t ret;
+    struct simple_access_handler_state *state = NULL;
 
-    if (list == NULL) {
-        *_out = NULL;
-        return EOK;
-    }
+    state = tevent_req_data(req, struct simple_access_handler_state);
 
-    tmp_ctx = talloc_new(NULL);
-    if (tmp_ctx == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_new() failed\n");
-        ret = ENOMEM;
-        goto done;
-    }
+    TEVENT_REQ_RETURN_ON_ERROR(req);
 
-    for (size = 0; list[size] != NULL; size++) {
-        /* count size */
-    }
+    *_data = talloc_steal(mem_ctx, state->pd);
 
-    out = talloc_zero_array(tmp_ctx, char*, size + 1);
-    if (out == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_zero_array() failed\n");
-        ret = ENOMEM;
-        goto done;
-    }
-
-    /* Since this is access provider, we should fail on any error so we don't
-     * allow unauthorized access. */
-    for (i = 0; i < size; i++) {
-        ret = sss_parse_name(tmp_ctx, be_ctx->domain->names, list[i],
-                             &domain, &name);
-        if (ret != EOK) {
-            DEBUG(SSSDBG_CRIT_FAILURE, "Unable to parse name '%s' [%d]: %s\n",
-                                        list[i], ret, sss_strerror(ret));
-            goto done;
-        }
-
-        if (domain == NULL || strcasecmp(domain, be_ctx->domain->name) == 0 ||
-            (be_ctx->domain->flat_name != NULL &&
-             strcasecmp(domain, be_ctx->domain->flat_name) == 0)) {
-            /* This object belongs to main SSSD domain. Those users and groups
-             * are stored without domain part, so we will strip it off.
-             * */
-            out[i] = talloc_move(out, &name);
-        } else {
-            /* Subdomain users and groups are stored as fully qualified names,
-             * thus we will remember the domain part.
-             *
-             * Since subdomains may come and go, we will look for their
-             * existence later, during each access check.
-             */
-            out[i] = talloc_move(out, &list[i]);
-        }
-    }
-
-    *_out = talloc_steal(mem_ctx, out);
-    ret = EOK;
-
-done:
-    talloc_free(tmp_ctx);
-    return ret;
+    return EOK;
 }
 
-struct bet_ops simple_access_ops = {
-    .handler = simple_access_handler,
-    .finalize = NULL
-};
-
-int sssm_simple_access_init(struct be_ctx *bectx, struct bet_ops **ops,
-                            void **pvt_data)
+errno_t sssm_simple_access_init(TALLOC_CTX *mem_ctx,
+                                struct be_ctx *be_ctx,
+                                void *module_data,
+                                struct dp_method *dp_methods)
 {
-    int ret = EINVAL;
     struct simple_ctx *ctx;
-    ctx = talloc_zero(bectx, struct simple_ctx);
+
+    ctx = talloc_zero(mem_ctx, struct simple_ctx);
     if (ctx == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_zero failed.\n");
+        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_zero() failed.\n");
         return ENOMEM;
     }
 
-    ctx->domain = bectx->domain;
-    ctx->be_ctx = bectx;
+    ctx->domain = be_ctx->domain;
+    ctx->be_ctx = be_ctx;
     ctx->last_refresh_of_filter_lists = 0;
 
-    ret = simple_access_obtain_filter_lists(ctx);
-    if (ret != EOK) {
-        goto failed;
-    }
-
-    *ops = &simple_access_ops;
-    *pvt_data = ctx;
+    dp_set_method(dp_methods, DPM_ACCESS_HANDLER,
+                  simple_access_handler_send, simple_access_handler_recv, ctx,
+                  struct simple_ctx, struct pam_data, struct pam_data *);
 
     return EOK;
-
-failed:
-    talloc_free(ctx);
-    return ret;
 }
-

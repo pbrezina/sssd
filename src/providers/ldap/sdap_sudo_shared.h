@@ -21,8 +21,8 @@
 #ifndef _SDAP_SUDO_SHARED_H_
 #define _SDAP_SUDO_SHARED_H_
 
-#include "providers/dp_backend.h"
-#include "providers/dp_ptask.h"
+#include "providers/backend.h"
+#include "providers/be_ptask.h"
 
 errno_t
 sdap_sudo_ptask_setup_generic(struct be_ctx *be_ctx,

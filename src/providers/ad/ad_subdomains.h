@@ -25,13 +25,12 @@
 #ifndef _AD_SUBDOMAINS_H_
 #define _AD_SUBDOMAINS_H_
 
-#include "providers/dp_backend.h"
+#include "providers/backend.h"
 #include "providers/ad/ad_common.h"
 
-int ad_subdom_init(struct be_ctx *be_ctx,
-                   struct ad_id_ctx *id_ctx,
-                   const char *ad_domain,
-                   struct bet_ops **ops,
-                   void **pvt_data);
+errno_t ad_subdomains_init(TALLOC_CTX *mem_ctx,
+                           struct be_ctx *be_ctx,
+                           struct ad_id_ctx *ad_id_ctx,
+                           struct dp_method *dp_methods);
 
 #endif /* _AD_SUBDOMAINS_H_ */

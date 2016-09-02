@@ -37,13 +37,6 @@
 #define ATTR_NAME_SEP      '='
 #define ATTR_VAL_SEP       ','
 
-#define VAR_CHECK(var, val, attr, msg) do { \
-        if (var != (val)) { \
-            DEBUG(SSSDBG_CRIT_FAILURE, msg" attribute: %s\n", attr); \
-            return val; \
-        } \
-} while(0)
-
 static int attr_name_val_split(TALLOC_CTX *mem_ctx, const char *nameval,
                                char **_name, char ***_values, int *_nvals)
 {
@@ -200,8 +193,9 @@ static int usermod_build_attrs(TALLOC_CTX *mem_ctx,
                                int lock,
                                struct sysdb_attrs **_attrs)
 {
-    int ret;
+    int ret = EOK;
     struct sysdb_attrs *attrs;
+    const char *attr_name = NULL;
 
     attrs = sysdb_new_attrs(mem_ctx);
     if (attrs == NULL) {
@@ -209,60 +203,59 @@ static int usermod_build_attrs(TALLOC_CTX *mem_ctx,
     }
 
     if (shell) {
+        attr_name = SYSDB_SHELL;
         ret = sysdb_attrs_add_string(attrs,
-                                     SYSDB_SHELL,
+                                     attr_name,
                                      shell);
-        VAR_CHECK(ret, EOK, SYSDB_SHELL,
-                  "Could not add attribute to changeset\n");
     }
 
-    if (home) {
+    if (ret == EOK && home) {
+        attr_name = SYSDB_HOMEDIR;
         ret = sysdb_attrs_add_string(attrs,
-                                     SYSDB_HOMEDIR,
+                                     attr_name,
                                      home);
-        VAR_CHECK(ret, EOK, SYSDB_HOMEDIR,
-                  "Could not add attribute to changeset\n");
     }
 
-    if (gecos) {
+    if (ret == EOK && gecos) {
+        attr_name = SYSDB_GECOS;
         ret = sysdb_attrs_add_string(attrs,
-                                     SYSDB_GECOS,
+                                     attr_name,
                                      gecos);
-        VAR_CHECK(ret, EOK, SYSDB_GECOS,
-                  "Could not add attribute to changeset\n");
     }
 
-    if (uid) {
+    if (ret == EOK && uid) {
+        attr_name = SYSDB_UIDNUM;
         ret = sysdb_attrs_add_long(attrs,
-                                   SYSDB_UIDNUM,
+                                   attr_name,
                                    uid);
-        VAR_CHECK(ret, EOK, SYSDB_UIDNUM,
-                  "Could not add attribute to changeset\n");
     }
 
-    if (gid) {
+    if (ret == EOK && gid) {
+        attr_name = SYSDB_GIDNUM;
         ret = sysdb_attrs_add_long(attrs,
-                                   SYSDB_GIDNUM,
+                                   attr_name,
                                    gid);
-        VAR_CHECK(ret, EOK, SYSDB_GIDNUM,
-                  "Could not add attribute to changeset\n");
     }
 
-    if (lock == DO_LOCK) {
+    if (ret == EOK && lock == DO_LOCK) {
+        attr_name = SYSDB_DISABLED;
         ret = sysdb_attrs_add_string(attrs,
-                                     SYSDB_DISABLED,
+                                     attr_name,
                                      "true");
-        VAR_CHECK(ret, EOK, SYSDB_DISABLED,
-                  "Could not add attribute to changeset\n");
     }
 
-    if (lock == DO_UNLOCK) {
+    if (ret == EOK && lock == DO_UNLOCK) {
+        attr_name = SYSDB_DISABLED;
         /* PAM code checks for 'false' value in SYSDB_DISABLED attribute */
         ret = sysdb_attrs_add_string(attrs,
-                                     SYSDB_DISABLED,
+                                     attr_name,
                                      "false");
-        VAR_CHECK(ret, EOK, SYSDB_DISABLED,
-                  "Could not add attribute to changeset\n");
+    }
+
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Could not add attribute [%s] to changeset.\n", attr_name);
+        return ret;
     }
 
     *_attrs = attrs;
@@ -279,8 +272,15 @@ int usermod(TALLOC_CTX *mem_ctx,
     struct ldb_dn *member_dn = NULL;
     int ret;
 
+    data->sysdb_fqname = sss_create_internal_fqname(data,
+                                                    data->name,
+                                                    data->domain->name);
+    if (data->sysdb_fqname == NULL) {
+        return ENOMEM;
+    }
+
     if (data->addgroups || data->rmgroups) {
-        member_dn = sysdb_user_dn(mem_ctx, data->domain, data->name);
+        member_dn = sysdb_user_dn(mem_ctx, data->domain, data->sysdb_fqname);
         if (!member_dn) {
             return ENOMEM;
         }
@@ -299,7 +299,7 @@ int usermod(TALLOC_CTX *mem_ctx,
     }
 
     if (attrs->num != 0) {
-        ret = sysdb_set_user_attr(data->domain, data->name,
+        ret = sysdb_set_user_attr(data->domain, data->sysdb_fqname,
                                   attrs, SYSDB_MOD_REP);
         if (ret) {
             return ret;
@@ -358,8 +358,15 @@ int groupmod(TALLOC_CTX *mem_ctx,
     struct ldb_dn *member_dn = NULL;
     int ret;
 
+    data->sysdb_fqname = sss_create_internal_fqname(data,
+                                                    data->name,
+                                                    data->domain->name);
+    if (data->sysdb_fqname == NULL) {
+        return ENOMEM;
+    }
+
     if (data->addgroups || data->rmgroups) {
-        member_dn = sysdb_group_dn(mem_ctx, data->domain, data->name);
+        member_dn = sysdb_group_dn(mem_ctx, data->domain, data->sysdb_fqname);
         if (!member_dn) {
             return ENOMEM;
         }
@@ -375,7 +382,7 @@ int groupmod(TALLOC_CTX *mem_ctx,
             return ret;
         }
 
-        ret = sysdb_set_group_attr(data->domain, data->name,
+        ret = sysdb_set_group_attr(data->domain, data->sysdb_fqname,
                                    attrs, SYSDB_MOD_REP);
         if (ret) {
             return ret;
@@ -570,7 +577,15 @@ int useradd(TALLOC_CTX *mem_ctx,
 {
     int ret;
 
-    ret = sysdb_add_user(data->domain, data->name, data->uid, data->gid,
+    data->sysdb_fqname = sss_create_internal_fqname(data,
+                                                    data->name,
+                                                    data->domain->name);
+    if (data->sysdb_fqname == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    ret = sysdb_add_user(data->domain, data->sysdb_fqname, data->uid, data->gid,
                          data->gecos, data->home, data->shell,
                          NULL, NULL, 0, 0);
     if (ret) {
@@ -580,7 +595,7 @@ int useradd(TALLOC_CTX *mem_ctx,
     if (data->addgroups) {
         struct ldb_dn *member_dn;
 
-        member_dn = sysdb_user_dn(mem_ctx, data->domain, data->name);
+        member_dn = sysdb_user_dn(mem_ctx, data->domain, data->sysdb_fqname);
         if (!member_dn) {
             ret = ENOMEM;
             goto done;
@@ -609,7 +624,14 @@ int userdel(TALLOC_CTX *mem_ctx,
     struct ldb_dn *user_dn;
     int ret;
 
-    user_dn = sysdb_user_dn(mem_ctx, data->domain, data->name);
+    data->sysdb_fqname = sss_create_internal_fqname(data,
+                                                    data->name,
+                                                    data->domain->name);
+    if (data->sysdb_fqname == NULL) {
+        return ENOMEM;
+    }
+
+    user_dn = sysdb_user_dn(mem_ctx, data->domain, data->sysdb_fqname);
     if (!user_dn) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Could not construct a user DN\n");
         return ENOMEM;
@@ -634,7 +656,14 @@ int groupadd(struct ops_ctx *data)
 {
     int ret;
 
-    ret = sysdb_add_group(data->domain, data->name, data->gid, NULL, 0, 0);
+    data->sysdb_fqname = sss_create_internal_fqname(data,
+                                                    data->sysdb_fqname,
+                                                    data->domain->name);
+    if (data->sysdb_fqname == NULL) {
+        return ENOMEM;
+    }
+
+    ret = sysdb_add_group(data->domain, data->sysdb_fqname, data->gid, NULL, 0, 0);
     if (ret == EOK) {
         flush_nscd_cache(NSCD_DB_GROUP);
     }
@@ -651,7 +680,14 @@ int groupdel(TALLOC_CTX *mem_ctx,
     struct ldb_dn *group_dn;
     int ret;
 
-    group_dn = sysdb_group_dn(mem_ctx, data->domain, data->name);
+    data->sysdb_fqname = sss_create_internal_fqname(data,
+                                                    data->name,
+                                                    data->domain->name);
+    if (data->sysdb_fqname == NULL) {
+        return ENOMEM;
+    }
+
+    group_dn = sysdb_group_dn(mem_ctx, data->domain, data->sysdb_fqname);
     if (group_dn == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Could not construct a group DN\n");
         return ENOMEM;
@@ -679,7 +715,13 @@ int sysdb_getpwnam_sync(TALLOC_CTX *mem_ctx,
     const char *str;
     int ret;
 
-    ret = sysdb_getpwnam(mem_ctx, out->domain, name, &res);
+    out->sysdb_fqname = sss_create_internal_fqname(out, name,
+                                                   out->domain->name);
+    if (out->sysdb_fqname == NULL) {
+        return ENOMEM;
+    }
+
+    ret = sysdb_getpwnam(mem_ctx, out->domain, out->sysdb_fqname, &res);
     if (ret) {
         return ret;
     }
@@ -696,8 +738,8 @@ int sysdb_getpwnam_sync(TALLOC_CTX *mem_ctx,
         out->gid = ldb_msg_find_attr_as_uint64(res->msgs[0], SYSDB_GIDNUM, 0);
 
         str = ldb_msg_find_attr_as_string(res->msgs[0], SYSDB_NAME, NULL);
-        out->name = talloc_strdup(out, str);
-        if (out->name == NULL) {
+        ret = sss_parse_internal_fqname(out, str, &out->name, NULL);
+        if (ret != EOK) {
             return ENOMEM;
         }
 
@@ -752,7 +794,13 @@ int sysdb_getgrnam_sync(TALLOC_CTX *mem_ctx,
     const char *str;
     int ret;
 
-    ret = sysdb_getgrnam(mem_ctx, out->domain, name, &res);
+    out->sysdb_fqname = sss_create_internal_fqname(out, name,
+                                                   out->domain->name);
+    if (out->sysdb_fqname == NULL) {
+        return ENOMEM;
+    }
+
+    ret = sysdb_getgrnam(mem_ctx, out->domain, out->sysdb_fqname, &res);
     if (ret) {
         return ret;
     }
@@ -766,7 +814,11 @@ int sysdb_getgrnam_sync(TALLOC_CTX *mem_ctx,
         /* fill ops_ctx */
         out->gid = ldb_msg_find_attr_as_uint64(res->msgs[0], SYSDB_GIDNUM, 0);
         str = ldb_msg_find_attr_as_string(res->msgs[0], SYSDB_NAME, NULL);
-        out->name = talloc_strdup(out, str);
+        ret = sss_parse_internal_fqname(out, str, &out->name, NULL);
+        if (ret != EOK) {
+            return ENOMEM;
+        }
+
         if (out->name == NULL) {
             return ENOMEM;
         }

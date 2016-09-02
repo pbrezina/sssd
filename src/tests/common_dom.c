@@ -24,6 +24,8 @@
 #include <errno.h>
 #include <ldb_module.h>
 
+/* Including private header makes sure we can initialize test domains. */
+#include "db/sysdb_private.h"
 #include "tests/common.h"
 
 static errno_t
@@ -39,7 +41,7 @@ mock_confdb(TALLOC_CTX *mem_ctx,
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, ("talloc_new() failed\n"));
+        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_new() failed\n");
         return ENOMEM;
     }
 
@@ -85,7 +87,7 @@ mock_confdb_domain(TALLOC_CTX *mem_ctx,
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, ("talloc_new() failed\n"));
+        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_new() failed\n");
         return ENOMEM;
     }
 
@@ -171,6 +173,14 @@ done:
     return ret;
 }
 
+void reset_ldb_errstrings(struct sss_domain_info *dom)
+{
+    ldb_reset_err_string(sysdb_ctx_get_ldb(dom->sysdb));
+    if (dom->sysdb->ldb_ts) {
+        ldb_reset_err_string(dom->sysdb->ldb_ts);
+    }
+}
+
 static errno_t
 mock_domain(TALLOC_CTX *mem_ctx,
             struct confdb_ctx *cdb,
@@ -189,8 +199,7 @@ mock_domain(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    /* reset ldb error if any */
-    ldb_reset_err_string(sysdb_ctx_get_ldb(domain->sysdb));
+    reset_ldb_errstrings(domain);
 
     /* init with an AD-style regex to be able to test flat name */
     ret = sss_names_init_from_args(domain,
@@ -303,6 +312,7 @@ void test_multidom_suite_cleanup(const char *tests_path,
     TALLOC_CTX *tmp_ctx = NULL;
     char *cdb_path = NULL;
     char *sysdb_path = NULL;
+    char *sysdb_ts_path = NULL;
     errno_t ret;
     int i;
 
@@ -332,11 +342,20 @@ void test_multidom_suite_cleanup(const char *tests_path,
         for (i = 0; domains[i] != NULL; i++) {
             if (strcmp(domains[i], LOCAL_SYSDB_FILE) == 0) {
                 /* local domain */
-                sysdb_path = talloc_asprintf(tmp_ctx, "%s/%s",
-                                             tests_path, domains[i]);
+                ret = sysdb_get_db_file(tmp_ctx, "local", domains[i], tests_path,
+                                        &sysdb_path, &sysdb_ts_path);
+                if (ret != EOK) {
+                    goto done;
+                }
             } else {
-                sysdb_path = talloc_asprintf(tmp_ctx, "%s/cache_%s.ldb",
-                                             tests_path, domains[i]);
+                /* The mocked database doesn't really care about its provider type, just
+                 * distinguishes between a local and non-local databases
+                 */
+                ret = sysdb_get_db_file(tmp_ctx, "fake_nonlocal", domains[i], tests_path,
+                                        &sysdb_path, &sysdb_ts_path);
+                if (ret != EOK) {
+                    goto done;
+                }
             }
             if (sysdb_path == NULL) {
                 DEBUG(SSSDBG_CRIT_FAILURE, "Could not construct sysdb path\n");
@@ -351,7 +370,18 @@ void test_multidom_suite_cleanup(const char *tests_path,
                       "ldb file [%d]: (%s)\n", ret, sss_strerror(ret));
             }
 
+            if (sysdb_ts_path) {
+                errno = 0;
+                ret = unlink(sysdb_ts_path);
+                if (ret != 0 && errno != ENOENT) {
+                    ret = errno;
+                    DEBUG(SSSDBG_CRIT_FAILURE, "Could not delete the test domain "
+                        "ldb timestamp file [%d]: (%s)\n", ret, sss_strerror(ret));
+                }
+            }
+
             talloc_zfree(sysdb_path);
+
         }
     }
 

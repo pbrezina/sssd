@@ -53,6 +53,10 @@
 #include "util/sss_format.h"
 #include "util/debug.h"
 
+/* name of the monitor server instance */
+#define SSSD_PIDFILE PID_PATH"/sssd.pid"
+#define MAX_PID_LENGTH 10
+
 #define _(STRING) gettext (STRING)
 
 #define ENUM_INDICATOR "*"
@@ -83,6 +87,7 @@
 #define FLAGS_DAEMON 0x0001
 #define FLAGS_INTERACTIVE 0x0002
 #define FLAGS_PID_FILE 0x0004
+#define FLAGS_GEN_CONF 0x0008
 
 #define PIPE_INIT { -1, -1 }
 
@@ -112,10 +117,15 @@
 
 #define TEVENT_REQ_RETURN_ON_ERROR(req) do { \
     enum tevent_req_state TRROEstate; \
-    uint64_t TRROEerr; \
+    uint64_t TRROEuint64; \
+    errno_t TRROEerr; \
     \
-    if (tevent_req_is_error(req, &TRROEstate, &TRROEerr)) { \
+    if (tevent_req_is_error(req, &TRROEstate, &TRROEuint64)) { \
+        TRROEerr = (errno_t)TRROEuint64; \
         if (TRROEstate == TEVENT_REQ_USER_ERROR) { \
+            if (TRROEerr == 0) { \
+                return ERR_INTERNAL; \
+            } \
             return TRROEerr; \
         } \
         return ERR_INTERNAL; \
@@ -215,10 +225,6 @@ int sss_parse_name(TALLOC_CTX *memctx,
                    struct sss_names_ctx *snctx,
                    const char *orig, char **_domain, char **_name);
 
-int sss_parse_name_const(TALLOC_CTX *memctx,
-                         struct sss_names_ctx *snctx, const char *orig,
-                         const char **_domain, const char **_name);
-
 int sss_parse_name_for_domains(TALLOC_CTX *memctx,
                                struct sss_domain_info *domains,
                                const char *default_domain,
@@ -259,12 +265,30 @@ int
 sss_fqname(char *str, size_t size, struct sss_names_ctx *nctx,
            struct sss_domain_info *domain, const char *name);
 
-/* Subdomains use fully qualified names in the cache while primary domains use
- * just the name. Return either of these for a specified domain or subdomain
- */
-char *
-sss_get_domain_name(TALLOC_CTX *mem_ctx, const char *orig_name,
-                    struct sss_domain_info *dom);
+
+/* Accepts fqname in the format shortname@domname only. */
+errno_t sss_parse_internal_fqname(TALLOC_CTX *mem_ctx,
+                                  const char *fqname,
+                                  char **_shortname,
+                                  char **_dom_name);
+
+/* Creates internal fqname in format shortname@domname.
+ * The domain portion is lowercased. */
+char *sss_create_internal_fqname(TALLOC_CTX *mem_ctx,
+                                 const char *shortname,
+                                 const char *dom_name);
+
+/* Creates internal fqnames list in format shortname@domname.
+ * The domain portion is lowercased. */
+char **sss_create_internal_fqname_list(TALLOC_CTX *mem_ctx,
+                                       const char * const *shortname_list,
+                                       const char *dom_name);
+
+/* Turn fqname into cased shortname with replaced space. */
+char *sss_output_name(TALLOC_CTX *mem_ctx,
+                      const char *fqname,
+                      bool case_sensitive,
+                      const char replace_space);
 
 /* from backup-file.c */
 int backup_file(const char *src, int dbglvl);
@@ -350,6 +374,9 @@ errno_t sss_hash_create_ex(TALLOC_CTX *mem_ctx,
                            unsigned long max_load_factor,
                            hash_delete_callback *delete_callback,
                            void *delete_private_data);
+
+/* Returns true if sudoUser value is a username or a groupname */
+bool is_user_or_group_name(const char *sudo_user_value);
 
 /**
  * @brief Add two list of strings
@@ -491,6 +518,7 @@ struct sss_domain_info *find_domain_by_sid(struct sss_domain_info *domain,
 enum sss_domain_state sss_domain_get_state(struct sss_domain_info *dom);
 void sss_domain_set_state(struct sss_domain_info *dom,
                           enum sss_domain_state state);
+bool is_email_from_domain(const char *email, struct sss_domain_info *dom);
 
 struct sss_domain_info*
 sss_get_domain_by_sid_ldap_fallback(struct sss_domain_info *domain,
@@ -517,18 +545,19 @@ errno_t sssd_domain_init(TALLOC_CTX *mem_ctx,
  * written to */
 #define KRB5_MAPPING_DIR PUBCONF_PATH"/krb5.include.d"
 
+errno_t sss_get_domain_mappings_content(TALLOC_CTX *mem_ctx,
+                                        struct sss_domain_info *domain,
+                                        char **content);
+
 errno_t sss_write_domain_mappings(struct sss_domain_info *domain);
 
-errno_t sss_write_krb5_conf_snippet(const char *path);
+errno_t sss_write_krb5_conf_snippet(const char *path, bool canonicalize);
 
 errno_t get_dom_names(TALLOC_CTX *mem_ctx,
                       struct sss_domain_info *start_dom,
                       char ***_dom_names,
                       int *_dom_names_count);
 
-errno_t fix_domain_in_name_list(TALLOC_CTX *mem_ctx,
-                                struct sss_domain_info *dom,
-                                char **in, char ***_out);
 /* from util_lock.c */
 errno_t sss_br_lock_file(int fd, size_t start, size_t len,
                          int num_tries, useconds_t wait);
@@ -611,5 +640,9 @@ int sss_unique_file(TALLOC_CTX *owner,
  * so that it's guaranteed the file is removed.
  */
 int sss_unique_filename(TALLOC_CTX *owner, char *path_tmpl);
+
+/* from util_watchdog.c */
+int setup_watchdog(struct tevent_context *ev, int interval);
+void teardown_watchdog(void);
 
 #endif /* __SSSD_UTIL_H__ */

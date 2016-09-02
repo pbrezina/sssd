@@ -44,6 +44,10 @@
 #include "sbus/sbus_client.h"
 #include "util/util_creds.h"
 
+#ifdef HAVE_SYSTEMD
+#include <systemd/sd-daemon.h>
+#endif
+
 static errno_t set_close_on_exec(int fd)
 {
     int v;
@@ -124,8 +128,11 @@ static errno_t get_client_cred(struct cli_ctx *cctx)
 
     ret = SELINUX_getpeercon(cctx->cfd, &secctx);
     if (ret != 0) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "SELINUX_getpeercon failed [%d][%s].\n", ret, strerror(ret));
+        ret = errno;
+        DEBUG(SSSDBG_MINOR_FAILURE,
+              "The following failure is expected to happen in case SELinux is disabled:\n"
+              "SELINUX_getpeercon failed [%d][%s].\n"
+              "Please, consider enabling SELinux in your system.\n", ret, strerror(ret));
         /* This is not fatal, as SELinux may simply be disabled */
         ret = EOK;
     } else {
@@ -241,12 +248,14 @@ done:
     return ret;
 }
 
-
 static void client_send(struct cli_ctx *cctx)
 {
+    struct cli_protocol *pctx;
     int ret;
 
-    ret = sss_packet_send(cctx->creq->out, cctx->cfd);
+    pctx = talloc_get_type(cctx->protocol_ctx, struct cli_protocol);
+
+    ret = sss_packet_send(pctx->creq->out, cctx->cfd);
     if (ret == EAGAIN) {
         /* not all data was sent, loop again */
         return;
@@ -260,26 +269,30 @@ static void client_send(struct cli_ctx *cctx)
     /* ok all sent */
     TEVENT_FD_NOT_WRITEABLE(cctx->cfde);
     TEVENT_FD_READABLE(cctx->cfde);
-    talloc_free(cctx->creq);
-    cctx->creq = NULL;
+    talloc_zfree(pctx->creq);
     return;
 }
 
 static int client_cmd_execute(struct cli_ctx *cctx, struct sss_cmd_table *sss_cmds)
 {
+    struct cli_protocol *pctx;
     enum sss_cli_command cmd;
 
-    cmd = sss_packet_get_cmd(cctx->creq->in);
+    pctx = talloc_get_type(cctx->protocol_ctx, struct cli_protocol);
+    cmd = sss_packet_get_cmd(pctx->creq->in);
     return sss_cmd_execute(cctx, cmd, sss_cmds);
 }
 
 static void client_recv(struct cli_ctx *cctx)
 {
+    struct cli_protocol *pctx;
     int ret;
 
-    if (!cctx->creq) {
-        cctx->creq = talloc_zero(cctx, struct cli_request);
-        if (!cctx->creq) {
+    pctx = talloc_get_type(cctx->protocol_ctx, struct cli_protocol);
+
+    if (!pctx->creq) {
+        pctx->creq = talloc_zero(cctx, struct cli_request);
+        if (!pctx->creq) {
             DEBUG(SSSDBG_FATAL_FAILURE,
                   "Failed to alloc request, aborting client!\n");
             talloc_free(cctx);
@@ -287,9 +300,9 @@ static void client_recv(struct cli_ctx *cctx)
         }
     }
 
-    if (!cctx->creq->in) {
-        ret = sss_packet_new(cctx->creq, SSS_PACKET_MAX_RECV_SIZE,
-                             0, &cctx->creq->in);
+    if (!pctx->creq->in) {
+        ret = sss_packet_new(pctx->creq, SSS_PACKET_MAX_RECV_SIZE,
+                             0, &pctx->creq->in);
         if (ret != EOK) {
             DEBUG(SSSDBG_FATAL_FAILURE,
                   "Failed to alloc request, aborting client!\n");
@@ -298,7 +311,7 @@ static void client_recv(struct cli_ctx *cctx)
         }
     }
 
-    ret = sss_packet_recv(cctx->creq->in, cctx->cfd);
+    ret = sss_packet_recv(pctx->creq->in, cctx->cfd);
     switch (ret) {
     case EOK:
         /* do not read anymore */
@@ -337,8 +350,6 @@ static void client_recv(struct cli_ctx *cctx)
     return;
 }
 
-static errno_t reset_idle_timer(struct cli_ctx *cctx);
-
 static void client_fd_handler(struct tevent_context *ev,
                               struct tevent_fd *fde,
                               uint16_t flags, void *ptr)
@@ -368,12 +379,8 @@ static void client_fd_handler(struct tevent_context *ev,
 struct accept_fd_ctx {
     struct resp_ctx *rctx;
     bool is_private;
+    connection_setup_t connection_setup;
 };
-
-static void idle_handler(struct tevent_context *ev,
-                         struct tevent_timer *te,
-                         struct timeval current_time,
-                         void *data);
 
 static void accept_fd_handler(struct tevent_context *ev,
                               struct tevent_fd *fde,
@@ -468,8 +475,19 @@ static void accept_fd_handler(struct tevent_context *ev,
         }
     }
 
+    ret = accept_ctx->connection_setup(cctx);
+    if (ret != EOK) {
+        close(cctx->cfd);
+        talloc_free(cctx);
+        DEBUG(SSSDBG_OP_FAILURE,
+              "Failed to setup client handler%s\n",
+               accept_ctx->is_private ? " on privileged pipe" : "");
+        return;
+    }
+
     cctx->cfde = tevent_add_fd(ev, cctx, cctx->cfd,
-                               TEVENT_FD_READ, client_fd_handler, cctx);
+                               TEVENT_FD_READ, cctx->cfd_handler,
+                               cctx);
     if (!cctx->cfde) {
         close(cctx->cfd);
         talloc_free(cctx);
@@ -499,7 +517,7 @@ static void accept_fd_handler(struct tevent_context *ev,
     return;
 }
 
-static errno_t reset_idle_timer(struct cli_ctx *cctx)
+errno_t reset_idle_timer(struct cli_ctx *cctx)
 {
     struct timeval tv =
             tevent_timeval_current_ofs(cctx->rctx->client_idle_timeout, 0);
@@ -516,10 +534,10 @@ static errno_t reset_idle_timer(struct cli_ctx *cctx)
     return EOK;
 }
 
-static void idle_handler(struct tevent_context *ev,
-                         struct tevent_timer *te,
-                         struct timeval current_time,
-                         void *data)
+void idle_handler(struct tevent_context *ev,
+                  struct tevent_timer *te,
+                  struct timeval current_time,
+                  void *data)
 {
     /* This connection is idle. Terminate it */
     struct cli_ctx *cctx =
@@ -534,7 +552,7 @@ static void idle_handler(struct tevent_context *ev,
 }
 
 static int sss_dp_init(struct resp_ctx *rctx,
-                       struct sbus_vtable *dp_intf,
+                       struct sbus_iface_map *sbus_iface,
                        const char *cli_name,
                        struct sss_domain_info *domain)
 {
@@ -562,18 +580,18 @@ static int sss_dp_init(struct resp_ctx *rctx,
         return ret;
     }
 
-    ret = sbus_conn_register_iface(be_conn->conn, dp_intf, DP_PATH, rctx);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_FATAL_FAILURE, "Failed to export data provider.\n");
-        return ret;
+    if (sbus_iface != NULL) {
+        ret = sbus_conn_register_iface_map(be_conn->conn, sbus_iface, rctx);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_FATAL_FAILURE, "Failed to register D-Bus interface.\n");
+            return ret;
+        }
     }
 
     DLIST_ADD_END(rctx->be_conns, be_conn, struct be_conn *);
 
     /* Identify ourselves to the DP */
-    ret = dp_common_send_id(be_conn->conn,
-                            DATA_PROVIDER_VERSION,
-                            cli_name);
+    ret = rdp_register_client(be_conn, cli_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "Failed to identify to the DP!\n");
         return ret;
@@ -616,7 +634,8 @@ int create_pipe_fd(const char *sock_name, int *_fd, mode_t umaskval)
     if (ret != 0 && errno != ENOENT) {
         ret = errno;
         DEBUG(SSSDBG_MINOR_FAILURE,
-              "Cannot remove old socket (errno=%d), bind might fail!\n", ret);
+              "Cannot remove old socket (errno=%d [%s]), bind might fail!\n",
+              ret, sss_strerror(ret));
     }
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
@@ -646,10 +665,11 @@ done:
 }
 
 /* create a unix socket and listen to it */
-static int set_unix_socket(struct resp_ctx *rctx)
+static int set_unix_socket(struct resp_ctx *rctx,
+                           connection_setup_t conn_setup)
 {
     errno_t ret;
-    struct accept_fd_ctx *accept_ctx;
+    struct accept_fd_ctx *accept_ctx = NULL;
 
 /* for future use */
 #if 0
@@ -701,6 +721,7 @@ static int set_unix_socket(struct resp_ctx *rctx)
         if(!accept_ctx) goto failed;
         accept_ctx->rctx = rctx;
         accept_ctx->is_private = false;
+        accept_ctx->connection_setup = conn_setup;
 
         rctx->lfde = tevent_add_fd(rctx->ev, rctx, rctx->lfd,
                                    TEVENT_FD_READ, accept_fd_handler,
@@ -725,6 +746,7 @@ static int set_unix_socket(struct resp_ctx *rctx)
         if(!accept_ctx) goto failed;
         accept_ctx->rctx = rctx;
         accept_ctx->is_private = true;
+        accept_ctx->connection_setup = conn_setup;
 
         rctx->priv_lfde = tevent_add_fd(rctx->ev, rctx, rctx->priv_lfd,
                                    TEVENT_FD_READ, accept_fd_handler,
@@ -739,9 +761,87 @@ static int set_unix_socket(struct resp_ctx *rctx)
     return EOK;
 
 failed:
-    close(rctx->lfd);
-    close(rctx->priv_lfd);
+    if (rctx->lfd >= 0) close(rctx->lfd);
+    if (rctx->priv_lfd >= 0) close(rctx->priv_lfd);
     return EIO;
+}
+
+int activate_unix_sockets(struct resp_ctx *rctx,
+                          connection_setup_t conn_setup)
+{
+    int ret;
+
+    /* by default we want to open sockets ourselves */
+    rctx->lfd = -1;
+    rctx->priv_lfd = -1;
+
+#ifdef HAVE_SYSTEMD
+    int numfds = (rctx->sock_name ? 1 : 0)
+                + (rctx->priv_sock_name ? 1 : 0);
+    /* but if systemd support is available, check if the sockets
+     * have been opened for us, via socket activation */
+    ret = sd_listen_fds(1);
+    if (ret < 0) {
+        DEBUG(SSSDBG_MINOR_FAILURE,
+              "Unexpected error probing for active sockets. "
+              "Will proceed with no sockets. [Error %d (%s)]\n",
+              -ret, sss_strerror(-ret));
+    } else if (ret > numfds) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Too many activated sockets have been found, "
+              "expected %d, found %d\n", numfds, ret);
+        ret = E2BIG;
+        goto done;
+    }
+
+    if (ret == numfds) {
+        rctx->lfd = SD_LISTEN_FDS_START;
+        ret = sd_is_socket_unix(rctx->lfd, SOCK_STREAM, 1, NULL, 0);
+        if (ret < 0) {
+            DEBUG(SSSDBG_CRIT_FAILURE,
+                  "Activated socket is not a UNIX listening socket\n");
+            ret = EIO;
+            goto done;
+        }
+
+        ret = sss_fd_nonblocking(rctx->lfd);
+        if (ret != EOK) goto done;
+        if (numfds == 2) {
+            rctx->priv_lfd = SD_LISTEN_FDS_START + 1;
+            ret = sd_is_socket_unix(rctx->priv_lfd, SOCK_STREAM, 1, NULL, 0);
+            if (ret < 0) {
+                DEBUG(SSSDBG_CRIT_FAILURE,
+                    "Activated priv socket is not a UNIX listening socket\n");
+                ret = EIO;
+                goto done;
+            }
+
+            ret = sss_fd_nonblocking(rctx->priv_lfd);
+            if (ret != EOK) goto done;
+        }
+    }
+#endif
+
+    ret = set_unix_socket(rctx, conn_setup);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "Fatal error initializing sockets\n");
+        goto done;
+    }
+
+done:
+    return ret;
+}
+
+int sss_connection_setup(struct cli_ctx *cctx)
+{
+    cctx->protocol_ctx = talloc_zero(cctx, struct cli_protocol);
+    if (!cctx->protocol_ctx) {
+        return ENOMEM;
+    }
+
+    cctx->cfd_handler = client_fd_handler;
+
+    return EOK;
 }
 
 static int sss_responder_ctx_destructor(void *ptr)
@@ -830,7 +930,8 @@ int sss_process_init(TALLOC_CTX *mem_ctx,
                      uint16_t svc_version,
                      struct mon_cli_iface *monitor_intf,
                      const char *cli_name,
-                     struct sbus_vtable *dp_intf,
+                     struct sbus_iface_map *sbus_iface,
+                     connection_setup_t conn_setup,
                      struct resp_ctx **responder_ctx)
 {
     struct resp_ctx *rctx;
@@ -944,7 +1045,7 @@ int sss_process_init(TALLOC_CTX *mem_ctx,
             continue;
         }
 
-        ret = sss_dp_init(rctx, dp_intf, cli_name, dom);
+        ret = sss_dp_init(rctx, sbus_iface, cli_name, dom);
         if (ret != EOK) {
             DEBUG(SSSDBG_FATAL_FAILURE,
                   "fatal error setting up backend connector\n");
@@ -952,15 +1053,16 @@ int sss_process_init(TALLOC_CTX *mem_ctx,
         }
     }
 
-    ret = sysdb_init(rctx, rctx->domains, false);
+    ret = sysdb_init(rctx, rctx->domains);
     if (ret != EOK) {
         SYSDB_VERSION_ERROR_DAEMON(ret);
-        DEBUG(SSSDBG_FATAL_FAILURE, "fatal error initializing resp_ctx\n");
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "fatal error initializing sysdb connection\n");
         goto fail;
     }
 
     /* after all initializations we are ready to listen on our socket */
-    ret = set_unix_socket(rctx);
+    ret = set_unix_socket(rctx, conn_setup);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "fatal error initializing socket\n");
         goto fail;

@@ -1112,7 +1112,9 @@ fo_resolve_service_cont(struct tevent_req *subreq)
     ret = resolve_srv_recv(subreq, &state->server);
     talloc_zfree(subreq);
 
-    if (ret) {
+    /* We will proceed normally on ERR_SRV_DUPLICATES and if the server
+     * is already being resolved, we hook to that request. */
+    if (ret != EOK && ret != ERR_SRV_DUPLICATES) {
         tevent_req_error(req, ret);
         return;
     }
@@ -1272,6 +1274,8 @@ resolve_srv_send(TALLOC_CTX *mem_ctx, struct tevent_context *ev,
     state->fo_ctx = ctx;
     state->meta = server->srv_data->meta;
 
+    DEBUG(SSSDBG_IMPORTANT_INFO, "RESOLV SRV SEND\n");
+
     status = get_srv_data_status(server->srv_data);
     DEBUG(SSSDBG_FUNC_DATA, "The status of SRV lookup is %s\n",
           str_srv_data_status(status));
@@ -1354,6 +1358,8 @@ resolve_srv_done(struct tevent_req *subreq)
     int ret;
     uint32_t ttl;
 
+    DEBUG(SSSDBG_IMPORTANT_INFO, "RESOLV SRV DONE\n");
+
     ret = state->fo_ctx->srv_recv_fn(state, subreq, &dns_domain, &ttl,
                                      &primary_servers, &num_primary_servers,
                                      &backup_servers, &num_backup_servers);
@@ -1398,11 +1404,23 @@ resolve_srv_done(struct tevent_req *subreq)
         }
 
         if (last_server == state->meta) {
-            /* SRV lookup returned only those servers
-             * that are already present. */
+            /* SRV lookup returned only those servers that are already present.
+             * This may happen only when an ongoing SRV resolution already
+             * exist. We will return server, but won't set any state. */
             DEBUG(SSSDBG_TRACE_FUNC, "SRV lookup did not return "
                                       "any new server.\n");
             ret = ERR_SRV_DUPLICATES;
+
+            /* Since no new server is returned, state->meta->next is NULL.
+             * We return last tried server if possible which is server
+             * from previous resolution of SRV record, and first server
+             * otherwise. */
+            if (state->service->last_tried_server != NULL) {
+                state->out = state->service->last_tried_server;
+                goto done;
+            }
+
+            state->out = state->service->server_list;
             goto done;
         }
 
@@ -1438,7 +1456,10 @@ resolve_srv_done(struct tevent_req *subreq)
     }
 
 done:
-    if (ret != EOK) {
+    if (ret == ERR_SRV_DUPLICATES) {
+        tevent_req_error(req, ret);
+        return;
+    } else if (ret != EOK) {
         state->out = state->meta;
         set_srv_data_status(state->meta->srv_data, SRV_RESOLVE_ERROR);
         tevent_req_error(req, ret);
@@ -1546,7 +1567,7 @@ void fo_try_next_server(struct fo_service *service)
     service->active_server = 0;
 
     if (server->port_status == PORT_WORKING) {
-        server->port_status = PORT_NEUTRAL;
+        server->port_status = PORT_NOT_WORKING;
     }
 }
 
@@ -1658,6 +1679,48 @@ bool fo_svc_has_server(struct fo_service *service, struct fo_server *server)
     }
 
     return false;
+}
+
+const char **fo_svc_server_list(TALLOC_CTX *mem_ctx,
+                                struct fo_service *service,
+                                size_t *_count)
+{
+    const char **list;
+    const char *server;
+    struct fo_server *srv;
+    size_t count;
+
+    count = 0;
+    DLIST_FOR_EACH(srv, service->server_list) {
+        count++;
+    }
+
+    list = talloc_zero_array(mem_ctx, const char *, count + 1);
+    if (list == NULL) {
+        return NULL;
+    }
+
+    count = 0;
+    DLIST_FOR_EACH(srv, service->server_list) {
+        server = fo_get_server_name(srv);
+        if (server == NULL) {
+            /* _srv_ */
+            continue;
+        }
+
+        list[count] = talloc_strdup(list, server);
+        if (list[count] == NULL) {
+            talloc_free(list);
+            return NULL;
+        }
+        count++;
+    }
+
+    if (_count != NULL) {
+        *_count = count;
+    }
+
+    return list;
 }
 
 bool fo_set_srv_lookup_plugin(struct fo_ctx *ctx,

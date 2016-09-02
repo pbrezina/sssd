@@ -29,45 +29,6 @@
 #include "util/probes.h"
 #include <time.h>
 
-#define LDB_MODULES_PATH "LDB_MODULES_PATH"
-
-errno_t sysdb_ldb_connect(TALLOC_CTX *mem_ctx, const char *filename,
-                          struct ldb_context **_ldb)
-{
-    int ret;
-    struct ldb_context *ldb;
-    const char *mod_path;
-
-    if (_ldb == NULL) {
-        return EINVAL;
-    }
-
-    ldb = ldb_init(mem_ctx, NULL);
-    if (!ldb) {
-        return EIO;
-    }
-
-    ret = ldb_set_debug(ldb, ldb_debug_messages, NULL);
-    if (ret != LDB_SUCCESS) {
-        return EIO;
-    }
-
-    mod_path = getenv(LDB_MODULES_PATH);
-    if (mod_path != NULL) {
-        DEBUG(SSSDBG_TRACE_ALL, "Setting ldb module path to [%s].\n", mod_path);
-        ldb_set_modules_dir(ldb, mod_path);
-    }
-
-    ret = ldb_connect(ldb, filename, 0, NULL);
-    if (ret != LDB_SUCCESS) {
-        return EIO;
-    }
-
-    *_ldb = ldb;
-
-    return EOK;
-}
-
 errno_t sysdb_dn_sanitize(TALLOC_CTX *mem_ctx, const char *input,
                           char **sanitized)
 {
@@ -962,493 +923,6 @@ int sysdb_transaction_cancel(struct sysdb_ctx *sysdb)
     return sysdb_error_to_errno(ret);
 }
 
-/* =Initialization======================================================== */
-
-int sysdb_get_db_file(TALLOC_CTX *mem_ctx,
-                      const char *provider, const char *name,
-                      const char *base_path, char **_ldb_file)
-{
-    char *ldb_file;
-
-    /* special case for the local domain */
-    if (strcasecmp(provider, "local") == 0) {
-        ldb_file = talloc_asprintf(mem_ctx, "%s/"LOCAL_SYSDB_FILE,
-                                   base_path);
-    } else {
-        ldb_file = talloc_asprintf(mem_ctx, "%s/"CACHE_SYSDB_FILE,
-                                   base_path, name);
-    }
-    if (!ldb_file) {
-        return ENOMEM;
-    }
-
-    *_ldb_file = ldb_file;
-    return EOK;
-}
-
-errno_t sysdb_domain_create(struct sysdb_ctx *sysdb, const char *domain_name)
-{
-    struct ldb_message *msg;
-    TALLOC_CTX *tmp_ctx;
-    int ret;
-
-    tmp_ctx = talloc_new(NULL);
-    if (tmp_ctx == NULL) {
-        ret = ENOMEM;
-        goto done;
-    }
-
-    /* == create base domain object == */
-
-    msg = ldb_msg_new(tmp_ctx);
-    if (!msg) {
-        ret = ENOMEM;
-        goto done;
-    }
-    msg->dn = ldb_dn_new_fmt(msg, sysdb->ldb, SYSDB_DOM_BASE, domain_name);
-    if (!msg->dn) {
-        ret = ENOMEM;
-        goto done;
-    }
-    ret = ldb_msg_add_string(msg, "cn", domain_name);
-    if (ret != LDB_SUCCESS) {
-        ret = EIO;
-        goto done;
-    }
-    /* do a synchronous add */
-    ret = ldb_add(sysdb->ldb, msg);
-    if (ret != LDB_SUCCESS) {
-        DEBUG(SSSDBG_FATAL_FAILURE, "Failed to initialize DB (%d, [%s]) "
-                                     "for domain %s!\n",
-                                     ret, ldb_errstring(sysdb->ldb),
-                                     domain_name);
-        ret = EIO;
-        goto done;
-    }
-    talloc_zfree(msg);
-
-    /* == create Users tree == */
-
-    msg = ldb_msg_new(tmp_ctx);
-    if (!msg) {
-        ret = ENOMEM;
-        goto done;
-    }
-    msg->dn = ldb_dn_new_fmt(msg, sysdb->ldb,
-                             SYSDB_TMPL_USER_BASE, domain_name);
-    if (!msg->dn) {
-        ret = ENOMEM;
-        goto done;
-    }
-    ret = ldb_msg_add_string(msg, "cn", "Users");
-    if (ret != LDB_SUCCESS) {
-        ret = EIO;
-        goto done;
-    }
-    /* do a synchronous add */
-    ret = ldb_add(sysdb->ldb, msg);
-    if (ret != LDB_SUCCESS) {
-        DEBUG(SSSDBG_FATAL_FAILURE, "Failed to initialize DB (%d, [%s]) "
-                                     "for domain %s!\n",
-                                     ret, ldb_errstring(sysdb->ldb),
-                                     domain_name);
-        ret = EIO;
-        goto done;
-    }
-    talloc_zfree(msg);
-
-    /* == create Groups tree == */
-
-    msg = ldb_msg_new(tmp_ctx);
-    if (!msg) {
-        ret = ENOMEM;
-        goto done;
-    }
-    msg->dn = ldb_dn_new_fmt(msg, sysdb->ldb,
-                             SYSDB_TMPL_GROUP_BASE, domain_name);
-    if (!msg->dn) {
-        ret = ENOMEM;
-        goto done;
-    }
-    ret = ldb_msg_add_string(msg, "cn", "Groups");
-    if (ret != LDB_SUCCESS) {
-        ret = EIO;
-        goto done;
-    }
-    /* do a synchronous add */
-    ret = ldb_add(sysdb->ldb, msg);
-    if (ret != LDB_SUCCESS) {
-        DEBUG(SSSDBG_FATAL_FAILURE, "Failed to initialize DB (%d, [%s]) for "
-                                     "domain %s!\n",
-                                     ret, ldb_errstring(sysdb->ldb),
-                                     domain_name);
-        ret = EIO;
-        goto done;
-    }
-    talloc_zfree(msg);
-
-    ret = EOK;
-
-done:
-    talloc_zfree(tmp_ctx);
-    return ret;
-}
-
-/* Compare versions of sysdb, returns ERRNO accordingly */
-static errno_t
-sysdb_version_check(const char *expected,
-                    const char *received)
-{
-    int ret;
-    unsigned int exp_major, exp_minor, recv_major, recv_minor;
-
-    ret = sscanf(expected, "%u.%u", &exp_major, &exp_minor);
-    if (ret != 2) {
-        return EINVAL;
-    }
-    ret = sscanf(received, "%u.%u", &recv_major, &recv_minor);
-    if (ret != 2) {
-        return EINVAL;
-    }
-
-    if (recv_major > exp_major) {
-        return EUCLEAN;
-    } else if (recv_major < exp_major) {
-        return EMEDIUMTYPE;
-    }
-
-    if (recv_minor > exp_minor) {
-        return EUCLEAN;
-    } else if (recv_minor < exp_minor) {
-        return EMEDIUMTYPE;
-    }
-
-    return EOK;
-}
-
-int sysdb_domain_init_internal(TALLOC_CTX *mem_ctx,
-                               struct sss_domain_info *domain,
-                               const char *db_path,
-                               bool allow_upgrade,
-                               struct sysdb_ctx **_ctx)
-{
-    TALLOC_CTX *tmp_ctx = NULL;
-    struct sysdb_ctx *sysdb;
-    const char *base_ldif;
-    struct ldb_ldif *ldif;
-    struct ldb_message_element *el;
-    struct ldb_result *res;
-    struct ldb_dn *verdn;
-    const char *version = NULL;
-    int ret;
-
-    sysdb = talloc_zero(mem_ctx, struct sysdb_ctx);
-    if (!sysdb) {
-        return ENOMEM;
-    }
-
-    ret = sysdb_get_db_file(sysdb, domain->provider,
-                            domain->name, db_path,
-                            &sysdb->ldb_file);
-    if (ret != EOK) {
-        goto done;
-    }
-    DEBUG(SSSDBG_FUNC_DATA,
-          "DB File for %s: %s\n", domain->name, sysdb->ldb_file);
-
-    ret = sysdb_ldb_connect(sysdb, sysdb->ldb_file, &sysdb->ldb);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "sysdb_ldb_connect failed.\n");
-        goto done;
-    }
-
-    tmp_ctx = talloc_new(NULL);
-    if (!tmp_ctx) {
-        ret = ENOMEM;
-        goto done;
-    }
-
-    verdn = ldb_dn_new(tmp_ctx, sysdb->ldb, SYSDB_BASE);
-    if (!verdn) {
-        ret = EIO;
-        goto done;
-    }
-
-    ret = ldb_search(sysdb->ldb, tmp_ctx, &res,
-                     verdn, LDB_SCOPE_BASE,
-                     NULL, NULL);
-    if (ret != LDB_SUCCESS) {
-        ret = EIO;
-        goto done;
-    }
-    if (res->count > 1) {
-        ret = EIO;
-        goto done;
-    }
-
-    if (res->count == 1) {
-        el = ldb_msg_find_element(res->msgs[0], "version");
-        if (!el) {
-            ret = EIO;
-            goto done;
-        }
-
-        if (el->num_values != 1) {
-            ret = EINVAL;
-            goto done;
-        }
-        version = talloc_strndup(tmp_ctx,
-                                 (char *)(el->values[0].data),
-                                 el->values[0].length);
-        if (!version) {
-            ret = ENOMEM;
-            goto done;
-        }
-
-        if (strcmp(version, SYSDB_VERSION) == 0) {
-            /* all fine, return */
-            ret = EOK;
-            goto done;
-        }
-
-        if (!allow_upgrade) {
-            DEBUG(SSSDBG_FATAL_FAILURE,
-                  "Wrong DB version (got %s expected %s)\n",
-                   version, SYSDB_VERSION);
-            ret = sysdb_version_check(SYSDB_VERSION, version);
-            goto done;
-        }
-
-        DEBUG(SSSDBG_CONF_SETTINGS, "Upgrading DB [%s] from version: %s\n",
-                  domain->name, version);
-
-        if (strcmp(version, SYSDB_VERSION_0_3) == 0) {
-            ret = sysdb_upgrade_03(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_4) == 0) {
-            ret = sysdb_upgrade_04(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_5) == 0) {
-            ret = sysdb_upgrade_05(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_6) == 0) {
-            ret = sysdb_upgrade_06(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_7) == 0) {
-            ret = sysdb_upgrade_07(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_8) == 0) {
-            ret = sysdb_upgrade_08(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_9) == 0) {
-            ret = sysdb_upgrade_09(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_10) == 0) {
-            ret = sysdb_upgrade_10(sysdb, domain, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_11) == 0) {
-            ret = sysdb_upgrade_11(sysdb, domain, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_12) == 0) {
-            ret = sysdb_upgrade_12(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_13) == 0) {
-            ret = sysdb_upgrade_13(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_14) == 0) {
-            ret = sysdb_upgrade_14(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_15) == 0) {
-            ret = sysdb_upgrade_15(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        if (strcmp(version, SYSDB_VERSION_0_16) == 0) {
-            ret = sysdb_upgrade_16(sysdb, &version);
-            if (ret != EOK) {
-                goto done;
-            }
-        }
-
-        /* The version should now match SYSDB_VERSION.
-         * If not, it means we didn't match any of the
-         * known older versions. The DB might be
-         * corrupt or generated by a newer version of
-         * SSSD.
-         */
-        if (strcmp(version, SYSDB_VERSION) == 0) {
-            /* The cache has been upgraded.
-             * We need to reopen the LDB to ensure that
-             * any changes made above take effect.
-             */
-            talloc_zfree(sysdb->ldb);
-            ret = sysdb_ldb_connect(sysdb, sysdb->ldb_file, &sysdb->ldb);
-            if (ret != EOK) {
-                DEBUG(SSSDBG_CRIT_FAILURE, "sysdb_ldb_connect failed.\n");
-            }
-            goto done;
-        }
-
-        DEBUG(SSSDBG_FATAL_FAILURE,
-              "Unknown DB version [%s], expected [%s] for domain %s!\n",
-              version, SYSDB_VERSION, domain->name);
-        ret = sysdb_version_check(SYSDB_VERSION, version);
-        goto done;
-    }
-
-    /* SYSDB_BASE does not exists, means db is empty, populate */
-
-    base_ldif = SYSDB_BASE_LDIF;
-    while ((ldif = ldb_ldif_read_string(sysdb->ldb, &base_ldif))) {
-        ret = ldb_add(sysdb->ldb, ldif->msg);
-        if (ret != LDB_SUCCESS) {
-            DEBUG(SSSDBG_FATAL_FAILURE,
-                  "Failed to initialize DB (%d, [%s]) for domain %s!\n",
-                      ret, ldb_errstring(sysdb->ldb), domain->name);
-            ret = EIO;
-            goto done;
-        }
-        ldb_ldif_read_free(sysdb->ldb, ldif);
-    }
-
-    ret = sysdb_domain_create(sysdb, domain->name);
-    if (ret != EOK) {
-        goto done;
-    }
-
-    /* The cache has been newly created.
-     * We need to reopen the LDB to ensure that
-     * all of the special values take effect
-     * (such as enabling the memberOf plugin and
-     * the various indexes).
-     */
-    talloc_zfree(sysdb->ldb);
-    ret = sysdb_ldb_connect(sysdb, sysdb->ldb_file, &sysdb->ldb);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "sysdb_ldb_connect failed.\n");
-    }
-
-done:
-    talloc_free(tmp_ctx);
-    if (ret == EOK) {
-        *_ctx = sysdb;
-    } else {
-        talloc_free(sysdb);
-    }
-    return ret;
-}
-
-int sysdb_init(TALLOC_CTX *mem_ctx,
-               struct sss_domain_info *domains,
-               bool allow_upgrade)
-{
-    return sysdb_init_ext(mem_ctx, domains, allow_upgrade, false, 0, 0);
-}
-
-int sysdb_init_ext(TALLOC_CTX *mem_ctx,
-                   struct sss_domain_info *domains,
-                   bool allow_upgrade,
-                   bool chown_dbfile,
-                   uid_t uid,
-                   gid_t gid)
-{
-    struct sss_domain_info *dom;
-    struct sysdb_ctx *sysdb;
-    int ret;
-
-    if (allow_upgrade) {
-        /* check if we have an old sssd.ldb to upgrade */
-        ret = sysdb_check_upgrade_02(domains, DB_PATH);
-        if (ret != EOK) {
-            return ret;
-        }
-    }
-
-    /* open a db for each domain */
-    for (dom = domains; dom; dom = dom->next) {
-
-        ret = sysdb_domain_init_internal(mem_ctx, dom, DB_PATH,
-                                         allow_upgrade, &sysdb);
-        if (ret != EOK) {
-            return ret;
-        }
-
-        if (chown_dbfile) {
-            ret = chown(sysdb->ldb_file, uid, gid);
-            if (ret != 0) {
-                ret = errno;
-                DEBUG(SSSDBG_CRIT_FAILURE,
-                      "Cannot set sysdb ownership to %"SPRIuid":%"SPRIgid"\n",
-                      uid, gid);
-                return ret;
-            }
-        }
-
-        dom->sysdb = talloc_move(dom, &sysdb);
-    }
-
-    return EOK;
-}
-
-int sysdb_domain_init(TALLOC_CTX *mem_ctx,
-                      struct sss_domain_info *domain,
-                      const char *db_path,
-                      struct sysdb_ctx **_ctx)
-{
-    return sysdb_domain_init_internal(mem_ctx, domain,
-                                      db_path, false, _ctx);
-}
-
 int compare_ldb_dn_comp_num(const void *m1, const void *m2)
 {
     struct ldb_message *msg1 = talloc_get_type(*(void **) discard_const(m1),
@@ -1968,12 +1442,13 @@ done:
     return ret;
 }
 
-errno_t sysdb_attrs_primary_name_list(struct sysdb_ctx *sysdb,
-                                      TALLOC_CTX *mem_ctx,
-                                      struct sysdb_attrs **attr_list,
-                                      size_t attr_count,
-                                      const char *ldap_attr,
-                                      char ***name_list)
+static errno_t _sysdb_attrs_primary_name_list(struct sss_domain_info *domain,
+                                              TALLOC_CTX *mem_ctx,
+                                              struct sysdb_attrs **attr_list,
+                                              size_t attr_count,
+                                              const char *ldap_attr,
+                                              bool qualify_names,
+                                              char ***name_list)
 {
     errno_t ret;
     size_t i, j;
@@ -1988,7 +1463,7 @@ errno_t sysdb_attrs_primary_name_list(struct sysdb_ctx *sysdb,
 
     j = 0;
     for (i = 0; i < attr_count; i++) {
-        ret = sysdb_attrs_primary_name(sysdb,
+        ret = sysdb_attrs_primary_name(domain->sysdb,
                                        attr_list[i],
                                        ldap_attr,
                                        &name);
@@ -1998,7 +1473,11 @@ errno_t sysdb_attrs_primary_name_list(struct sysdb_ctx *sysdb,
             continue;
         }
 
-        list[j] = talloc_strdup(list, name);
+        if (qualify_names == false) {
+            list[j] = talloc_strdup(list, name);
+        } else {
+            list[j] = sss_create_internal_fqname(list, name, domain->name);
+        }
         if (!list[j]) {
             ret = ENOMEM;
             goto done;
@@ -2019,6 +1498,30 @@ done:
         talloc_free(list);
     }
     return ret;
+}
+
+errno_t sysdb_attrs_primary_name_list(struct sss_domain_info *domain,
+                                      TALLOC_CTX *mem_ctx,
+                                      struct sysdb_attrs **attr_list,
+                                      size_t attr_count,
+                                      const char *ldap_attr,
+                                      char ***name_list)
+{
+    return _sysdb_attrs_primary_name_list(domain, mem_ctx, attr_list,
+                                          attr_count, ldap_attr,
+                                          false, name_list);
+}
+
+errno_t sysdb_attrs_primary_fqdn_list(struct sss_domain_info *domain,
+                                      TALLOC_CTX *mem_ctx,
+                                      struct sysdb_attrs **attr_list,
+                                      size_t attr_count,
+                                      const char *ldap_attr,
+                                      char ***name_list)
+{
+    return _sysdb_attrs_primary_name_list(domain, mem_ctx, attr_list,
+                                          attr_count, ldap_attr,
+                                          true, name_list);
 }
 
 errno_t sysdb_msg2attrs(TALLOC_CTX *mem_ctx, size_t count,
@@ -2048,6 +1551,42 @@ errno_t sysdb_msg2attrs(TALLOC_CTX *mem_ctx, size_t count,
     *attrs = a;
 
     return EOK;
+}
+
+struct ldb_message *sysdb_attrs2msg(TALLOC_CTX *mem_ctx,
+                                    struct ldb_dn *entry_dn,
+                                    struct sysdb_attrs *attrs,
+                                    int mod_op)
+{
+    struct ldb_message *msg;
+    errno_t ret;
+
+    msg = ldb_msg_new(mem_ctx);
+    if (msg == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    msg->dn = entry_dn;
+
+    msg->elements = talloc_array(msg, struct ldb_message_element, attrs->num);
+    if (msg->elements == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    for (int i = 0; i < attrs->num; i++) {
+        msg->elements[i] = attrs->a[i];
+        msg->elements[i].flags = mod_op;
+    }
+    msg->num_elements = attrs->num;
+
+    ret = EOK;
+done:
+    if (ret != EOK) {
+        talloc_zfree(msg);
+    }
+    return msg;
 }
 
 int sysdb_compare_usn(const char *a, const char *b)
@@ -2208,4 +1747,191 @@ int sysdb_delete_ulong(struct ldb_message *msg,
                        const char *attr, unsigned long value)
 {
     return sysdb_ldb_msg_ulong_helper(msg, LDB_FLAG_MOD_DELETE, attr, value);
+}
+
+bool is_ts_ldb_dn(struct ldb_dn *dn)
+{
+    const char *sysdb_comp_name = NULL;
+    const struct ldb_val *sysdb_comp_val = NULL;
+
+    if (dn == NULL) {
+        return false;
+    }
+
+    sysdb_comp_name = ldb_dn_get_component_name(dn, 1);
+    if (strcasecmp("cn", sysdb_comp_name) != 0) {
+        /* The second component name is not "cn" */
+        return false;
+    }
+
+    sysdb_comp_val = ldb_dn_get_component_val(dn, 1);
+    if (strncasecmp("users",
+                    (const char *) sysdb_comp_val->data,
+                    sysdb_comp_val->length) == 0) {
+        return true;
+    }
+
+    sysdb_comp_val = ldb_dn_get_component_val(dn, 1);
+    if (strncasecmp("groups",
+                    (const char *) sysdb_comp_val->data,
+                    sysdb_comp_val->length) == 0) {
+        return true;
+    }
+
+    return false;
+}
+
+bool sysdb_msg_attrs_modts_differs(struct ldb_message *old_entry,
+                                   struct sysdb_attrs *new_entry)
+{
+    const char *old_entry_ts_attr = NULL;
+    const char *new_entry_ts_attr = NULL;
+    errno_t ret;
+
+    old_entry_ts_attr = ldb_msg_find_attr_as_string(old_entry,
+                                                    SYSDB_ORIG_MODSTAMP,
+                                                    NULL);
+    if (old_entry_ts_attr == NULL) {
+        /* we didn't know the originalModifyTimestamp earlier. Regardless
+         * of whether the new_entry has the timestamp, we should do
+         * a comparison of the attributes
+         */
+        return true;
+    }
+
+    if (new_entry == NULL) {
+        return false;
+    }
+
+    ret = sysdb_attrs_get_string(new_entry, SYSDB_ORIG_MODSTAMP,
+                                 &new_entry_ts_attr);
+    if (ret != EOK) {
+        /* Nothing to compare against in the new entry either, do
+         * a comparison of the attributes
+         */
+        return true;
+    }
+
+    if (old_entry_ts_attr != NULL
+            && new_entry_ts_attr != NULL
+            && strcmp(old_entry_ts_attr, new_entry_ts_attr) == 0) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool sysdb_ldb_msg_difference(struct ldb_message *db_msg,
+                                     struct ldb_message *mod_msg)
+{
+    struct ldb_message_element *mod_msg_el;
+    struct ldb_message_element *db_msg_el;
+    int el_differs;
+
+    for (unsigned i = 0; i < mod_msg->num_elements; i++) {
+        mod_msg_el = &mod_msg->elements[i];
+
+        switch (mod_msg_el->flags) {
+        case 0:
+        /* Unspecified flags are internally converted to SYSDB_MOD_REP in
+         * sysdb_set_group_attr, do the same here
+         */
+        case SYSDB_MOD_ADD:
+        case SYSDB_MOD_REP:
+            db_msg_el = ldb_msg_find_element(db_msg, mod_msg_el->name);
+            if (db_msg_el == NULL) {
+                /* The attribute to be added does not exist in the target
+                 * message, this is a modification. Special-case adding
+                 * empty elements which also do not exist in the target
+                 * message. This is how sysdb callers ensure a particular
+                 * element is not present in the database.
+                 */
+                if (mod_msg_el->num_values > 0) {
+                    /* We can ignore additions of timestamp attributes */
+                    return true;
+                }
+                break;
+            }
+
+            el_differs = ldb_msg_element_compare(db_msg_el, mod_msg_el);
+            if (el_differs) {
+                /* We are replacing or extending element, there is a difference. If
+                 * some values already exist and ldb_add is not permissive,
+                 * ldb will throw an error, but that's not our job to check..
+                 */
+                if (is_ts_cache_attr(mod_msg_el->name) == false) {
+                    /* We can ignore changes to timestamp attributes */
+                    return true;
+                }
+            }
+            break;
+        case SYSDB_MOD_DEL:
+            db_msg_el = ldb_msg_find_element(db_msg, mod_msg_el->name);
+            if (db_msg_el != NULL) {
+                /* We are deleting a valid element, there is a difference */
+                return true;
+            }
+            break;
+        }
+    }
+
+    return false;
+}
+
+bool sysdb_entry_attrs_diff(struct sysdb_ctx *sysdb,
+                            struct ldb_dn *entry_dn,
+                            struct sysdb_attrs *attrs,
+                            int mod_op)
+{
+    struct ldb_message *new_entry_msg = NULL;
+    TALLOC_CTX *tmp_ctx;
+    bool differs = true;
+    int lret;
+    errno_t ret;
+    struct ldb_result *res;
+    const char *attrnames[attrs->num+1];
+
+    if (sysdb->ldb_ts == NULL) {
+        return true;
+    }
+
+    if (is_ts_ldb_dn(entry_dn) == false) {
+        return true;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        goto done;
+    }
+
+    new_entry_msg = sysdb_attrs2msg(tmp_ctx, entry_dn,
+                                    attrs, mod_op);
+    if (new_entry_msg == NULL) {
+        goto done;
+    }
+
+    for (int i = 0; i < attrs->num; i++) {
+        attrnames[i] = attrs->a[i].name;
+    }
+    attrnames[attrs->num] = NULL;
+
+    lret = ldb_search(sysdb->ldb, tmp_ctx, &res, entry_dn, LDB_SCOPE_BASE,
+                      attrnames, NULL);
+    if (lret != LDB_SUCCESS) {
+        ret = sysdb_error_to_errno(lret);
+        DEBUG(SSSDBG_MINOR_FAILURE, "Cannot search sysdb: %d\n", ret);
+        goto done;
+    }
+
+    if (res->count == 0) {
+        return true;
+    } else if (res->count != 1) {
+        ret = EIO;
+        goto done;
+    }
+
+    differs = sysdb_ldb_msg_difference(res->msgs[0], new_entry_msg);
+done:
+    talloc_free(tmp_ctx);
+    return differs;
 }

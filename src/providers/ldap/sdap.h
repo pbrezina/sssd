@@ -22,7 +22,7 @@
 #ifndef _SDAP_H_
 #define _SDAP_H_
 
-#include "providers/dp_backend.h"
+#include "providers/backend.h"
 #include <ldap.h>
 #include "util/sss_ldap.h"
 
@@ -284,6 +284,7 @@ enum sdap_user_attrs {
     SDAP_AT_USER_SSH_PUBLIC_KEY,
     SDAP_AT_USER_AUTH_TYPE,
     SDAP_AT_USER_CERT,
+    SDAP_AT_USER_EMAIL,
 
     SDAP_OPTS_USER /* attrs counter */
 };

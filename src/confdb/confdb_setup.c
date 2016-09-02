@@ -31,7 +31,7 @@
 #include "tools/tools_util.h"
 
 
-int confdb_test(struct confdb_ctx *cdb)
+static int confdb_test(struct confdb_ctx *cdb)
 {
     char **values;
     int ret;
@@ -74,7 +74,8 @@ int confdb_test(struct confdb_ctx *cdb)
 
 static int confdb_purge(struct confdb_ctx *cdb)
 {
-    int ret, i;
+    int ret;
+    unsigned int i;
     TALLOC_CTX *tmp_ctx;
     struct ldb_result *res;
     struct ldb_dn *dn;
@@ -106,7 +107,7 @@ done:
     return ret;
 }
 
-int confdb_create_base(struct confdb_ctx *cdb)
+static int confdb_create_base(struct confdb_ctx *cdb)
 {
     int ret;
     struct ldb_ldif *ldif;
@@ -127,20 +128,19 @@ int confdb_create_base(struct confdb_ctx *cdb)
     return EOK;
 }
 
-int confdb_init_db(const char *config_file, struct confdb_ctx *cdb)
+static int confdb_init_db(const char *config_file, const char *config_dir,
+                          struct confdb_ctx *cdb)
 {
     TALLOC_CTX *tmp_ctx;
     int ret;
     int sret = EOK;
     int version;
     char timestr[21];
-    char *lasttimestr;
     bool in_transaction = false;
     const char *config_ldif;
     const char *vals[2] = { timestr, NULL };
     struct ldb_ldif *ldif;
     struct sss_ini_initdata *init_data;
-
 
     tmp_ctx = talloc_new(cdb);
     if (tmp_ctx == NULL) {
@@ -206,9 +206,6 @@ int confdb_init_db(const char *config_file, struct confdb_ctx *cdb)
         goto done;
     }
 
-    /* Determine if the conf file has changed since we last updated
-     * the confdb
-     */
     ret = sss_ini_get_stat(init_data);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE,
@@ -220,30 +217,28 @@ int confdb_init_db(const char *config_file, struct confdb_ctx *cdb)
     errno = 0;
 
     ret = sss_ini_get_mtime(init_data, sizeof(timestr), timestr);
-    if (ret <= 0 || ret >= sizeof(timestr)) {
+    if (ret <= 0 || ret >= (int)sizeof(timestr)) {
         DEBUG(SSSDBG_FATAL_FAILURE,
               "Failed to convert time_t to string ??\n");
         ret = errno ? errno : EFAULT;
     }
-    ret = confdb_get_string(cdb, tmp_ctx, "config", "lastUpdate",
-                            NULL, &lasttimestr);
-    if (ret == EOK) {
 
-        /* check if we lastUpdate and last file modification change differ*/
-        if ((lasttimestr != NULL) && (strcmp(lasttimestr, timestr) == 0)) {
-            /* not changed, get out, nothing more to do */
-            ret = EOK;
-            goto done;
-        }
-    } else {
-        DEBUG(SSSDBG_FATAL_FAILURE, "Failed to get lastUpdate attribute.\n");
-        goto done;
-    }
+    /* FIXME: Determine if the conf file or any snippet has changed
+     * since we last updated the confdb or if some snippet was
+     * added or removed.
+     */
 
-    ret = sss_ini_get_config(init_data, config_file);
+    ret = sss_ini_get_config(init_data, config_file, config_dir);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "Failed to load configuration\n");
         goto done;
+    }
+
+    ret = sss_ini_call_validators(init_data,
+                                  SSSDDATADIR"/cfg_rules.ini");
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Failed to call validators\n");
+        /* This is not fatal, continue */
     }
 
     /* Make sure that the config file version matches the confdb version */
@@ -352,5 +347,80 @@ done:
     sss_ini_close_file(init_data);
 
     talloc_zfree(tmp_ctx);
+    return ret;
+}
+
+errno_t confdb_setup(TALLOC_CTX *mem_ctx,
+                     const char *cdb_file,
+                     const char *config_file,
+                     const char *config_dir,
+                     struct confdb_ctx **_cdb)
+{
+    TALLOC_CTX *tmp_ctx;
+    struct confdb_ctx *cdb;
+    errno_t ret;
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_new() failed\n");
+        return ENOMEM;
+    }
+
+    ret = confdb_init(tmp_ctx, &cdb, cdb_file);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "The confdb initialization failed "
+              "[%d]: %s\n", ret, sss_strerror(ret));
+        goto done;
+    }
+
+    /* Initialize the CDB from the configuration file */
+    ret = confdb_test(cdb);
+    if (ret == ENOENT) {
+        /* First-time setup */
+
+        /* Purge any existing confdb in case an old
+         * misconfiguration gets in the way
+         */
+        talloc_zfree(cdb);
+        ret = unlink(cdb_file);
+        if (ret != EOK && errno != ENOENT) {
+            ret = errno;
+            DEBUG(SSSDBG_MINOR_FAILURE,
+                  "Purging existing confdb failed: %d [%s].\n",
+                  ret, sss_strerror(ret));
+            goto done;
+        }
+
+        ret = confdb_init(tmp_ctx, &cdb, cdb_file);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_FATAL_FAILURE, "The confdb initialization failed "
+                  "[%d]: %s\n", ret, sss_strerror(ret));
+        }
+
+        /* Load special entries */
+        ret = confdb_create_base(cdb);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_FATAL_FAILURE,
+                  "Unable to load special entries into confdb\n");
+            goto done;
+        }
+    } else if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "Fatal error initializing confdb\n");
+        goto done;
+    }
+
+    ret = confdb_init_db(config_file, config_dir, cdb);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "ConfDB initialization has failed "
+              "[%d]: %s\n", ret, sss_strerror(ret));
+        goto done;
+    }
+
+    *_cdb = talloc_steal(mem_ctx, cdb);
+
+    ret = EOK;
+
+done:
+    talloc_free(tmp_ctx);
     return ret;
 }

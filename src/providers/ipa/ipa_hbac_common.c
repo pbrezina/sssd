@@ -261,7 +261,6 @@ hbac_attrs_to_rule(TALLOC_CTX *mem_ctx,
                    size_t idx,
                    struct hbac_rule **rule)
 {
-    struct be_ctx *be_ctx = be_req_get_be_ctx(hbac_ctx->be_req);
     errno_t ret;
     struct hbac_rule *new_rule;
     struct ldb_message_element *el;
@@ -305,7 +304,7 @@ hbac_attrs_to_rule(TALLOC_CTX *mem_ctx,
     }
 
     /* Get the users */
-    ret = hbac_user_attrs_to_rule(new_rule, be_ctx->domain,
+    ret = hbac_user_attrs_to_rule(new_rule, hbac_ctx->be_ctx->domain,
                                   new_rule->name,
                                   hbac_ctx->rules[idx],
                                   &new_rule->users);
@@ -316,7 +315,7 @@ hbac_attrs_to_rule(TALLOC_CTX *mem_ctx,
     }
 
     /* Get the services */
-    ret = hbac_service_attrs_to_rule(new_rule, be_ctx->domain,
+    ret = hbac_service_attrs_to_rule(new_rule, hbac_ctx->be_ctx->domain,
                                      new_rule->name,
                                      hbac_ctx->rules[idx],
                                      &new_rule->services);
@@ -327,7 +326,7 @@ hbac_attrs_to_rule(TALLOC_CTX *mem_ctx,
     }
 
     /* Get the target hosts */
-    ret = hbac_thost_attrs_to_rule(new_rule, be_ctx->domain,
+    ret = hbac_thost_attrs_to_rule(new_rule, hbac_ctx->be_ctx->domain,
                                    new_rule->name,
                                    hbac_ctx->rules[idx],
                                    &new_rule->targethosts);
@@ -340,7 +339,7 @@ hbac_attrs_to_rule(TALLOC_CTX *mem_ctx,
 
     /* Get the source hosts */
 
-    ret = hbac_shost_attrs_to_rule(new_rule, be_ctx->domain,
+    ret = hbac_shost_attrs_to_rule(new_rule, hbac_ctx->be_ctx->domain,
                                    new_rule->name,
                                    hbac_ctx->rules[idx],
                                    dp_opt_get_bool(hbac_ctx->ipa_options,
@@ -425,8 +424,7 @@ hbac_ctx_to_eval_request(TALLOC_CTX *mem_ctx,
     struct pam_data *pd = hbac_ctx->pd;
     TALLOC_CTX *tmp_ctx;
     struct hbac_eval_req *eval_req;
-    struct be_ctx *be_ctx = be_req_get_be_ctx(hbac_ctx->be_req);
-    struct sss_domain_info *domain = be_ctx->domain;
+    struct sss_domain_info *domain = hbac_ctx->be_ctx->domain;
     const char *rhost;
     const char *thost;
     struct sss_domain_info *user_dom;
@@ -517,6 +515,7 @@ hbac_eval_user_element(TALLOC_CTX *mem_ctx,
     struct ldb_message *msg;
     struct ldb_message_element *el;
     const char *attrs[] = { SYSDB_ORIG_MEMBEROF, NULL };
+    char *shortname;
 
     tmp_ctx = talloc_new(mem_ctx);
     if (tmp_ctx == NULL) return ENOMEM;
@@ -527,13 +526,18 @@ hbac_eval_user_element(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    users->name = username;
+    ret = sss_parse_internal_fqname(tmp_ctx, username, &shortname, NULL);
+    if (ret != EOK) {
+        ret = ERR_WRONG_NAME_FORMAT;
+        goto done;
+    }
+    users->name = talloc_steal(users, shortname);
 
     /* Read the originalMemberOf attribute
      * This will give us the list of both POSIX and
      * non-POSIX groups that this user belongs to.
      */
-    ret = sysdb_search_user_by_name(tmp_ctx, domain, users->name,
+    ret = sysdb_search_user_by_name(tmp_ctx, domain, username,
                                     attrs, &msg);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,

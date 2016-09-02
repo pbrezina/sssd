@@ -32,7 +32,7 @@
 errno_t sdap_add_incomplete_groups(struct sysdb_ctx *sysdb,
                                    struct sss_domain_info *domain,
                                    struct sdap_options *opts,
-                                   char **groupnames,
+                                   char **sysdb_groupnames,
                                    struct sysdb_attrs **ldap_groups,
                                    int ldap_groups_count)
 {
@@ -52,7 +52,6 @@ errno_t sdap_add_incomplete_groups(struct sysdb_ctx *sysdb,
     char *sid_str = NULL;
     bool use_id_mapping;
     bool need_filter;
-    char *tmp_name;
 
     /* There are no groups in LDAP but we should add user to groups ?? */
     if (ldap_groups_count == 0) return EOK;
@@ -67,24 +66,16 @@ errno_t sdap_add_incomplete_groups(struct sysdb_ctx *sysdb,
     }
     mi = 0;
 
-    for (i=0; groupnames[i]; i++) {
-        tmp_name = sss_get_domain_name(tmp_ctx, groupnames[i], domain);
-        if (tmp_name == NULL) {
-            DEBUG(SSSDBG_OP_FAILURE,
-                  "Failed to format original name [%s]\n", groupnames[i]);
-            ret = ENOMEM;
-            goto done;
-        }
-
-        ret = sysdb_search_group_by_name(tmp_ctx, domain, tmp_name, NULL,
+    for (i=0; sysdb_groupnames[i]; i++) {
+        ret = sysdb_search_group_by_name(tmp_ctx, domain, sysdb_groupnames[i], NULL,
                                          &msg);
         if (ret == EOK) {
             continue;
         } else if (ret == ENOENT) {
-            missing[mi] = talloc_steal(missing, tmp_name);
+            missing[mi] = talloc_strdup(missing, sysdb_groupnames[i]);
             DEBUG(SSSDBG_TRACE_LIBS, "Group #%d [%s][%s] is not cached, " \
                       "need to add a fake entry\n",
-                      i, groupnames[i], missing[mi]);
+                      i, sysdb_groupnames[i], missing[mi]);
             mi++;
             continue;
         } else if (ret != ENOENT) {
@@ -278,6 +269,7 @@ int sdap_initgr_common_store(struct sysdb_ctx *sysdb,
 {
     TALLOC_CTX *tmp_ctx;
     char **ldap_grouplist = NULL;
+    char **ldap_fqdnlist = NULL;
     char **add_groups;
     char **del_groups;
     int ret, tret;
@@ -294,7 +286,7 @@ int sdap_initgr_common_store(struct sysdb_ctx *sysdb,
         ldap_grouplist = NULL;
     } else {
         ret = sysdb_attrs_primary_name_list(
-                sysdb, tmp_ctx,
+                domain, tmp_ctx,
                 ldap_groups, ldap_groups_count,
                 opts->group_map[SDAP_AT_GROUP_NAME].name,
                 &ldap_grouplist);
@@ -309,7 +301,18 @@ int sdap_initgr_common_store(struct sysdb_ctx *sysdb,
     /* Find the differences between the sysdb and LDAP lists
      * Groups in the sysdb only must be removed.
      */
-    ret = diff_string_lists(tmp_ctx, ldap_grouplist, sysdb_grouplist,
+    if (ldap_grouplist != NULL) {
+        ldap_fqdnlist = sss_create_internal_fqname_list(
+                                            tmp_ctx,
+                                            (const char * const *) ldap_grouplist,
+                                            domain->name);
+        if (ldap_fqdnlist == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+    }
+
+    ret = diff_string_lists(tmp_ctx, ldap_fqdnlist, sysdb_grouplist,
                             &add_groups, &del_groups, NULL);
     if (ret != EOK) goto done;
 
@@ -400,6 +403,7 @@ struct tevent_req *sdap_initgr_rfc2307_send(TALLOC_CTX *memctx,
     struct sdap_initgr_rfc2307_state *state;
     const char **attr_filter;
     char *clean_name;
+    char *shortname;
     errno_t ret;
     char *oc_list;
 
@@ -447,7 +451,14 @@ struct tevent_req *sdap_initgr_rfc2307_send(TALLOC_CTX *memctx,
         return NULL;
     }
 
-    ret = sss_filter_sanitize(state, name, &clean_name);
+    ret = sss_parse_internal_fqname(state, name,
+                                    &shortname, NULL);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, "Cannot parse %s\n", name);
+        goto done;
+    }
+
+    ret = sss_filter_sanitize(state, shortname, &clean_name);
     if (ret != EOK) {
         talloc_free(req);
         return NULL;
@@ -627,7 +638,7 @@ sdap_nested_groups_store(struct sysdb_ctx *sysdb,
     if (!tmp_ctx) return ENOMEM;
 
     if (count > 0) {
-        ret = sysdb_attrs_primary_name_list(sysdb, tmp_ctx,
+        ret = sysdb_attrs_primary_fqdn_list(domain, tmp_ctx,
                                             groups, count,
                                             opts->group_map[SDAP_AT_GROUP_NAME].name,
                                             &groupnamelist);
@@ -1209,6 +1220,7 @@ sdap_initgr_store_user_memberships(struct sdap_initgr_nested_state *state)
 
     char **sysdb_parent_name_list = NULL;
     char **ldap_parent_name_list = NULL;
+    char **ldap_fqdnlist = NULL;
 
     int nparents;
     struct sysdb_attrs **ldap_parentlist;
@@ -1265,7 +1277,7 @@ sdap_initgr_store_user_memberships(struct sdap_initgr_nested_state *state)
     if (nparents == 0) {
         ldap_parent_name_list = NULL;
     } else {
-        ret = sysdb_attrs_primary_name_list(state->sysdb, tmp_ctx,
+        ret = sysdb_attrs_primary_name_list(state->dom, tmp_ctx,
                                             ldap_parentlist,
                                             nparents,
                                             state->opts->group_map[SDAP_AT_GROUP_NAME].name,
@@ -1274,6 +1286,17 @@ sdap_initgr_store_user_memberships(struct sdap_initgr_nested_state *state)
             DEBUG(SSSDBG_CRIT_FAILURE,
                   "sysdb_attrs_primary_name_list failed [%d]: %s\n",
                       ret, strerror(ret));
+            goto done;
+        }
+    }
+
+    if (ldap_parent_name_list) {
+        ldap_fqdnlist = sss_create_internal_fqname_list(
+                                  tmp_ctx,
+                                  (const char * const *) ldap_parent_name_list,
+                                  state->dom->name);
+        if (ldap_fqdnlist == NULL) {
+            ret = ENOMEM;
             goto done;
         }
     }
@@ -1288,7 +1311,7 @@ sdap_initgr_store_user_memberships(struct sdap_initgr_nested_state *state)
     }
 
     ret = diff_string_lists(tmp_ctx,
-                            ldap_parent_name_list, sysdb_parent_name_list,
+                            ldap_fqdnlist, sysdb_parent_name_list,
                             &add_groups, &del_groups, NULL);
     if (ret != EOK) {
         goto done;
@@ -1391,7 +1414,7 @@ sdap_initgr_nested_get_membership_diff(TALLOC_CTX *mem_ctx,
                group_name, parents_count);
 
     if (parents_count > 0) {
-        ret = sysdb_attrs_primary_name_list(sysdb, tmp_ctx,
+        ret = sysdb_attrs_primary_name_list(dom, tmp_ctx,
                                             ldap_parentlist,
                                             parents_count,
                                             opts->group_map[SDAP_AT_GROUP_NAME].name,
@@ -2057,7 +2080,7 @@ rfc2307bis_group_memberships_build(hash_entry_t *item, void *user_data)
     }
 
     if (group->parents_count > 0) {
-        ret = sysdb_attrs_primary_name_list(mstate->sysdb, tmp_ctx,
+        ret = sysdb_attrs_primary_fqdn_list(mstate->dom, tmp_ctx,
                             group->ldap_parents, group->parents_count,
                             mstate->opts->group_map[SDAP_AT_GROUP_NAME].name,
                             &ldap_parents_names_list);
@@ -2093,8 +2116,6 @@ errno_t save_rfc2307bis_user_memberships(
     char **add_groups;
     char **del_groups;
     bool in_transaction = false;
-    size_t c;
-    char *tmp_str;
 
     TALLOC_CTX *tmp_ctx = talloc_new(NULL);
     if(!tmp_ctx) {
@@ -2122,27 +2143,13 @@ errno_t save_rfc2307bis_user_memberships(
         ldap_grouplist = NULL;
     }
     else {
-        ret = sysdb_attrs_primary_name_list(
-                state->sysdb, tmp_ctx,
+        ret = sysdb_attrs_primary_fqdn_list(
+                state->dom, tmp_ctx,
                 state->direct_groups, state->num_direct_parents,
                 state->opts->group_map[SDAP_AT_GROUP_NAME].name,
                 &ldap_grouplist);
         if (ret != EOK) {
             goto error;
-        }
-
-        if (IS_SUBDOMAIN(state->dom)) {
-            for (c = 0; ldap_grouplist[c] != NULL; c++) {
-                tmp_str = sss_tc_fqname(ldap_grouplist, state->dom->names,
-                                        state->dom, ldap_grouplist[c]);
-                if (tmp_str == NULL) {
-                    DEBUG(SSSDBG_OP_FAILURE, "sss_tc_fqname failed.\n");
-                    ret = ENOMEM;
-                    goto error;
-                }
-                talloc_free(ldap_grouplist[c]);
-                ldap_grouplist[c] = tmp_str;
-            }
         }
     }
 
@@ -2643,10 +2650,11 @@ struct sdap_get_initgr_state {
     struct sdap_handle *sh;
     struct sdap_id_ctx *id_ctx;
     struct sdap_id_conn_ctx *conn;
-    const char *name;
+    const char *filter_value;
     const char **grp_attrs;
     const char **user_attrs;
     char *user_base_filter;
+    char *shortname;
     char *filter;
     int timeout;
 
@@ -2668,8 +2676,8 @@ struct tevent_req *sdap_get_initgr_send(TALLOC_CTX *memctx,
                                         struct sdap_handle *sh,
                                         struct sdap_id_ctx *id_ctx,
                                         struct sdap_id_conn_ctx *conn,
-                                        const char *name,
-                                        int name_type,
+                                        const char *filter_value,
+                                        int filter_type,
                                         const char *extra_value,
                                         const char **grp_attrs)
 {
@@ -2678,7 +2686,8 @@ struct tevent_req *sdap_get_initgr_send(TALLOC_CTX *memctx,
     int ret;
     char *clean_name;
     bool use_id_mapping;
-    const char *search_attr;
+    const char *search_attr = NULL;
+    char *ep_filter;
 
     DEBUG(SSSDBG_TRACE_ALL, "Retrieving info for initgroups call\n");
 
@@ -2693,7 +2702,7 @@ struct tevent_req *sdap_get_initgr_send(TALLOC_CTX *memctx,
     state->sh = sh;
     state->id_ctx = id_ctx;
     state->conn = conn;
-    state->name = name;
+    state->filter_value = filter_value;
     state->grp_attrs = grp_attrs;
     state->orig_user = NULL;
     state->timeout = dp_opt_get_int(state->opts->basic, SDAP_SEARCH_TIMEOUT);
@@ -2711,34 +2720,88 @@ struct tevent_req *sdap_get_initgr_send(TALLOC_CTX *memctx,
                                                           sdom->dom->name,
                                                           sdom->dom->domain_id);
 
-    ret = sss_filter_sanitize(state, name, &clean_name);
-    if (ret != EOK) {
-        talloc_zfree(req);
-        return NULL;
-    }
+    switch (filter_type) {
+    case BE_FILTER_SECID:
+        search_attr =  state->opts->user_map[SDAP_AT_USER_OBJECTSID].name;
 
-    if (extra_value && strcmp(extra_value, EXTRA_NAME_IS_UPN) == 0) {
-        search_attr =  state->opts->user_map[SDAP_AT_USER_PRINC].name;
-    } else {
-        switch (name_type) {
-        case BE_FILTER_SECID:
-            search_attr =  state->opts->user_map[SDAP_AT_USER_OBJECTSID].name;
-            break;
-        case BE_FILTER_UUID:
-            search_attr =  state->opts->user_map[SDAP_AT_USER_UUID].name;
-            break;
-        default:
-            search_attr =  state->opts->user_map[SDAP_AT_USER_NAME].name;
+        ret = sss_filter_sanitize(state, state->filter_value, &clean_name);
+        if (ret != EOK) {
+            talloc_zfree(req);
+            return NULL;
         }
+        break;
+    case BE_FILTER_UUID:
+        search_attr =  state->opts->user_map[SDAP_AT_USER_UUID].name;
+
+        ret = sss_filter_sanitize(state, state->filter_value, &clean_name);
+        if (ret != EOK) {
+            talloc_zfree(req);
+            return NULL;
+        }
+        break;
+    case BE_FILTER_NAME:
+        if (extra_value && strcmp(extra_value, EXTRA_NAME_IS_UPN) == 0) {
+
+            ret = sss_filter_sanitize(state, state->filter_value, &clean_name);
+            if (ret != EOK) {
+                talloc_zfree(req);
+                return NULL;
+            }
+
+            ep_filter = get_enterprise_principal_string_filter(state,
+                                 state->opts->user_map[SDAP_AT_USER_PRINC].name,
+                                 clean_name, state->opts->basic);
+            state->user_base_filter =
+                    talloc_asprintf(state,
+                                 "(&(|(%s=%s)(%s=%s)%s)(objectclass=%s)",
+                                 state->opts->user_map[SDAP_AT_USER_PRINC].name,
+                                 clean_name,
+                                 state->opts->user_map[SDAP_AT_USER_EMAIL].name,
+                                 clean_name,
+                                 ep_filter == NULL ? "" : ep_filter,
+                                 state->opts->user_map[SDAP_OC_USER].name);
+            if (state->user_base_filter == NULL) {
+                talloc_zfree(req);
+                return NULL;
+            }
+        } else {
+            search_attr = state->opts->user_map[SDAP_AT_USER_NAME].name;
+
+            ret = sss_parse_internal_fqname(state, filter_value,
+                                            &state->shortname, NULL);
+            if (ret != EOK) {
+                DEBUG(SSSDBG_OP_FAILURE, "Cannot parse %s\n", filter_value);
+                goto done;
+            }
+
+            ret = sss_filter_sanitize(state, state->shortname, &clean_name);
+            if (ret != EOK) {
+                talloc_zfree(req);
+                return NULL;
+            }
+        }
+        break;
+    default:
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unsupported filter type [%d].\n",
+                                   filter_type);
+        return NULL;
     }
 
-    state->user_base_filter =
-            talloc_asprintf(state, "(&(%s=%s)(objectclass=%s)",
-                            search_attr, clean_name,
-                            state->opts->user_map[SDAP_OC_USER].name);
-    if (!state->user_base_filter) {
+    if (search_attr == NULL && state->user_base_filter == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "Missing search attribute name or filter.\n");
         talloc_zfree(req);
         return NULL;
+    }
+
+    if (state->user_base_filter == NULL) {
+        state->user_base_filter =
+                talloc_asprintf(state, "(&(%s=%s)(objectclass=%s)",
+                                search_attr, clean_name,
+                                state->opts->user_map[SDAP_OC_USER].name);
+        if (!state->user_base_filter) {
+            talloc_zfree(req);
+            return NULL;
+        }
     }
 
     if (use_id_mapping) {
@@ -2858,7 +2921,10 @@ static void sdap_get_initgr_user(struct tevent_req *subreq)
         if ((state->opts->schema_type == SDAP_SCHEMA_RFC2307) &&
             (dp_opt_get_bool(state->opts->basic,
                              SDAP_RFC2307_FALLBACK_TO_LOCAL_USERS) == true)) {
-            ret = sdap_fallback_local_user(state, state->name, -1, &usr_attrs);
+            ret = sdap_fallback_local_user(state, state->shortname, -1, &usr_attrs);
+            if (ret == EOK) {
+                state->orig_user = usr_attrs[0];
+            }
         } else {
             ret = ENOENT;
         }
@@ -2907,7 +2973,7 @@ static void sdap_get_initgr_user(struct tevent_req *subreq)
     }
     in_transaction = false;
 
-    ret = sysdb_get_real_name(state, state->dom, state->name, &cname);
+    ret = sysdb_get_real_name(state, state->dom, state->filter_value, &cname);
     if (ret != EOK) {
         DEBUG(SSSDBG_OP_FAILURE, "Cannot canonicalize username\n");
         tevent_req_error(req, ret);

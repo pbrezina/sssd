@@ -122,19 +122,30 @@ static errno_t split_extra_attr(TALLOC_CTX *mem_ctx,
     return EOK;
 }
 
-static bool is_sysdb_duplicate(struct sdap_attr_map *map,
-                               int num_entries,
-                               const char *sysdb_attr)
+enum duplicate_t {
+    NOT_FOUND = 0,
+    ALREADY_IN_MAP, /* nothing to add */
+    CONFLICT_WITH_MAP /* attempt to redefine attribute */
+};
+
+static enum duplicate_t check_duplicate(struct sdap_attr_map *map,
+                                        int num_entries,
+                                        const char *sysdb_attr,
+                                        const char *ldap_attr)
 {
     int i;
 
     for (i = 0; i < num_entries; i++) {
         if (strcmp(map[i].sys_name, sysdb_attr) == 0) {
-            return true;
+            if (strcmp(map[i].name, ldap_attr) == 0) {
+                return ALREADY_IN_MAP;
+            } else {
+                return CONFLICT_WITH_MAP;
+            }
         }
     }
 
-    return false;
+    return NOT_FOUND;
 }
 
 int sdap_extend_map(TALLOC_CTX *memctx,
@@ -167,14 +178,20 @@ int sdap_extend_map(TALLOC_CTX *memctx,
         return ENOMEM;
     }
 
-    for (i = 0; extra_attrs[i]; i++) {
-        ret = split_extra_attr(map, extra_attrs[i], &sysdb_attr, &ldap_attr);
+    for (i = 0; *extra_attrs != NULL; extra_attrs++) {
+        ret = split_extra_attr(map, *extra_attrs, &sysdb_attr, &ldap_attr);
         if (ret != EOK) {
-            DEBUG(SSSDBG_MINOR_FAILURE, "Cannot split %s\n", extra_attrs[i]);
+            DEBUG(SSSDBG_MINOR_FAILURE, "Cannot split %s\n", *extra_attrs);
             continue;
         }
 
-        if (is_sysdb_duplicate(map, num_entries, sysdb_attr)) {
+        ret = check_duplicate(map, num_entries, sysdb_attr, ldap_attr);
+        if (ret == ALREADY_IN_MAP) {
+            DEBUG(SSSDBG_TRACE_FUNC,
+                  "Attribute %s (%s in LDAP) is already in map.\n",
+                  sysdb_attr, ldap_attr);
+            continue;
+        } else if (ret == CONFLICT_WITH_MAP) {
             DEBUG(SSSDBG_FATAL_FAILURE,
                   "Attribute %s (%s in LDAP) is already used by SSSD, please "
                   "choose a different cache name\n", sysdb_attr, ldap_attr);
@@ -193,8 +210,13 @@ int sdap_extend_map(TALLOC_CTX *memctx,
             map[num_entries+i].def_name == NULL) {
             return ENOMEM;
         }
-        DEBUG(SSSDBG_TRACE_FUNC, "Extending map with %s\n", extra_attrs[i]);
+        DEBUG(SSSDBG_TRACE_FUNC, "Extending map with %s\n", *extra_attrs);
+
+        /* index must be incremented only for appended entry. */
+        i++;
     }
+
+    nextra = i;
 
     /* Sentinel */
     memset(&map[num_entries+nextra], 0, sizeof(struct sdap_attr_map));
@@ -227,7 +249,7 @@ int sdap_extend_map_with_list(TALLOC_CTX *mem_ctx,
     ret = split_on_separator(mem_ctx, extra_attrs, ',', true, true,
                              &extra_attrs_list, NULL);
     if (ret != EOK) {
-        DEBUG(SSSDBG_OP_FAILURE, ("Failed to parse server list!\n"));
+        DEBUG(SSSDBG_OP_FAILURE, "Failed to parse server list!\n");
         return ret;
     }
 
@@ -1557,7 +1579,6 @@ sdap_get_primary_name(TALLOC_CTX *memctx,
 {
     errno_t ret;
     const char *orig_name = NULL;
-    char *name;
 
     ret = sysdb_attrs_primary_name(dom->sysdb, attrs, attr_name, &orig_name);
     if (ret != EOK) {
@@ -1565,16 +1586,45 @@ sdap_get_primary_name(TALLOC_CTX *memctx,
         return EINVAL;
     }
 
-    name = sss_get_domain_name(memctx, orig_name, dom);
-    if (name == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE,
-              "Failed to format original name [%s]\n", orig_name);
+    DEBUG(SSSDBG_TRACE_FUNC, "Processing object %s\n", orig_name);
+
+    *_primary_name = talloc_strdup(memctx, orig_name);
+    return EOK;
+}
+
+static errno_t
+sdap_get_primary_fqdn(TALLOC_CTX *mem_ctx,
+                      const char *attr_name,
+                      struct sysdb_attrs *attrs,
+                      struct sss_domain_info *dom,
+                      const char **_primary_fqdn)
+{
+    errno_t ret;
+    const char *shortname = NULL;
+    const char *primary_fqdn = NULL;
+    TALLOC_CTX *tmp_ctx;
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
         return ENOMEM;
     }
-    DEBUG(SSSDBG_TRACE_FUNC, "Processing object %s\n", name);
 
-    *_primary_name = name;
-    return EOK;
+    ret = sdap_get_primary_name(tmp_ctx, attr_name, attrs, dom, &shortname);
+    if (ret != EOK) {
+        goto done;
+    }
+
+    primary_fqdn = sss_create_internal_fqname(tmp_ctx, shortname, dom->name);
+    if (primary_fqdn == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    ret = EOK;
+    *_primary_fqdn = talloc_steal(mem_ctx, primary_fqdn);
+done:
+    talloc_free(tmp_ctx);
+    return ret;
 }
 
 errno_t sdap_get_user_primary_name(TALLOC_CTX *memctx,
@@ -1583,7 +1633,7 @@ errno_t sdap_get_user_primary_name(TALLOC_CTX *memctx,
                                    struct sss_domain_info *dom,
                                    const char **_user_name)
 {
-    return sdap_get_primary_name(memctx,
+    return sdap_get_primary_fqdn(memctx,
                                  opts->user_map[SDAP_AT_USER_NAME].name,
                                  attrs, dom, _user_name);
 }
@@ -1594,7 +1644,7 @@ errno_t sdap_get_group_primary_name(TALLOC_CTX *memctx,
                                     struct sss_domain_info *dom,
                                     const char **_group_name)
 {
-    return sdap_get_primary_name(memctx,
+    return sdap_get_primary_fqdn(memctx,
                                  opts->group_map[SDAP_AT_GROUP_NAME].name,
                                  attrs, dom, _group_name);
 }

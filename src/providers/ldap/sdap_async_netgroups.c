@@ -121,7 +121,7 @@ static errno_t sdap_save_netgroup(TALLOC_CTX *memctx,
 
     DEBUG(SSSDBG_TRACE_FUNC, "Storing info for netgroup %s\n", name);
 
-    ret = sdap_save_all_names(name, attrs, dom,
+    ret = sdap_save_all_names(name, attrs, dom, SYSDB_MEMBER_NETGROUP,
                               netgroup_attrs);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Failed to save netgroup names\n");
@@ -136,6 +136,22 @@ static errno_t sdap_save_netgroup(TALLOC_CTX *memctx,
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Failed to list missing attributes\n");
         goto fail;
+    }
+
+    /* We store memberNisNetgroup from LDAP as originalMemberNisNetgroup in
+     * sysdb. It may contain simple name or DN. That's the reason why we always
+     * translate/generate simple name and store it in SYSDB_NETGROUP_MEMBER
+     * (memberNisNetgroup) in sysdb which is internally used for searching
+     * netgropus.
+     * We need to ensure if originalMemberNisNetgroup is missing,
+     * memberNisNetgroup is missing too.
+     */
+    if (string_in_list(SYSDB_ORIG_NETGROUP_MEMBER, missing, false)) {
+        ret = add_string_to_list(attrs, SYSDB_NETGROUP_MEMBER, &missing);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "Failed to add string into list\n");
+            goto fail;
+        }
     }
 
     ret = sysdb_add_netgroup(dom, name, NULL, netgroup_attrs, missing,

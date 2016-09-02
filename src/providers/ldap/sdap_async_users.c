@@ -142,6 +142,9 @@ int sdap_save_user(TALLOC_CTX *memctx,
     char *sid_str;
     char *dom_sid_str = NULL;
     struct sss_domain_info *subdomain;
+    size_t c;
+    char *p1;
+    char *p2;
 
     DEBUG(SSSDBG_TRACE_FUNC, "Save user\n");
 
@@ -440,20 +443,38 @@ int sdap_save_user(TALLOC_CTX *memctx,
         DEBUG(SSSDBG_TRACE_FUNC,
               "User principal is not available for [%s].\n", user_name);
     } else {
-        upn = talloc_strdup(user_attrs, (const char*) el->values[0].data);
-        if (!upn) {
-            ret = ENOMEM;
-            goto done;
-        }
-        if (dp_opt_get_bool(opts->basic, SDAP_FORCE_UPPER_CASE_REALM)) {
-            make_realm_upper_case(upn);
-        }
-        DEBUG(SSSDBG_TRACE_FUNC,
-              "Adding user principal [%s] to attributes of [%s].\n",
-               upn, user_name);
-        ret = sysdb_attrs_add_string(user_attrs, SYSDB_UPN, upn);
-        if (ret) {
-            goto done;
+        for (c = 0; c < el->num_values; c++) {
+            upn = talloc_strdup(tmpctx, (const char*) el->values[c].data);
+            if (!upn) {
+                ret = ENOMEM;
+                goto done;
+            }
+
+            /* Check for IPA Kerberos enterprise principal strings
+             * 'user\@my.realm@IPA.REALM' and use 'user@my.realm' */
+            if ( (p1 = strchr(upn,'\\')) != NULL
+                    && *(p1 + 1) == '@'
+                    && (p2 = strchr(p1 + 2, '@')) != NULL) {
+                *p1 = '\0';
+                *p2 = '\0';
+                upn = talloc_asprintf(tmpctx, "%s%s", upn, p1 + 1);
+                if (upn == NULL) {
+                    DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
+                    ret = ENOMEM;
+                    goto done;
+                }
+            }
+
+            if (dp_opt_get_bool(opts->basic, SDAP_FORCE_UPPER_CASE_REALM)) {
+                make_realm_upper_case(upn);
+            }
+            DEBUG(SSSDBG_TRACE_FUNC,
+                  "Adding user principal [%s] to attributes of [%s].\n",
+                   upn, user_name);
+            ret = sysdb_attrs_add_string(user_attrs, SYSDB_UPN, upn);
+            if (ret) {
+                goto done;
+            }
         }
     }
 
@@ -467,7 +488,8 @@ int sdap_save_user(TALLOC_CTX *memctx,
 
     cache_timeout = dom->user_timeout;
 
-    ret = sdap_save_all_names(user_name, attrs, dom, user_attrs);
+    ret = sdap_save_all_names(user_name, attrs, dom,
+                              SYSDB_MEMBER_USER, user_attrs);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Failed to save user names\n");
         goto done;
@@ -780,6 +802,8 @@ static void sdap_search_user_process(struct tevent_req *subreq)
         }
     }
 
+    DEBUG(SSSDBG_TRACE_INTERNAL, "Retrieved total %zu users\n", state->count);
+
     /* No more search bases
      * Return ENOENT if no users were found
      */
@@ -788,7 +812,6 @@ static void sdap_search_user_process(struct tevent_req *subreq)
         return;
     }
 
-    DEBUG(SSSDBG_TRACE_ALL, "Retrieved total %zu users\n", state->count);
     tevent_req_done(req);
 }
 
@@ -906,8 +929,10 @@ static void sdap_get_users_done(struct tevent_req *subreq)
     ret = sdap_search_user_recv(state, subreq, &state->higher_usn,
                                 &state->users, &state->count);
     if (ret) {
-        DEBUG(SSSDBG_OP_FAILURE, "Failed to retrieve users [%d][%s].\n",
-              ret, sss_strerror(ret));
+        if (ret != ENOENT) {
+            DEBUG(SSSDBG_OP_FAILURE, "Failed to retrieve users [%d][%s].\n",
+                  ret, sss_strerror(ret));
+        }
         tevent_req_error(req, ret);
         return;
     }

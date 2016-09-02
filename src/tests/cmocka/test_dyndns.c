@@ -30,11 +30,11 @@
 #include <arpa/inet.h>
 
 /* In order to access opaque types */
-#include "providers/dp_dyndns.c"
+#include "providers/be_dyndns.c"
 
 #include "tests/cmocka/common_mock.h"
 #include "tests/cmocka/common_mock_be.h"
-#include "src/providers/dp_dyndns.h"
+#include "src/providers/be_dyndns.h"
 
 #define TESTS_PATH "tp_" BASE_FILE_STEM
 #define TEST_CONF_DB "test_dyndns_conf.ldb"
@@ -75,6 +75,7 @@ void __wrap_execv(const char *path, char *const argv[])
         case MOCK_NSUPDATE_ERR:
             DEBUG(SSSDBG_FUNC_DATA, "nsupdate error test case\n");
             err = 1;
+            usleep(50000); /* 50 miliseconds */
             break;
         case MOCK_NSUPDATE_TIMEOUT:
             DEBUG(SSSDBG_FUNC_DATA, "nsupdate timeout test case\n");

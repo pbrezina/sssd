@@ -53,6 +53,8 @@ get_ipa_groupname(TALLOC_CTX *mem_ctx,
      */
     *groupname = NULL;
 
+    DEBUG(SSSDBG_TRACE_LIBS, "Parsing %s\n", group_dn);
+
     dn = ldb_dn_new(mem_ctx, sysdb_ctx_get_ldb(sysdb), group_dn);
     if (dn == NULL) {
         ret = ENOMEM;
@@ -60,6 +62,7 @@ get_ipa_groupname(TALLOC_CTX *mem_ctx,
     }
 
     if (!ldb_dn_validate(dn)) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "DN %s does not validate\n", group_dn);
         ret = ERR_MALFORMED_ENTRY;
         goto done;
     }
@@ -67,6 +70,7 @@ get_ipa_groupname(TALLOC_CTX *mem_ctx,
     if (ldb_dn_get_comp_num(dn) < 4) {
         /* RDN, groups, accounts, and at least one DC= */
         /* If it's fewer, it's not a group DN */
+        DEBUG(SSSDBG_CRIT_FAILURE, "DN %s has too few components\n", group_dn);
         ret = ERR_UNEXPECTED_ENTRY_TYPE;
         goto done;
     }
@@ -77,6 +81,7 @@ get_ipa_groupname(TALLOC_CTX *mem_ctx,
         /* Shouldn't happen if ldb_dn_validate()
          * passed, but we'll be careful.
          */
+        DEBUG(SSSDBG_CRIT_FAILURE, "No RDN name in %s\n", group_dn);
         ret = ERR_MALFORMED_ENTRY;
         goto done;
     }
@@ -85,6 +90,8 @@ get_ipa_groupname(TALLOC_CTX *mem_ctx,
         /* RDN has the wrong attribute name.
          * It's not a group.
          */
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Expected cn in RDN, got %s\n", rdn_name);
         ret = ERR_UNEXPECTED_ENTRY_TYPE;
         goto done;
     }
@@ -93,6 +100,8 @@ get_ipa_groupname(TALLOC_CTX *mem_ctx,
     group_comp_name = ldb_dn_get_component_name(dn, 1);
     if (strcasecmp("cn", group_comp_name) != 0) {
         /* The second component name is not "cn" */
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Expected cn in second component, got %s\n", group_comp_name);
         ret = ERR_UNEXPECTED_ENTRY_TYPE;
         goto done;
     }
@@ -102,6 +111,9 @@ get_ipa_groupname(TALLOC_CTX *mem_ctx,
                     (const char *) group_comp_val->data,
                     group_comp_val->length) != 0) {
         /* The second component value is not "groups" */
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Expected groups second component, got %s\n",
+              (const char *) group_comp_val->data);
         ret = ERR_UNEXPECTED_ENTRY_TYPE;
         goto done;
     }
@@ -110,6 +122,8 @@ get_ipa_groupname(TALLOC_CTX *mem_ctx,
     account_comp_name = ldb_dn_get_component_name(dn, 2);
     if (strcasecmp("cn", account_comp_name) != 0) {
         /* The third component name is not "cn" */
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Expected cn in second component, got %s\n", account_comp_name);
         ret = ERR_UNEXPECTED_ENTRY_TYPE;
         goto done;
     }
@@ -119,6 +133,9 @@ get_ipa_groupname(TALLOC_CTX *mem_ctx,
                     (const char *) account_comp_val->data,
                     account_comp_val->length) != 0) {
         /* The third component value is not "accounts" */
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Expected cn accounts second component, got %s\n",
+              (const char *) account_comp_val->data);
         ret = ERR_UNEXPECTED_ENTRY_TYPE;
         goto done;
     }
@@ -132,6 +149,7 @@ get_ipa_groupname(TALLOC_CTX *mem_ctx,
         ret = ENOMEM;
         goto done;
     }
+    DEBUG(SSSDBG_TRACE_LIBS, "Parsed %s out of the DN\n", *groupname);
 
     ret = EOK;
 
@@ -158,7 +176,8 @@ hbac_user_attrs_to_rule(TALLOC_CTX *mem_ctx,
     const char *attrs[] = { SYSDB_NAME, NULL };
     size_t num_users = 0;
     size_t num_groups = 0;
-    const char *name;
+    const char *sysdb_name;
+    char *shortname;
 
     size_t count;
     size_t i;
@@ -242,21 +261,29 @@ hbac_user_attrs_to_rule(TALLOC_CTX *mem_ctx,
             }
 
             /* Original DN matched a single user. Get the username */
-            name = ldb_msg_find_attr_as_string(msgs[0], SYSDB_NAME, NULL);
-            if (name == NULL) {
+            sysdb_name = ldb_msg_find_attr_as_string(msgs[0], SYSDB_NAME, NULL);
+            if (sysdb_name == NULL) {
                 DEBUG(SSSDBG_CRIT_FAILURE, "Attribute is missing!\n");
                 ret = EFAULT;
                 goto done;
             }
 
+            ret = sss_parse_internal_fqname(tmp_ctx, sysdb_name,
+                                            &shortname, NULL);
+            if (ret != EOK) {
+                DEBUG(SSSDBG_CRIT_FAILURE,
+                      "Cannot parse %s, skipping\n", sysdb_name);
+                continue;
+            }
+
             new_users->names[num_users] = talloc_strdup(new_users->names,
-                                                        name);
+                                                        shortname);
             if (new_users->names[num_users] == NULL) {
                 ret = ENOMEM;
                 goto done;
             }
-            DEBUG(SSSDBG_TRACE_INTERNAL, "Added user [%s] to rule [%s]\n",
-                      name, rule_name);
+            DEBUG(SSSDBG_TRACE_INTERNAL,
+                  "Added user [%s] to rule [%s]\n", sysdb_name, rule_name);
             num_users++;
         } else {
             /* Check if it is a group instead */
@@ -277,22 +304,31 @@ hbac_user_attrs_to_rule(TALLOC_CTX *mem_ctx,
                 }
 
                 /* Original DN matched a single group. Get the groupname */
-                name = ldb_msg_find_attr_as_string(msgs[0], SYSDB_NAME, NULL);
-                if (name == NULL) {
+                sysdb_name = ldb_msg_find_attr_as_string(msgs[0],
+                                                         SYSDB_NAME, NULL);
+                if (sysdb_name == NULL) {
                     DEBUG(SSSDBG_CRIT_FAILURE, "Attribute is missing!\n");
                     ret = EFAULT;
                     goto done;
                 }
 
+                ret = sss_parse_internal_fqname(tmp_ctx, sysdb_name,
+                                                &shortname, NULL);
+                if (ret != EOK) {
+                    DEBUG(SSSDBG_CRIT_FAILURE,
+                        "Cannot parse %s, skipping\n", sysdb_name);
+                    continue;
+                }
+
                 new_users->groups[num_groups] =
-                        talloc_strdup(new_users->groups, name);
+                        talloc_strdup(new_users->groups, shortname);
                 if (new_users->groups[num_groups] == NULL) {
                     ret = ENOMEM;
                     goto done;
                 }
                 DEBUG(SSSDBG_TRACE_INTERNAL,
                       "Added POSIX group [%s] to rule [%s]\n",
-                          name, rule_name);
+                       sysdb_name, rule_name);
                 num_groups++;
             } else {
                 /* If the group still matches the group pattern,

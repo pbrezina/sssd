@@ -26,6 +26,7 @@
 #include "config.h"
 #include "util/util.h"
 #include "confdb/confdb.h"
+#include "confdb/confdb_setup.h"
 #include "db/sysdb.h"
 #include "tools/common/sss_tools.h"
 
@@ -36,11 +37,17 @@ struct sss_cmdline {
     const char **argv;
 };
 
-static void sss_tool_print_common_opts(void)
+static void sss_tool_print_common_opts(int min_len)
 {
     fprintf(stderr, _("Common options:\n"));
-    fprintf(stderr, "  --debug=INT            %s\n",
-                    _("Enable debug at level"));
+    fprintf(stderr, "  %-*s\t %s\n", min_len, "--debug=INT",
+                    _("The debug level to run with"));
+    fprintf(stderr, "\n");
+    fprintf(stderr, _("Help options:\n"));
+    fprintf(stderr, "  %-*s\t %s\n", min_len, "-?, --help",
+                    _("Show this for a command"));
+    fprintf(stderr, "  %-*s\t %s\n", min_len, "--usage",
+                    _("Show brief usage message for a command"));
 }
 
 static struct poptOption *sss_tool_common_opts_table(void)
@@ -96,11 +103,13 @@ static errno_t sss_tool_confdb_init(TALLOC_CTX *mem_ctx,
         return ENOMEM;
     }
 
-    ret = confdb_init(mem_ctx, &confdb, path);
+    ret = confdb_setup(mem_ctx, path,
+                       SSSD_CONFIG_FILE, CONFDB_DEFAULT_CONFIG_DIR,
+                       &confdb);
+    talloc_zfree(path);
     if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "Could not initialize connection to the confdb\n");
-        talloc_free(path);
+        DEBUG(SSSDBG_FATAL_FAILURE, "Unable to setup ConfDB [%d]: %s\n",
+              ret, sss_strerror(ret));
         return ret;
     }
 
@@ -126,8 +135,7 @@ static errno_t sss_tool_domains_init(TALLOC_CTX *mem_ctx,
         return ret;
     }
 
-    ret = sysdb_init(mem_ctx, domains, false);
-    SYSDB_VERSION_ERROR(ret);
+    ret = sysdb_init(mem_ctx, domains);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "Could not initialize connection to the sysdb\n");
@@ -169,8 +177,9 @@ static errno_t sss_tool_domains_init(TALLOC_CTX *mem_ctx,
     return ret;
 }
 
-struct sss_tool_ctx *sss_tool_init(TALLOC_CTX *mem_ctx,
-                                   int *argc, const char **argv)
+errno_t sss_tool_init(TALLOC_CTX *mem_ctx,
+                      int *argc, const char **argv,
+                      struct sss_tool_ctx **_tool_ctx)
 {
     struct sss_tool_ctx *tool_ctx;
     errno_t ret;
@@ -178,7 +187,7 @@ struct sss_tool_ctx *sss_tool_init(TALLOC_CTX *mem_ctx,
     tool_ctx = talloc_zero(mem_ctx, struct sss_tool_ctx);
     if (tool_ctx == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "talloc_zero() failed\n");
-        return NULL;
+        return ENOMEM;
     }
 
     sss_tool_common_opts(tool_ctx, argc, argv);
@@ -212,35 +221,89 @@ struct sss_tool_ctx *sss_tool_init(TALLOC_CTX *mem_ctx,
     ret = EOK;
 
 done:
-    if (ret != EOK) {
-        talloc_zfree(tool_ctx);
+    switch (ret) {
+    case EOK:
+    case ERR_SYSDB_VERSION_TOO_OLD:
+        *_tool_ctx = tool_ctx;
+        break;
+    default:
+        break;
     }
 
-    return tool_ctx;
+    return ret;
 }
 
-int sss_tool_usage(const char *tool_name,
-                   struct sss_route_cmd *commands)
+static bool sss_tool_is_delimiter(struct sss_route_cmd *command)
 {
+    if (command->command != NULL && command->command[0] == '\0') {
+        return true;
+    }
+
+    return false;
+}
+
+static bool sss_tools_handles_init_error(struct sss_route_cmd *command,
+                                         errno_t init_err)
+{
+    if (init_err == EOK) {
+        return true;
+    }
+
+    return command->handles_init_err == init_err;
+}
+
+static size_t sss_tool_max_length(struct sss_route_cmd *commands)
+{
+    size_t max = 0;
+    size_t len;
+    int i;
+
+    for (i = 0; commands[i].command != NULL; i++) {
+        if (sss_tool_is_delimiter(&commands[i])) {
+            continue;
+        }
+
+        len = strlen(commands[i].command);
+        if (max < len) {
+            max = len;
+        }
+    }
+
+    return max;
+}
+
+void sss_tool_usage(const char *tool_name, struct sss_route_cmd *commands)
+{
+    int min_len;
     int i;
 
     fprintf(stderr, _("Usage:\n%s COMMAND COMMAND-ARGS\n\n"), tool_name);
     fprintf(stderr, _("Available commands:\n"));
 
+    min_len = sss_tool_max_length(commands);
+
     for (i = 0; commands[i].command != NULL; i++) {
-        fprintf(stderr, "* %s\n", commands[i].command);
+        if (sss_tool_is_delimiter(&commands[i])) {
+            fprintf(stderr, "\n%s\n", commands[i].description);
+            continue;
+        }
+
+        if (commands[i].description == NULL) {
+            fprintf(stderr, "* %40s\n", commands[i].command);
+        } else {
+            fprintf(stderr, "* %-*s\t %s\n",
+                    min_len, commands[i].command, commands[i].description);
+        }
     }
 
     fprintf(stderr, _("\n"));
-    sss_tool_print_common_opts();
-
-    return EXIT_FAILURE;
+    sss_tool_print_common_opts(min_len);
 }
 
-int sss_tool_route(int argc, const char **argv,
-                   struct sss_tool_ctx *tool_ctx,
-                   struct sss_route_cmd *commands,
-                   void *pvt)
+errno_t sss_tool_route(int argc, const char **argv,
+                       struct sss_tool_ctx *tool_ctx,
+                       struct sss_route_cmd *commands,
+                       void *pvt)
 {
     struct sss_cmdline cmdline;
     const char *cmd;
@@ -248,26 +311,40 @@ int sss_tool_route(int argc, const char **argv,
 
     if (commands == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Bug: commands can't be NULL!\n");
-        return EXIT_FAILURE;
+        return EINVAL;
     }
 
     if (argc < 2) {
-        return sss_tool_usage(argv[0], commands);
+        sss_tool_usage(argv[0], commands);
+        return EINVAL;
     }
 
     cmd = argv[1];
     for (i = 0; commands[i].command != NULL; i++) {
+        if (sss_tool_is_delimiter(&commands[i])) {
+            continue;
+        }
+
         if (strcmp(commands[i].command, cmd) == 0) {
             cmdline.exec = argv[0];
             cmdline.command = argv[1];
             cmdline.argc = argc - 2;
             cmdline.argv = argv + 2;
 
+            if (!sss_tools_handles_init_error(&commands[i], tool_ctx->init_err)) {
+                DEBUG(SSSDBG_FATAL_FAILURE,
+                      "Command %s does not handle initialization error [%d] %s\n",
+                      cmdline.command, tool_ctx->init_err,
+                      sss_strerror(tool_ctx->init_err));
+                return tool_ctx->init_err;
+            }
+
             return commands[i].fn(&cmdline, tool_ctx, pvt);
         }
     }
 
-    return sss_tool_usage(argv[0], commands);
+    sss_tool_usage(argv[0], commands);
+    return EINVAL;
 }
 
 static struct poptOption *nonnull_popt_table(struct poptOption *options)
@@ -283,14 +360,15 @@ static struct poptOption *nonnull_popt_table(struct poptOption *options)
     return options;
 }
 
-int sss_tool_popt_ex(struct sss_cmdline *cmdline,
-                     struct poptOption *options,
-                     enum sss_tool_opt require_option,
-                     sss_popt_fn popt_fn,
-                     void *popt_fn_pvt,
-                     const char *fopt_name,
-                     const char *fopt_help,
-                     const char **_fopt)
+errno_t sss_tool_popt_ex(struct sss_cmdline *cmdline,
+                         struct poptOption *options,
+                         enum sss_tool_opt require_option,
+                         sss_popt_fn popt_fn,
+                         void *popt_fn_pvt,
+                         const char *fopt_name,
+                         const char *fopt_help,
+                         const char **_fopt,
+                         bool *_opt_set)
 {
     struct poptOption opts_table[] = {
         {NULL, '\0', POPT_ARG_INCLUDE_TABLE, nonnull_popt_table(options), \
@@ -303,6 +381,7 @@ int sss_tool_popt_ex(struct sss_cmdline *cmdline,
     const char *fopt;
     char *help;
     poptContext pc;
+    bool opt_set;
     int ret;
 
     /* Create help option string. We always need to append command name since
@@ -316,7 +395,7 @@ int sss_tool_popt_ex(struct sss_cmdline *cmdline,
     }
     if (help == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "talloc_asprintf() failed\n");
-        return EXIT_FAILURE;
+        return ENOMEM;
     }
 
     /* Create popt context. This function is supposed to be called on
@@ -333,14 +412,13 @@ int sss_tool_popt_ex(struct sss_cmdline *cmdline,
         if (popt_fn != NULL) {
             ret = popt_fn(pc, ret, popt_fn_pvt);
             if (ret != EOK) {
-                ret = EXIT_FAILURE;
                 goto done;
             }
         } else {
             fprintf(stderr, _("Invalid option %s: %s\n\n"),
                     poptBadOption(pc, 0), poptStrerror(ret));
             poptPrintHelp(pc, stderr, 0);
-            ret = EXIT_FAILURE;
+            ret = EINVAL;
             goto done;
         }
     }
@@ -351,7 +429,7 @@ int sss_tool_popt_ex(struct sss_cmdline *cmdline,
         if (fopt == NULL) {
             fprintf(stderr, _("Missing option: %s\n\n"), fopt_help);
             poptPrintHelp(pc, stderr, 0);
-            ret = EXIT_FAILURE;
+            ret = EINVAL;
             goto done;
         }
 
@@ -359,7 +437,7 @@ int sss_tool_popt_ex(struct sss_cmdline *cmdline,
         if (poptGetArg(pc)) {
             fprintf(stderr, _("Only one free argument is expected!\n\n"));
             poptPrintHelp(pc, stderr, 0);
-            ret = EXIT_FAILURE;
+            ret = EINVAL;
             goto done;
         }
 
@@ -368,20 +446,28 @@ int sss_tool_popt_ex(struct sss_cmdline *cmdline,
         /* Unexpected free argument. */
         fprintf(stderr, _("Unexpected parameter: %s\n\n"), fopt);
         poptPrintHelp(pc, stderr, 0);
-        ret = EXIT_FAILURE;
+        ret = EINVAL;
         goto done;
     }
 
-    /* If at least one option is required and not provided, print error. */
-    if (require_option == SSS_TOOL_OPT_REQUIRED
-            && ((_fopt != NULL && cmdline->argc < 2) || cmdline->argc < 1)) {
-        fprintf(stderr, _("At least one option is required!\n\n"));
-        poptPrintHelp(pc, stderr, 0);
-        ret = EXIT_FAILURE;
-        goto done;
+    opt_set = true;
+    if ((_fopt != NULL && cmdline->argc < 2) || cmdline->argc < 1) {
+        opt_set = false;
+
+        /* If at least one option is required and not provided, print error. */
+        if (require_option == SSS_TOOL_OPT_REQUIRED) {
+            fprintf(stderr, _("At least one option is required!\n\n"));
+            poptPrintHelp(pc, stderr, 0);
+            ret = EINVAL;
+            goto done;
+        }
     }
 
-    ret = EXIT_SUCCESS;
+    if (_opt_set != NULL) {
+        *_opt_set = opt_set;
+    }
+
+    ret = EOK;
 
 done:
     poptFreeContext(pc);
@@ -389,14 +475,14 @@ done:
     return ret;
 }
 
-int sss_tool_popt(struct sss_cmdline *cmdline,
-                  struct poptOption *options,
-                  enum sss_tool_opt require_option,
-                  sss_popt_fn popt_fn,
-                  void *popt_fn_pvt)
+errno_t sss_tool_popt(struct sss_cmdline *cmdline,
+                      struct poptOption *options,
+                      enum sss_tool_opt require_option,
+                      sss_popt_fn popt_fn,
+                      void *popt_fn_pvt)
 {
     return sss_tool_popt_ex(cmdline, options, require_option,
-                            popt_fn, popt_fn_pvt, NULL, NULL, NULL);
+                            popt_fn, popt_fn_pvt, NULL, NULL, NULL, NULL);
 }
 
 int sss_tool_main(int argc, const char **argv,
@@ -405,7 +491,7 @@ int sss_tool_main(int argc, const char **argv,
 {
     struct sss_tool_ctx *tool_ctx;
     uid_t uid;
-    int ret;
+    errno_t ret;
 
     uid = getuid();
     if (uid != 0) {
@@ -414,23 +500,29 @@ int sss_tool_main(int argc, const char **argv,
         return EXIT_FAILURE;
     }
 
-    tool_ctx = sss_tool_init(NULL, &argc, argv);
-    if (tool_ctx == NULL) {
+    ret = sss_tool_init(NULL, &argc, argv, &tool_ctx);
+    if (ret == ERR_SYSDB_VERSION_TOO_OLD) {
+        tool_ctx->init_err = ret;
+    } else if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create tool context\n");
         return EXIT_FAILURE;
     }
 
     ret = sss_tool_route(argc, argv, tool_ctx, commands, pvt);
+    SYSDB_VERSION_ERROR(ret);
     talloc_free(tool_ctx);
+    if (ret != EOK) {
+        return EXIT_FAILURE;
+    }
 
-    return ret;
+    return EXIT_SUCCESS;
 }
 
-int sss_tool_parse_name(TALLOC_CTX *mem_ctx,
-                        struct sss_tool_ctx *tool_ctx,
-                        const char *input,
-                        const char **_username,
-                        struct sss_domain_info **_domain)
+errno_t sss_tool_parse_name(TALLOC_CTX *mem_ctx,
+                            struct sss_tool_ctx *tool_ctx,
+                            const char *input,
+                            const char **_username,
+                            struct sss_domain_info **_domain)
 {
     char *username = NULL;
     char *domname = NULL;

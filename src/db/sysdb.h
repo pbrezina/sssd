@@ -28,6 +28,7 @@
 #include <tevent.h>
 
 #define CACHE_SYSDB_FILE "cache_%s.ldb"
+#define CACHE_TIMESTAMPS_FILE "timestamps_%s.ldb"
 #define LOCAL_SYSDB_FILE "sssd.ldb"
 
 #define SYSDB_BASE "cn=sysdb"
@@ -58,6 +59,7 @@
 #define SYSDB_DOMAIN_ID_RANGE_CLASS "domainIDRange"
 #define SYSDB_TRUSTED_AD_DOMAIN_RANGE_CLASS "TrustedADDomainRange"
 
+#define SYSDB_DN "dn"
 #define SYSDB_NAME "name"
 #define SYSDB_NAME_ALIAS "nameAlias"
 #define SYSDB_OBJECTCLASS "objectClass"
@@ -137,6 +139,7 @@
 
 #define SYSDB_AUTH_TYPE "authType"
 #define SYSDB_USER_CERT "userCertificate"
+#define SYSDB_USER_EMAIL "mail"
 
 #define SYSDB_SUBDOMAIN_REALM "realmName"
 #define SYSDB_SUBDOMAIN_FLAT "flatName"
@@ -145,6 +148,7 @@
 #define SYSDB_SUBDOMAIN_ENUM "enumerate"
 #define SYSDB_SUBDOMAIN_FOREST "memberOfForest"
 #define SYSDB_SUBDOMAIN_TRUST_DIRECTION "trustDirection"
+#define SYSDB_UPN_SUFFIXES "upnSuffixes"
 
 #define SYSDB_BASE_ID "baseID"
 #define SYSDB_ID_RANGE_SIZE "idRangeSize"
@@ -181,7 +185,7 @@
 #define SYSDB_PWNAM_FILTER "(&("SYSDB_UC")(|("SYSDB_NAME_ALIAS"=%s)("SYSDB_NAME_ALIAS"=%s)("SYSDB_NAME"=%s)))"
 #define SYSDB_PWUID_FILTER "(&("SYSDB_UC")("SYSDB_UIDNUM"=%lu))"
 #define SYSDB_PWSID_FILTER "(&("SYSDB_UC")("SYSDB_SID_STR"=%s))"
-#define SYSDB_PWUPN_FILTER "(&("SYSDB_UC")(|("SYSDB_UPN"=%s)("SYSDB_CANONICAL_UPN"=%s)))"
+#define SYSDB_PWUPN_FILTER "(&("SYSDB_UC")(|("SYSDB_UPN"=%s)("SYSDB_CANONICAL_UPN"=%s)("SYSDB_USER_EMAIL"=%s)))"
 #define SYSDB_PWENT_FILTER "("SYSDB_UC")"
 
 #define SYSDB_GRNAM_FILTER "(&("SYSDB_GC")(|("SYSDB_NAME_ALIAS"=%s)("SYSDB_NAME_ALIAS"=%s)("SYSDB_NAME"=%s)))"
@@ -216,6 +220,7 @@
                         SYSDB_SID_STR, \
                         SYSDB_UPN, \
                         SYSDB_USER_CERT, \
+                        SYSDB_USER_EMAIL, \
                         SYSDB_OVERRIDE_DN, \
                         SYSDB_OVERRIDE_OBJECT_DN, \
                         SYSDB_DEFAULT_OVERRIDE_NAME, \
@@ -265,14 +270,14 @@
           "cached credentials.\n")
 
 #define SYSDB_VERSION_LOWER_ERROR(ret) do { \
-    if (ret == EUCLEAN) { \
+    if (ret == ERR_SYSDB_VERSION_TOO_NEW) { \
         ERROR("Lower version of database is expected!\n"); \
         SYSDB_VERSION_ERROR_HINT; \
     } \
 } while(0)
 
 #define SYSDB_VERSION_HIGHER_ERROR(ret) do { \
-    if (ret == EMEDIUMTYPE) { \
+    if (ret == ERR_SYSDB_VERSION_TOO_OLD) { \
         ERROR("Higher version of database is expected!\n"); \
         ERROR("In order to upgrade the database, you must run SSSD.\n"); \
         SYSDB_VERSION_ERROR_HINT; \
@@ -309,6 +314,8 @@ struct range_info {
     char *range_type;
 };
 
+/* These attributes are stored in the timestamp cache */
+extern const char *sysdb_ts_cache_attrs[];
 
 /* values are copied in the structure, allocated on "attrs" */
 int sysdb_attrs_add_val(struct sysdb_attrs *attrs,
@@ -377,7 +384,13 @@ errno_t sysdb_attrs_get_aliases(TALLOC_CTX *mem_ctx,
                                 const char *primary,
                                 bool lowercase,
                                 const char ***_aliases);
-errno_t sysdb_attrs_primary_name_list(struct sysdb_ctx *sysdb,
+errno_t sysdb_attrs_primary_name_list(struct sss_domain_info *domain,
+                                      TALLOC_CTX *mem_ctx,
+                                      struct sysdb_attrs **attr_list,
+                                      size_t attr_count,
+                                      const char *ldap_attr,
+                                      char ***name_list);
+errno_t sysdb_attrs_primary_fqdn_list(struct sss_domain_info *domain,
                                       TALLOC_CTX *mem_ctx,
                                       struct sysdb_attrs **attr_list,
                                       size_t attr_count,
@@ -452,7 +465,8 @@ errno_t sysdb_subdomain_store(struct sysdb_ctx *sysdb,
                               const char *name, const char *realm,
                               const char *flat_name, const char *domain_id,
                               bool mpg, bool enumerate, const char *forest,
-                              uint32_t trust_direction);
+                              uint32_t trust_direction,
+                              struct ldb_message_element *upn_suffixes);
 
 errno_t sysdb_update_subdomains(struct sss_domain_info *domain);
 
@@ -462,7 +476,8 @@ errno_t sysdb_master_domain_add_info(struct sss_domain_info *domain,
                                      const char *realm,
                                      const char *flat,
                                      const char *id,
-                                     const char* forest);
+                                     const char *forest,
+                                     struct ldb_message_element *alt_dom_suf);
 
 errno_t sysdb_subdomain_delete(struct sysdb_ctx *sysdb, const char *name);
 
@@ -559,7 +574,8 @@ errno_t sysdb_add_overrides_to_object(struct sss_domain_info *domain,
                                       const char **req_attrs);
 
 errno_t sysdb_add_group_member_overrides(struct sss_domain_info *domain,
-                                         struct ldb_message *obj);
+                                         struct ldb_message *obj,
+                                         bool expect_override_dn);
 
 errno_t sysdb_getpwnam_with_views(TALLOC_CTX *mem_ctx,
                                   struct sss_domain_info *domain,
@@ -600,14 +616,18 @@ uint64_t sss_view_ldb_msg_find_attr_as_uint64(struct sss_domain_info *dom,
  * call this function *only* once to initialize the database and get
  * the sysdb ctx */
 int sysdb_init(TALLOC_CTX *mem_ctx,
-               struct sss_domain_info *domains,
-               bool allow_upgrade);
+               struct sss_domain_info *domains);
 
 /* Same as sysdb_init, but additionally allows to change
- * file ownership of the sysdb databases. */
+ * file ownership of the sysdb databases and allow the
+ * upgrade via passing a context. */
+struct sysdb_upgrade_ctx {
+    struct confdb_ctx *cdb;
+};
+
 int sysdb_init_ext(TALLOC_CTX *mem_ctx,
                    struct sss_domain_info *domains,
-                   bool allow_upgrade,
+                   struct sysdb_upgrade_ctx *upgrade_ctx,
                    bool chown_dbfile,
                    uid_t uid, gid_t gid);
 
@@ -1239,6 +1259,11 @@ errno_t sysdb_get_sids_of_members(TALLOC_CTX *mem_ctx,
                                   const char ***_sids,
                                   const char ***_dns,
                                   size_t *_n);
+
+errno_t sysdb_get_user_members_recursively(TALLOC_CTX *mem_ctx,
+                                           struct sss_domain_info *dom,
+                                           struct ldb_dn *group_dn,
+                                           struct ldb_result **members);
 
 errno_t sysdb_handle_original_uuid(const char *orig_name,
                                    struct sysdb_attrs *src_attrs,

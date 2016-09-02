@@ -531,6 +531,113 @@ const struct sbus_interface_meta iface_ifp_domains_meta = {
     sbus_invoke_get_all, /* GetAll invoker */
 };
 
+/* arguments for org.freedesktop.sssd.infopipe.Domains.Domain.IsOnline */
+const struct sbus_arg_meta iface_ifp_domains_domain_IsOnline__out[] = {
+    { "status", "b" },
+    { NULL, }
+};
+
+int iface_ifp_domains_domain_IsOnline_finish(struct sbus_request *req, bool arg_status)
+{
+    dbus_bool_t cast_status = arg_status;
+   return sbus_request_return_and_finish(req,
+                                         DBUS_TYPE_BOOLEAN, &cast_status,
+                                         DBUS_TYPE_INVALID);
+}
+
+/* arguments for org.freedesktop.sssd.infopipe.Domains.Domain.ListServices */
+const struct sbus_arg_meta iface_ifp_domains_domain_ListServices__out[] = {
+    { "services", "as" },
+    { NULL, }
+};
+
+int iface_ifp_domains_domain_ListServices_finish(struct sbus_request *req, const char *arg_services[], int len_services)
+{
+   return sbus_request_return_and_finish(req,
+                                         DBUS_TYPE_ARRAY, DBUS_TYPE_STRING, &arg_services, len_services,
+                                         DBUS_TYPE_INVALID);
+}
+
+/* arguments for org.freedesktop.sssd.infopipe.Domains.Domain.ActiveServer */
+const struct sbus_arg_meta iface_ifp_domains_domain_ActiveServer__in[] = {
+    { "service", "s" },
+    { NULL, }
+};
+
+/* arguments for org.freedesktop.sssd.infopipe.Domains.Domain.ActiveServer */
+const struct sbus_arg_meta iface_ifp_domains_domain_ActiveServer__out[] = {
+    { "server", "s" },
+    { NULL, }
+};
+
+int iface_ifp_domains_domain_ActiveServer_finish(struct sbus_request *req, const char *arg_server)
+{
+   return sbus_request_return_and_finish(req,
+                                         DBUS_TYPE_STRING, &arg_server,
+                                         DBUS_TYPE_INVALID);
+}
+
+/* arguments for org.freedesktop.sssd.infopipe.Domains.Domain.ListServers */
+const struct sbus_arg_meta iface_ifp_domains_domain_ListServers__in[] = {
+    { "service_name", "s" },
+    { NULL, }
+};
+
+/* arguments for org.freedesktop.sssd.infopipe.Domains.Domain.ListServers */
+const struct sbus_arg_meta iface_ifp_domains_domain_ListServers__out[] = {
+    { "servers", "as" },
+    { NULL, }
+};
+
+int iface_ifp_domains_domain_ListServers_finish(struct sbus_request *req, const char *arg_servers[], int len_servers)
+{
+   return sbus_request_return_and_finish(req,
+                                         DBUS_TYPE_ARRAY, DBUS_TYPE_STRING, &arg_servers, len_servers,
+                                         DBUS_TYPE_INVALID);
+}
+
+/* methods for org.freedesktop.sssd.infopipe.Domains.Domain */
+const struct sbus_method_meta iface_ifp_domains_domain__methods[] = {
+    {
+        "IsOnline", /* name */
+        NULL, /* no in_args */
+        iface_ifp_domains_domain_IsOnline__out,
+        offsetof(struct iface_ifp_domains_domain, IsOnline),
+        NULL, /* no invoker */
+    },
+    {
+        "ListServices", /* name */
+        NULL, /* no in_args */
+        iface_ifp_domains_domain_ListServices__out,
+        offsetof(struct iface_ifp_domains_domain, ListServices),
+        NULL, /* no invoker */
+    },
+    {
+        "ActiveServer", /* name */
+        iface_ifp_domains_domain_ActiveServer__in,
+        iface_ifp_domains_domain_ActiveServer__out,
+        offsetof(struct iface_ifp_domains_domain, ActiveServer),
+        invoke_s_method,
+    },
+    {
+        "ListServers", /* name */
+        iface_ifp_domains_domain_ListServers__in,
+        iface_ifp_domains_domain_ListServers__out,
+        offsetof(struct iface_ifp_domains_domain, ListServers),
+        invoke_s_method,
+    },
+    { NULL, }
+};
+
+/* interface info for org.freedesktop.sssd.infopipe.Domains.Domain */
+const struct sbus_interface_meta iface_ifp_domains_domain_meta = {
+    "org.freedesktop.sssd.infopipe.Domains.Domain", /* name */
+    iface_ifp_domains_domain__methods,
+    NULL, /* no signals */
+    NULL, /* no properties */
+    sbus_invoke_get_all, /* GetAll invoker */
+};
+
 /* arguments for org.freedesktop.sssd.infopipe.Cache.List */
 const struct sbus_arg_meta iface_ifp_cache_List__out[] = {
     { "result", "ao" },

@@ -23,6 +23,7 @@
 #ifndef __INT_SYS_DB_H__
 #define __INT_SYS_DB_H__
 
+#define SYSDB_VERSION_0_18 "0.18"
 #define SYSDB_VERSION_0_17 "0.17"
 #define SYSDB_VERSION_0_16 "0.16"
 #define SYSDB_VERSION_0_15 "0.15"
@@ -41,7 +42,7 @@
 #define SYSDB_VERSION_0_2 "0.2"
 #define SYSDB_VERSION_0_1 "0.1"
 
-#define SYSDB_VERSION SYSDB_VERSION_0_17
+#define SYSDB_VERSION SYSDB_VERSION_0_18
 
 #define SYSDB_BASE_LDIF \
      "dn: @ATTRIBUTES\n" \
@@ -84,24 +85,58 @@
      "cn: ranges\n" \
      "\n"
 
+/* The timestamp cache has its own versioning */
+#define SYSDB_TS_VERSION_0_1 "0.1"
+
+#define SYSDB_TS_VERSION SYSDB_TS_VERSION_0_1
+
+#define SYSDB_TS_BASE_LDIF \
+     "dn: @ATTRIBUTES\n" \
+     "dn: CASE_INSENSITIVE\n" \
+     "\n" \
+     "dn: @INDEXLIST\n" \
+     "@IDXATTR: lastUpdate\n" \
+     "@IDXATTR: dataExpireTimestamp\n" \
+     "@IDXONE: 1\n" \
+     "\n" \
+     "dn: cn=sysdb\n" \
+     "cn: sysdb\n" \
+     "version: " SYSDB_TS_VERSION "\n" \
+     "description: base object\n" \
+     "\n" \
+
 #include "db/sysdb.h"
 
 struct sysdb_ctx {
     struct ldb_context *ldb;
     char *ldb_file;
+
+    struct ldb_context *ldb_ts;
+    char *ldb_ts_file;
+
     int transaction_nesting;
 };
 
 /* Internal utility functions */
 int sysdb_get_db_file(TALLOC_CTX *mem_ctx,
-                      const char *provider, const char *name,
-                      const char *base_path, char **_ldb_file);
-errno_t sysdb_ldb_connect(TALLOC_CTX *mem_ctx, const char *filename,
+                      const char *provider,
+                      const char *name,
+                      const char *base_path,
+                      char **_ldb_file,
+                      char **_ts_file);
+errno_t sysdb_ldb_connect(TALLOC_CTX *mem_ctx,
+                          const char *filename,
+                          int flags,
                           struct ldb_context **_ldb);
+
+struct sysdb_dom_upgrade_ctx {
+    struct sss_names_ctx *names; /* upgrade to 0.18 needs to parse names */
+};
+
 int sysdb_domain_init_internal(TALLOC_CTX *mem_ctx,
                                struct sss_domain_info *domain,
                                const char *db_path,
-                               bool allow_upgrade,
+                               struct sysdb_dom_upgrade_ctx *upgrade_ctx,
                                struct sysdb_ctx **_ctx);
 
 /* Upgrade routines */
@@ -124,6 +159,9 @@ int sysdb_upgrade_13(struct sysdb_ctx *sysdb, const char **ver);
 int sysdb_upgrade_14(struct sysdb_ctx *sysdb, const char **ver);
 int sysdb_upgrade_15(struct sysdb_ctx *sysdb, const char **ver);
 int sysdb_upgrade_16(struct sysdb_ctx *sysdb, const char **ver);
+int sysdb_upgrade_17(struct sysdb_ctx *sysdb,
+                     struct sysdb_dom_upgrade_ctx *upgrade_ctx,
+                     const char **ver);
 
 int sysdb_add_string(struct ldb_message *msg,
                      const char *attr, const char *value);
@@ -153,5 +191,95 @@ struct sss_domain_info *new_subdomain(TALLOC_CTX *mem_ctx,
                                       bool enumerate,
                                       const char *forest,
                                       uint32_t trust_direction);
+
+/* Helper functions to deal with the timestamp cache should not be used
+ * outside the sysdb itself. The timestamp cache should be completely
+ * opaque to the sysdb consumers
+ */
+
+/* Returns true if the 'dn' parameter is a user or a group DN, because
+ * at the moment, the timestamps cache only handles users and groups.
+ * Returns false otherwise.
+ */
+bool is_ts_ldb_dn(struct ldb_dn *dn);
+
+/* Returns true if the attrname is an attribute we store to the timestamp
+ * cache, false if it's a sysdb-only attribute
+ */
+bool is_ts_cache_attr(const char *attrname);
+
+/* Returns a subset of attrs that only contains the attributes we store to
+ * the timestamps cache. Useful in generic functions that set some attributes
+ * and we want to mirror that change in the timestamps cache
+ */
+struct sysdb_attrs *sysdb_filter_ts_attrs(TALLOC_CTX *mem_ctx,
+                                          struct sysdb_attrs *attrs);
+
+/* Given a ldb_result found in the timestamp cache, merge in the
+ * corresponding full attributes from the sysdb cache. The new
+ * attributes are allocated on the messages in the ldb_result.
+ */
+errno_t sysdb_merge_res_ts_attrs(struct sysdb_ctx *ctx,
+                                 struct ldb_result *res,
+                                 const char *attrs[]);
+
+/* Given an array of ldb_message structures found in the timestamp cache,
+ * merge in the corresponding full attributes from the sysdb cache. The
+ * new attributes are allocated atop the ldb messages.
+ */
+errno_t sysdb_merge_msg_list_ts_attrs(struct sysdb_ctx *ctx,
+                                      size_t msgs_count,
+                                      struct ldb_message **msgs,
+                                      const char *attrs[]);
+
+/* Merge two sets of ldb_result structures. */
+struct ldb_result *sss_merge_ldb_results(struct ldb_result *res,
+                                         struct ldb_result *subres);
+
+/* Search Entry in the timestamp cache */
+int sysdb_search_ts_entry(TALLOC_CTX *mem_ctx,
+                          struct sysdb_ctx *sysdb,
+                          struct ldb_dn *base_dn,
+                          enum ldb_scope scope,
+                          const char *filter,
+                          const char **attrs,
+                          size_t *_msgs_count,
+                          struct ldb_message ***_msgs);
+
+int sysdb_search_ts_users(TALLOC_CTX *mem_ctx,
+                          struct sss_domain_info *domain,
+                          const char *sub_filter,
+                          const char **attrs,
+                          struct ldb_result *res);
+
+int sysdb_search_ts_groups(TALLOC_CTX *mem_ctx,
+                           struct sss_domain_info *domain,
+                           const char *sub_filter,
+                           const char **attrs,
+                           struct ldb_result *res);
+
+/* Compares the modifyTimestamp attribute between old_entry and
+ * new_entry. Returns true if they differ (or either entry is missing
+ * the attribute) and false if the attribute is the same
+ */
+bool sysdb_msg_attrs_modts_differs(struct ldb_message *old_entry,
+                                   struct sysdb_attrs *new_entry);
+
+/* Given a sysdb_attrs pointer, returns a corresponding ldb_message */
+struct ldb_message *sysdb_attrs2msg(TALLOC_CTX *mem_ctx,
+                                    struct ldb_dn *entry_dn,
+                                    struct sysdb_attrs *attrs,
+                                    int mod_op);
+
+/* Compares the attributes between the existing attributes of entry_dn and
+ * the new_entry attributes that are about to be set. If the set would
+ * not yield into any differences (and therefore a write to the cache is
+ * not necessary), the function returns false (no diff), otherwise
+ * the function returns true (a difference exists).
+ */
+bool sysdb_entry_attrs_diff(struct sysdb_ctx *sysdb,
+                            struct ldb_dn *entry_dn,
+                            struct sysdb_attrs *attrs,
+                            int mod_op);
 
 #endif /* __INT_SYS_DB_H__ */

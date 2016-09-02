@@ -44,7 +44,6 @@
 #include "sss_client/sss_cli.h"
 #include "util/authtok.h"
 #include "providers/data_provider_req.h"
-#include "providers/data_provider_iface_generated.h"
 
 #define DATA_PROVIDER_VERSION 0x0001
 #define DATA_PROVIDER_PIPE "private/sbus-dp"
@@ -115,6 +114,7 @@
  * @}
  */ /* end of group pamHandler */
 
+#define DP_ERR_DECIDE -1
 #define DP_ERR_OK 0
 #define DP_ERR_OFFLINE 1
 #define DP_ERR_TIMEOUT 2
@@ -226,8 +226,6 @@ bool dp_pack_pam_response(DBusMessage *msg, struct pam_data *pd);
 bool dp_unpack_pam_response(DBusMessage *msg, struct pam_data *pd,
                             DBusError *dbus_error);
 
-int dp_common_send_id(struct sbus_connection *conn, uint16_t version,
-                      const char *name);
 void dp_id_callback(DBusPendingCall *pending, void *ptr);
 
 /* from dp_sbus.c */

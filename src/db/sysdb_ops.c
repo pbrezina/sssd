@@ -96,14 +96,13 @@ int sss_ldb_modify_permissive(struct ldb_context *ldb,
 
 
 /* =Remove-Entry-From-Sysdb=============================================== */
-
-int sysdb_delete_entry(struct sysdb_ctx *sysdb,
-                       struct ldb_dn *dn,
-                       bool ignore_not_found)
+static int sysdb_delete_cache_entry(struct ldb_context *ldb,
+                                    struct ldb_dn *dn,
+                                    bool ignore_not_found)
 {
     int ret;
 
-    ret = ldb_delete(sysdb->ldb, dn);
+    ret = ldb_delete(ldb, dn);
     switch (ret) {
     case LDB_SUCCESS:
         return EOK;
@@ -114,9 +113,38 @@ int sysdb_delete_entry(struct sysdb_ctx *sysdb,
         /* fall through */
     default:
         DEBUG(SSSDBG_CRIT_FAILURE, "LDB Error: %s(%d)\nError Message: [%s]\n",
-                  ldb_strerror(ret), ret, ldb_errstring(sysdb->ldb));
+                  ldb_strerror(ret), ret, ldb_errstring(ldb));
         return sysdb_error_to_errno(ret);
     }
+}
+
+static int sysdb_delete_ts_entry(struct sysdb_ctx *sysdb,
+                                 struct ldb_dn *dn)
+{
+    if (sysdb->ldb_ts == NULL) {
+        return EOK;
+    }
+
+    return sysdb_delete_cache_entry(sysdb->ldb_ts, dn, true);
+}
+
+int sysdb_delete_entry(struct sysdb_ctx *sysdb,
+                       struct ldb_dn *dn,
+                       bool ignore_not_found)
+{
+    errno_t ret;
+
+    ret = sysdb_delete_cache_entry(sysdb->ldb, dn, ignore_not_found);
+    if (ret == EOK) {
+        ret = sysdb_delete_ts_entry(sysdb, dn);
+        DEBUG(SSSDBG_MINOR_FAILURE,
+              "sysdb_delete_ts_entry failed: %d\n", ret);
+    } else {
+        DEBUG(SSSDBG_OP_FAILURE,
+              "sysdb_delete_cache_entry failed: %d\n", ret);
+    }
+
+    return ret;
 }
 
 /* =Remove-Subentries-From-Sysdb=========================================== */
@@ -186,14 +214,14 @@ done:
 
 /* =Search-Entry========================================================== */
 
-int sysdb_search_entry(TALLOC_CTX *mem_ctx,
-                       struct sysdb_ctx *sysdb,
-                       struct ldb_dn *base_dn,
-                       enum ldb_scope scope,
-                       const char *filter,
-                       const char **attrs,
-                       size_t *_msgs_count,
-                       struct ldb_message ***_msgs)
+static int sysdb_cache_search_entry(TALLOC_CTX *mem_ctx,
+                                    struct ldb_context *ldb,
+                                    struct ldb_dn *base_dn,
+                                    enum ldb_scope scope,
+                                    const char *filter,
+                                    const char **attrs,
+                                    size_t *_msgs_count,
+                                    struct ldb_message ***_msgs)
 {
     TALLOC_CTX *tmp_ctx;
     struct ldb_result *res;
@@ -205,7 +233,7 @@ int sysdb_search_entry(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = ldb_search(sysdb->ldb, tmp_ctx, &res,
+    ret = ldb_search(ldb, tmp_ctx, &res,
                      base_dn, scope, attrs,
                      filter?"%s":NULL, filter);
     if (ret != EOK) {
@@ -224,6 +252,51 @@ int sysdb_search_entry(TALLOC_CTX *mem_ctx,
 done:
     talloc_zfree(tmp_ctx);
     return ret;
+}
+
+int sysdb_search_entry(TALLOC_CTX *mem_ctx,
+                       struct sysdb_ctx *sysdb,
+                       struct ldb_dn *base_dn,
+                       enum ldb_scope scope,
+                       const char *filter,
+                       const char **attrs,
+                       size_t *_msgs_count,
+                       struct ldb_message ***_msgs)
+{
+    errno_t ret;
+
+    ret = sysdb_cache_search_entry(mem_ctx, sysdb->ldb, base_dn, scope,
+                                   filter, attrs, _msgs_count, _msgs);
+    if (ret != EOK) {
+        return ret;
+    }
+
+    return sysdb_merge_msg_list_ts_attrs(sysdb, *_msgs_count, *_msgs,
+                                         attrs);
+}
+
+int sysdb_search_ts_entry(TALLOC_CTX *mem_ctx,
+                          struct sysdb_ctx *sysdb,
+                          struct ldb_dn *base_dn,
+                          enum ldb_scope scope,
+                          const char *filter,
+                          const char **attrs,
+                          size_t *_msgs_count,
+                          struct ldb_message ***_msgs)
+{
+    if (sysdb->ldb_ts == NULL) {
+        if (_msgs_count != NULL) {
+            *_msgs_count = 0;
+        }
+        if (_msgs != NULL) {
+            *_msgs = NULL;
+        }
+
+        return EOK;
+    }
+
+    return sysdb_cache_search_entry(mem_ctx, sysdb->ldb_ts, base_dn, scope,
+                                    filter, attrs, _msgs_count, _msgs);
 }
 
 /* =Search-Entry-by-SID-string============================================ */
@@ -357,6 +430,11 @@ static int sysdb_search_by_name(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
+    ret = sysdb_merge_msg_list_ts_attrs(domain->sysdb, msgs_count, msgs, attrs);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_MINOR_FAILURE, "Cannot retrieve timestamp attributes\n");
+    }
+
     *msg = talloc_steal(mem_ctx, msgs[0]);
 
 done:
@@ -459,7 +537,7 @@ int sysdb_search_user_by_upn_res(TALLOC_CTX *mem_ctx,
     struct ldb_dn *base_dn;
     int ret;
     const char *def_attrs[] = { SYSDB_NAME, SYSDB_UPN, SYSDB_CANONICAL_UPN,
-                                NULL };
+                                SYSDB_USER_EMAIL, NULL };
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
@@ -475,7 +553,7 @@ int sysdb_search_user_by_upn_res(TALLOC_CTX *mem_ctx,
 
     ret = ldb_search(domain->sysdb->ldb, tmp_ctx, &res,
                      base_dn, LDB_SCOPE_SUBTREE, attrs ? attrs : def_attrs,
-                     SYSDB_PWUPN_FILTER, upn, upn);
+                     SYSDB_PWUPN_FILTER, upn, upn, upn);
     if (ret != EOK) {
         ret = sysdb_error_to_errno(ret);
         goto done;
@@ -491,6 +569,14 @@ int sysdb_search_user_by_upn_res(TALLOC_CTX *mem_ctx,
               "Search for upn [%s] returns more than one result.\n", upn);
         ret = EINVAL;
         goto done;
+    }
+
+    /* Merge in the timestamps from the fast ts db */
+    ret = sysdb_merge_res_ts_attrs(domain->sysdb, res,
+                                   attrs ? attrs : def_attrs);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_MINOR_FAILURE, "Cannot merge timestamp cache values\n");
+        /* non-fatal */
     }
 
     *out_res = talloc_steal(mem_ctx, res);
@@ -661,15 +747,396 @@ done:
     return ret;
 }
 
-/* =Replace-Attributes-On-Entry=========================================== */
+/* =Timestamp-cache-functions==============================================*/
 
-int sysdb_set_entry_attr(struct sysdb_ctx *sysdb,
-                         struct ldb_dn *entry_dn,
-                         struct sysdb_attrs *attrs,
-                         int mod_op)
+/* If modifyTimestamp is the same in the TS cache, return EOK. Return ERR_NO_TS
+ * if there is no timestamps cache for this domain and ERR_TS_CACHE_MISS if
+ * the entry had changed and the caller needs to update the sysdb cache as well.
+ */
+static errno_t sysdb_check_ts_cache(struct sss_domain_info *domain,
+                                    struct ldb_dn *entry_dn,
+                                    struct sysdb_attrs *entry)
+{
+    errno_t ret;
+    TALLOC_CTX *tmp_ctx;
+    size_t msgs_count;
+    struct ldb_message **msgs;
+    bool mod_ts_differs;
+
+    if (domain->sysdb->ldb_ts == NULL) {
+        return ERR_NO_TS;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    /* Check if the entry is in the timestamp cache */
+    ret = sysdb_search_ts_entry(tmp_ctx,
+                                domain->sysdb,
+                                entry_dn,
+                                LDB_SCOPE_BASE,
+                                NULL,
+                                sysdb_ts_cache_attrs,
+                                &msgs_count,
+                                &msgs);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_TRACE_INTERNAL,
+              "Cannot find TS cache entry for [%s]: [%d]: %s\n",
+              ldb_dn_get_linearized(entry_dn), ret, sss_strerror(ret));
+        goto done;
+    }
+
+    if (msgs_count != 1) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Expected 1 result for base search, got %zu\n", msgs_count);
+        return EIO;
+    }
+
+    mod_ts_differs = sysdb_msg_attrs_modts_differs(msgs[0], entry);
+    if (mod_ts_differs == true) {
+        ret = ERR_TS_CACHE_MISS;
+        goto done;
+    }
+
+    ret = EOK;
+done:
+    talloc_zfree(tmp_ctx);
+    return ret;
+}
+
+static int sysdb_set_ts_entry_attr(struct sysdb_ctx *sysdb,
+                                   struct ldb_dn *entry_dn,
+                                   struct sysdb_attrs *attrs,
+                                   int mod_op);
+
+static errno_t sysdb_create_ts_entry(struct sysdb_ctx *sysdb,
+                                     struct ldb_dn *entry_dn,
+                                     struct sysdb_attrs *attrs)
 {
     struct ldb_message *msg;
-    int i, ret;
+    errno_t ret;
+    int lret;
+    TALLOC_CTX *tmp_ctx;
+
+    if (sysdb->ldb_ts == NULL || attrs->num == 0) {
+        return EOK;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    if (entry_dn == NULL) {
+        ret = EINVAL;
+        goto done;
+    }
+
+    msg = sysdb_attrs2msg(tmp_ctx, entry_dn, attrs, 0);
+    if (msg == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    lret = ldb_add(sysdb->ldb_ts, msg);
+    if (lret != LDB_SUCCESS) {
+        DEBUG(SSSDBG_OP_FAILURE,
+              "ldb_add failed: [%s](%d)[%s]\n",
+              ldb_strerror(lret), lret, ldb_errstring(sysdb->ldb_ts));
+    }
+
+    ret = sysdb_error_to_errno(lret);
+done:
+    if (ret == ENOENT) {
+        DEBUG(SSSDBG_TRACE_FUNC, "No such entry\n");
+    } else if (ret) {
+        DEBUG(SSSDBG_OP_FAILURE, "Error: %d (%s)\n", ret, strerror(ret));
+    }
+    talloc_zfree(tmp_ctx);
+    return ret;
+}
+
+static struct sysdb_attrs *ts_obj_attrs(TALLOC_CTX *mem_ctx,
+                                        enum sysdb_obj_type obj_type)
+{
+    struct sysdb_attrs *attrs;
+    const char *oc;
+    errno_t ret;
+
+    switch (obj_type) {
+    case SYSDB_USER:
+        oc = SYSDB_USER_CLASS;
+        break;
+    case SYSDB_GROUP:
+        oc = SYSDB_GROUP_CLASS;
+        break;
+    default:
+        return NULL;
+    }
+
+    attrs = sysdb_new_attrs(mem_ctx);
+    if (attrs == NULL) {
+        return NULL;
+    }
+
+    ret = sysdb_attrs_add_string(attrs, SYSDB_OBJECTCLASS, oc);
+    if (ret != EOK) {
+        talloc_free(attrs);
+        return NULL;
+    }
+
+    return attrs;
+}
+
+static errno_t sysdb_update_ts_cache(struct sss_domain_info *domain,
+                                     struct ldb_dn *entry_dn,
+                                     struct sysdb_attrs *entry_attrs,
+                                     struct sysdb_attrs *ts_attrs,
+                                     int mod_op,
+                                     uint64_t cache_timeout,
+                                     time_t now)
+{
+    errno_t ret;
+    TALLOC_CTX *tmp_ctx;
+    const char *modstamp;
+
+    if (domain->sysdb->ldb_ts == NULL) {
+        DEBUG(SSSDBG_TRACE_INTERNAL, "No timestamp cache for this domain\n");
+        return EOK;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    if (ts_attrs == NULL) {
+        ts_attrs = sysdb_new_attrs(tmp_ctx);
+        if (ts_attrs == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+    }
+
+    ret = sysdb_attrs_add_time_t(ts_attrs, SYSDB_LAST_UPDATE, now);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE,
+              "Failed to add %s to tsdb\n", SYSDB_LAST_UPDATE);
+        goto done;
+    }
+
+    ret = sysdb_attrs_add_time_t(ts_attrs, SYSDB_CACHE_EXPIRE,
+                                 ((cache_timeout) ?
+                                  (now + cache_timeout) : 0));
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE,
+              "Failed to add %s to tsdb\n", SYSDB_CACHE_EXPIRE);
+        goto done;
+    }
+
+    if (entry_attrs != NULL) {
+        ret = sysdb_attrs_get_string(entry_attrs, SYSDB_ORIG_MODSTAMP,
+                                     &modstamp);
+        if (ret == EOK) {
+            ret = sysdb_attrs_add_string(ts_attrs,
+                                         SYSDB_ORIG_MODSTAMP, modstamp);
+            if (ret != EOK) {
+                DEBUG(SSSDBG_OP_FAILURE,
+                    "Failed to add %s to tsdb\n", SYSDB_ORIG_MODSTAMP);
+                goto done;
+            }
+        }
+    }
+
+    ret = sysdb_set_ts_entry_attr(domain->sysdb, entry_dn,
+                                  ts_attrs, mod_op);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_MINOR_FAILURE,
+              "Cannot set ts attrs for group %s\n",
+              ldb_dn_get_linearized(entry_dn));
+        /* Not fatal */
+    }
+
+    ret = EOK;
+done:
+    talloc_free(tmp_ctx);
+    return ret;
+}
+
+static errno_t sysdb_check_and_update_ts_cache(struct sss_domain_info *domain,
+                                               struct ldb_dn *entry_dn,
+                                               struct sysdb_attrs *attrs,
+                                               uint64_t cache_timeout,
+                                               time_t now)
+{
+    errno_t ret;
+
+    ret = sysdb_check_ts_cache(domain, entry_dn, attrs);
+    switch (ret) {
+    case ENOENT:
+        DEBUG(SSSDBG_TRACE_INTERNAL, "No timestamps entry\n");
+        break;
+    case EOK:
+        /* The entry's timestamp was the same. Just update the ts cache */
+        ret = sysdb_update_ts_cache(domain, entry_dn, attrs, NULL,
+                                    SYSDB_MOD_REP, cache_timeout, now);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "Cannot update the timestamps cache [%d]: %s\n",
+                  ret, sss_strerror(ret));
+        }
+        break;
+    case ERR_TS_CACHE_MISS:
+    case ERR_NO_TS:
+        /* Either there is no cache or the cache is up-do-date. Just report
+         * what's up
+         */
+        break;
+    default:
+        DEBUG(SSSDBG_OP_FAILURE,
+              "Error checking the timestamps cache [%d]: %s\n",
+              ret, sss_strerror(ret));
+        break;
+    }
+
+    return ret;
+}
+
+static errno_t get_sysdb_obj_dn(TALLOC_CTX *mem_ctx,
+                                struct sss_domain_info *domain,
+                                enum sysdb_obj_type obj_type,
+                                const char *obj_name,
+                                struct ldb_dn **_obj_dn)
+{
+    struct ldb_dn *obj_dn;
+
+    switch (obj_type) {
+    case SYSDB_USER:
+        obj_dn = sysdb_user_dn(mem_ctx, domain, obj_name);
+        break;
+    case SYSDB_GROUP:
+        obj_dn = sysdb_group_dn(mem_ctx, domain, obj_name);
+        break;
+    default:
+        return EINVAL;
+    }
+
+    if (obj_dn == NULL) {
+        return ENOMEM;
+    }
+
+    *_obj_dn = obj_dn;
+    return EOK;
+}
+
+static errno_t sysdb_check_and_update_ts_obj(struct sss_domain_info *domain,
+                                             enum sysdb_obj_type obj_type,
+                                             const char *obj_name,
+                                             struct sysdb_attrs *attrs,
+                                             uint64_t cache_timeout,
+                                             time_t now)
+{
+    struct ldb_dn *entry_dn;
+    TALLOC_CTX *tmp_ctx;
+    errno_t ret;
+
+    tmp_ctx = talloc_new(NULL);
+    if (!tmp_ctx) {
+        return ENOMEM;
+    }
+
+    ret = get_sysdb_obj_dn(tmp_ctx, domain, obj_type, obj_name, &entry_dn);
+    if (ret != EOK) {
+        goto done;
+    }
+
+    ret = sysdb_check_and_update_ts_cache(domain, entry_dn, attrs,
+                                          cache_timeout, now);
+done:
+    talloc_zfree(tmp_ctx);
+    return ret;
+}
+
+static errno_t sysdb_create_ts_obj(struct sss_domain_info *domain,
+                                   enum sysdb_obj_type obj_type,
+                                   const char *obj_name,
+                                   uint64_t cache_timeout,
+                                   time_t now)
+{
+    struct ldb_dn *entry_dn;
+    struct sysdb_attrs *ts_attrs = NULL;
+    TALLOC_CTX *tmp_ctx;
+    errno_t ret;
+
+    if (domain->sysdb->ldb_ts == NULL) {
+        return EOK;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    ret = get_sysdb_obj_dn(tmp_ctx, domain, obj_type, obj_name, &entry_dn);
+    if (ret != EOK) {
+        goto done;
+    }
+
+    ts_attrs = ts_obj_attrs(tmp_ctx, obj_type);
+    if (ts_attrs == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    ret = sysdb_update_ts_cache(domain, entry_dn, NULL, ts_attrs,
+                                SYSDB_MOD_ADD, cache_timeout, now);
+    if (ret != EOK) {
+        goto done;
+    }
+
+done:
+    talloc_zfree(tmp_ctx);
+    return ret;
+}
+
+static errno_t sysdb_check_and_update_ts_grp(struct sss_domain_info *domain,
+                                             const char *grp_name,
+                                             struct sysdb_attrs *attrs,
+                                             uint64_t cache_timeout,
+                                             time_t now)
+{
+    return sysdb_check_and_update_ts_obj(domain, SYSDB_GROUP, grp_name,
+                                         attrs, cache_timeout, now);
+}
+
+static errno_t sysdb_create_ts_grp(struct sss_domain_info *domain,
+                                   const char *grp_name,
+                                   uint64_t cache_timeout,
+                                   time_t now)
+{
+    return sysdb_create_ts_obj(domain, SYSDB_GROUP, grp_name,
+                               cache_timeout, now);
+}
+
+static errno_t sysdb_create_ts_usr(struct sss_domain_info *domain,
+                                   const char *usr_name,
+                                   uint64_t cache_timeout,
+                                   time_t now)
+{
+    return sysdb_create_ts_obj(domain, SYSDB_USER, usr_name,
+                               cache_timeout, now);
+}
+
+/* =Replace-Attributes-On-Entry=========================================== */
+static int sysdb_set_cache_entry_attr(struct ldb_context *ldb,
+                                      struct ldb_dn *entry_dn,
+                                      struct sysdb_attrs *attrs,
+                                      int mod_op)
+{
+    struct ldb_message *msg;
+    int ret;
     int lret;
     TALLOC_CTX *tmp_ctx;
 
@@ -678,37 +1145,22 @@ int sysdb_set_entry_attr(struct sysdb_ctx *sysdb,
         return ENOMEM;
     }
 
-    if (!entry_dn || attrs->num == 0) {
+    if (entry_dn == NULL || attrs->num == 0) {
         ret = EINVAL;
         goto done;
     }
 
-    msg = ldb_msg_new(tmp_ctx);
-    if (!msg) {
+    msg = sysdb_attrs2msg(tmp_ctx, entry_dn, attrs, mod_op);
+    if (msg == NULL) {
         ret = ENOMEM;
         goto done;
     }
 
-    msg->dn = entry_dn;
-
-    msg->elements = talloc_array(msg, struct ldb_message_element, attrs->num);
-    if (!msg->elements) {
-        ret = ENOMEM;
-        goto done;
-    }
-
-    for (i = 0; i < attrs->num; i++) {
-        msg->elements[i] = attrs->a[i];
-        msg->elements[i].flags = mod_op;
-    }
-
-    msg->num_elements = attrs->num;
-
-    lret = ldb_modify(sysdb->ldb, msg);
+    lret = ldb_modify(ldb, msg);
     if (lret != LDB_SUCCESS) {
         DEBUG(SSSDBG_MINOR_FAILURE,
               "ldb_modify failed: [%s](%d)[%s]\n",
-              ldb_strerror(lret), lret, ldb_errstring(sysdb->ldb));
+              ldb_strerror(lret), lret, ldb_errstring(ldb));
     }
 
     ret = sysdb_error_to_errno(lret);
@@ -724,6 +1176,89 @@ done:
     return ret;
 }
 
+int sysdb_set_entry_attr(struct sysdb_ctx *sysdb,
+                         struct ldb_dn *entry_dn,
+                         struct sysdb_attrs *attrs,
+                         int mod_op)
+{
+    bool sysdb_write = true;
+    errno_t ret = EOK;
+    errno_t tret = EOK;
+
+    sysdb_write = sysdb_entry_attrs_diff(sysdb, entry_dn, attrs, mod_op);
+    if (sysdb_write == true) {
+        ret = sysdb_set_cache_entry_attr(sysdb->ldb, entry_dn, attrs, mod_op);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_MINOR_FAILURE,
+                  "Cannot set attrs for %s, %d [%s]\n",
+                  ldb_dn_get_linearized(entry_dn), ret, sss_strerror(ret));
+        }
+    }
+
+    if (ret == EOK && is_ts_ldb_dn(entry_dn)) {
+        tret = sysdb_set_ts_entry_attr(sysdb, entry_dn, attrs, mod_op);
+        if (tret != EOK) {
+            DEBUG(SSSDBG_MINOR_FAILURE,
+                "Cannot set ts attrs for %s\n", ldb_dn_get_linearized(entry_dn));
+            /* Not fatal */
+        }
+    }
+
+    return ret;
+}
+
+static int sysdb_rep_ts_entry_attr(struct sysdb_ctx *sysdb,
+                                   struct ldb_dn *entry_dn,
+                                   struct sysdb_attrs *attrs)
+{
+    if (sysdb->ldb_ts == NULL || attrs->num == 0) {
+        return EOK;
+    }
+
+    return sysdb_set_cache_entry_attr(sysdb->ldb_ts, entry_dn,
+                                      attrs, SYSDB_MOD_REP);
+}
+
+static int sysdb_set_ts_entry_attr(struct sysdb_ctx *sysdb,
+                                   struct ldb_dn *entry_dn,
+                                   struct sysdb_attrs *attrs,
+                                   int mod_op)
+{
+    struct sysdb_attrs *ts_attrs;
+    TALLOC_CTX *tmp_ctx;
+    errno_t ret;
+
+    if (sysdb->ldb_ts == NULL) {
+        return EOK;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (!tmp_ctx) {
+        return ENOMEM;
+    }
+
+    ts_attrs = sysdb_filter_ts_attrs(tmp_ctx, attrs);
+    if (ts_attrs == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    switch (mod_op) {
+    case SYSDB_MOD_REP:
+        ret = sysdb_rep_ts_entry_attr(sysdb, entry_dn, ts_attrs);
+        break;
+    case SYSDB_MOD_ADD:
+        ret = sysdb_create_ts_entry(sysdb, entry_dn, ts_attrs);
+        break;
+    default:
+        ret = EINVAL;
+        break;
+    }
+
+done:
+    talloc_zfree(tmp_ctx);
+    return ret;
+}
 
 /* =Replace-Attributes-On-User============================================ */
 
@@ -757,7 +1292,6 @@ done:
     talloc_zfree(tmp_ctx);
     return ret;
 }
-
 
 /* =Replace-Attributes-On-Group=========================================== */
 
@@ -1342,6 +1876,13 @@ int sysdb_add_user(struct sss_domain_info *domain,
     ret = sysdb_add_basic_user(domain, name, uid, gid, gecos, homedir, shell);
     if (ret) goto done;
 
+    ret = sysdb_create_ts_usr(domain, name, cache_timeout, now);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_MINOR_FAILURE,
+              "Cannot create user timestamp entry\n");
+        /* Not fatal */
+    }
+
     if (uid == 0) {
         ret = sysdb_get_new_id(domain, &id);
         if (ret) goto done;
@@ -1542,6 +2083,13 @@ int sysdb_add_group(struct sss_domain_info *domain,
         goto done;
     }
 
+    ret = sysdb_create_ts_grp(domain, name, cache_timeout, now);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_MINOR_FAILURE,
+              "Cannot set timestamp cache attributes for a group\n");
+        /* Not fatal */
+    }
+
     if (!attrs) {
         attrs = sysdb_new_attrs(tmp_ctx);
         if (!attrs) {
@@ -1636,14 +2184,21 @@ int sysdb_add_incomplete_group(struct sss_domain_info *domain,
     ret = sysdb_add_basic_group(domain, name, gid);
     if (ret) goto done;
 
+    if (!now) {
+        now = time(NULL);
+    }
+
+    ret = sysdb_create_ts_grp(domain, name, now-1, now);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_MINOR_FAILURE,
+              "Cannot set timestamp cache attributes for a group\n");
+        /* Not fatal */
+    }
+
     attrs = sysdb_new_attrs(tmp_ctx);
     if (!attrs) {
         ret = ENOMEM;
         goto done;
-    }
-
-    if (!now) {
-        now = time(NULL);
     }
 
     ret = sysdb_attrs_add_time_t(attrs, SYSDB_LAST_UPDATE, now);
@@ -1852,6 +2407,32 @@ done:
 
 /* =Store-Users-(Native/Legacy)-(replaces-existing-data)================== */
 
+static errno_t sysdb_store_new_user(struct sss_domain_info *domain,
+                                    const char *name,
+                                    uid_t uid,
+                                    gid_t gid,
+                                    const char *gecos,
+                                    const char *homedir,
+                                    const char *shell,
+                                    const char *orig_dn,
+                                    struct sysdb_attrs *attrs,
+                                    uint64_t cache_timeout,
+                                    time_t now);
+
+
+static errno_t sysdb_store_user_attrs(struct sss_domain_info *domain,
+                                      const char *name,
+                                      uid_t uid,
+                                      gid_t gid,
+                                      const char *gecos,
+                                      const char *homedir,
+                                      const char *shell,
+                                      const char *orig_dn,
+                                      struct sysdb_attrs *attrs,
+                                      char **remove_attrs,
+                                      uint64_t cache_timeout,
+                                      time_t now);
+
 /* if one of the basic attributes is empty ("") as opposed to NULL,
  * this will just remove it */
 
@@ -1874,6 +2455,11 @@ int sysdb_store_user(struct sss_domain_info *domain,
     errno_t sret = EOK;
     bool in_transaction = false;
 
+    /* get transaction timestamp */
+    if (now == 0) {
+        now = time(NULL);
+    }
+
     tmp_ctx = talloc_new(NULL);
     if (!tmp_ctx) {
         return ENOMEM;
@@ -1883,129 +2469,55 @@ int sysdb_store_user(struct sss_domain_info *domain,
         attrs = sysdb_new_attrs(tmp_ctx);
         if (!attrs) {
             ret = ENOMEM;
-            goto fail;
+            goto done;
         }
     }
 
     if (pwd && (domain->legacy_passwords || !*pwd)) {
         ret = sysdb_attrs_add_string(attrs, SYSDB_PWD, pwd);
-        if (ret) goto fail;
+        if (ret) goto done;
     }
 
     ret = sysdb_transaction_start(domain->sysdb);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Failed to start transaction\n");
-        goto fail;
+        goto done;
     }
 
     in_transaction = true;
 
     ret = sysdb_search_user_by_name(tmp_ctx, domain, name, NULL, &msg);
     if (ret && ret != ENOENT) {
-        goto fail;
+        goto done;
     }
-
-    /* get transaction timestamp */
-    if (!now) {
-        now = time(NULL);
+    if (ret == ENOENT) {
+        DEBUG(SSSDBG_TRACE_LIBS, "User %s does not exist.\n", name);
     }
 
     if (ret == ENOENT) {
-        /* users doesn't exist, turn into adding a user */
-        ret = sysdb_add_user(domain, name, uid, gid, gecos, homedir,
-                             shell, orig_dn, attrs, cache_timeout, now);
-        if (ret == EEXIST) {
-            /* This may be a user rename. If there is a user with the
-             * same UID, remove it and try to add the basic user again
-             */
-            ret = sysdb_delete_user(domain, NULL, uid);
-            if (ret == ENOENT) {
-                /* Not found by UID, return the original EEXIST,
-                 * this may be a conflict in MPG domain or something
-                 * else */
-                ret = EEXIST;
-                goto fail;
-            } else if (ret != EOK) {
-                goto fail;
-            }
-            DEBUG(SSSDBG_MINOR_FAILURE,
-                  "A user with the same UID [%llu] was removed from the "
-                   "cache\n", (unsigned long long) uid);
-            ret = sysdb_add_user(domain, name, uid, gid, gecos, homedir,
-                                 shell, orig_dn, attrs, cache_timeout, now);
-        }
-
-        /* Handle the result of sysdb_add_user */
-        if (ret == EOK) {
-            goto done;
-        } else {
-            DEBUG(SSSDBG_OP_FAILURE, "Could not add user\n");
-            goto fail;
-        }
+        /* the user doesn't exist, turn into adding a user */
+        ret = sysdb_store_new_user(domain, name, uid, gid, gecos, homedir,
+                                   shell, orig_dn, attrs, cache_timeout, now);
+    } else {
+        /* the user exists, let's just replace attributes when set */
+        ret = sysdb_store_user_attrs(domain, name, uid, gid, gecos, homedir,
+                                     shell, orig_dn, attrs, remove_attrs,
+                                     cache_timeout, now);
     }
-
-    /* the user exists, let's just replace attributes when set */
-    if (uid) {
-        ret = sysdb_attrs_add_uint32(attrs, SYSDB_UIDNUM, uid);
-        if (ret) goto fail;
-    }
-
-    if (gid) {
-        ret = sysdb_attrs_add_uint32(attrs, SYSDB_GIDNUM, gid);
-        if (ret) goto fail;
-    }
-
-    if (uid && !gid && domain->mpg) {
-        ret = sysdb_attrs_add_uint32(attrs, SYSDB_GIDNUM, uid);
-        if (ret) goto fail;
-    }
-
-    if (gecos) {
-        ret = sysdb_attrs_add_string(attrs, SYSDB_GECOS, gecos);
-        if (ret) goto fail;
-    }
-
-    if (homedir) {
-        ret = sysdb_attrs_add_string(attrs, SYSDB_HOMEDIR, homedir);
-        if (ret) goto fail;
-    }
-
-    if (shell) {
-        ret = sysdb_attrs_add_string(attrs, SYSDB_SHELL, shell);
-        if (ret) goto fail;
-    }
-
-    ret = sysdb_attrs_add_time_t(attrs, SYSDB_LAST_UPDATE, now);
-    if (ret) goto fail;
-
-    ret = sysdb_attrs_add_time_t(attrs, SYSDB_CACHE_EXPIRE,
-                                 ((cache_timeout) ?
-                                  (now + cache_timeout) : 0));
-    if (ret) goto fail;
-
-    ret = sysdb_set_user_attr(domain, name, attrs, SYSDB_MOD_REP);
-    if (ret != EOK) goto fail;
-
-    if (remove_attrs) {
-        ret = sysdb_remove_attrs(domain, name,
-                                 SYSDB_MEMBER_USER,
-                                 remove_attrs);
-        if (ret != EOK) {
-            DEBUG(SSSDBG_CONF_SETTINGS,
-                  "Could not remove missing attributes\n");
-        }
-    }
-
-done:
-    ret = sysdb_transaction_commit(domain->sysdb);
     if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Failed to commit transaction\n");
-        goto fail;
+        DEBUG(SSSDBG_OP_FAILURE, "Cache update failed: %d\n", ret);
+        goto done;
     }
 
+    sret = sysdb_transaction_commit(domain->sysdb);
+    if (sret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Failed to commit transaction\n");
+        ret = EIO;
+        goto done;
+    }
     in_transaction = false;
 
-fail:
+done:
     if (in_transaction) {
         sret = sysdb_transaction_cancel(domain->sysdb);
         if (sret != EOK) {
@@ -2020,9 +2532,139 @@ fail:
     return ret;
 }
 
+static errno_t sysdb_store_new_user(struct sss_domain_info *domain,
+                                    const char *name,
+                                    uid_t uid,
+                                    gid_t gid,
+                                    const char *gecos,
+                                    const char *homedir,
+                                    const char *shell,
+                                    const char *orig_dn,
+                                    struct sysdb_attrs *attrs,
+                                    uint64_t cache_timeout,
+                                    time_t now)
+{
+    errno_t ret;
+
+    ret = sysdb_add_user(domain, name, uid, gid, gecos, homedir,
+                         shell, orig_dn, attrs, cache_timeout, now);
+    if (ret == EEXIST) {
+        /* This may be a user rename. If there is a user with the
+            * same UID, remove it and try to add the basic user again
+            */
+        ret = sysdb_delete_user(domain, NULL, uid);
+        if (ret == ENOENT) {
+            /* Not found by UID, return the original EEXIST,
+                * this may be a conflict in MPG domain or something
+                * else */
+            return EEXIST;
+        } else if (ret != EOK) {
+            DEBUG(SSSDBG_OP_FAILURE, "sysdb_delete_user failed.\n");
+            return ret;
+        }
+        DEBUG(SSSDBG_TRACE_FUNC,
+                "A user with the same UID [%llu] was removed from the "
+                "cache\n", (unsigned long long) uid);
+        ret = sysdb_add_user(domain, name, uid, gid, gecos, homedir,
+                             shell, orig_dn, attrs, cache_timeout, now);
+        if (ret) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                    "sysdb_add_user failed (while renaming user) for: "
+                    "%s [%"SPRIgid"].\n", name, gid);
+            return ret;
+        }
+    }
+
+    return EOK;
+}
+
+static errno_t sysdb_store_user_attrs(struct sss_domain_info *domain,
+                                      const char *name,
+                                      uid_t uid,
+                                      gid_t gid,
+                                      const char *gecos,
+                                      const char *homedir,
+                                      const char *shell,
+                                      const char *orig_dn,
+                                      struct sysdb_attrs *attrs,
+                                      char **remove_attrs,
+                                      uint64_t cache_timeout,
+                                      time_t now)
+{
+    errno_t ret;
+
+    if (uid) {
+        ret = sysdb_attrs_add_uint32(attrs, SYSDB_UIDNUM, uid);
+        if (ret) return ret;
+    }
+
+    if (gid) {
+        ret = sysdb_attrs_add_uint32(attrs, SYSDB_GIDNUM, gid);
+        if (ret) return ret;
+    }
+
+    if (uid && !gid && domain->mpg) {
+        ret = sysdb_attrs_add_uint32(attrs, SYSDB_GIDNUM, uid);
+        if (ret) return ret;
+    }
+
+    if (gecos) {
+        ret = sysdb_attrs_add_string(attrs, SYSDB_GECOS, gecos);
+        if (ret) return ret;
+    }
+
+    if (homedir) {
+        ret = sysdb_attrs_add_string(attrs, SYSDB_HOMEDIR, homedir);
+        if (ret) return ret;
+    }
+
+    if (shell) {
+        ret = sysdb_attrs_add_string(attrs, SYSDB_SHELL, shell);
+        if (ret) return ret;
+    }
+
+    ret = sysdb_attrs_add_time_t(attrs, SYSDB_LAST_UPDATE, now);
+    if (ret) return ret;
+
+    ret = sysdb_attrs_add_time_t(attrs, SYSDB_CACHE_EXPIRE,
+                                 ((cache_timeout) ?
+                                  (now + cache_timeout) : 0));
+    if (ret) return ret;
+
+    ret = sysdb_set_user_attr(domain, name, attrs, SYSDB_MOD_REP);
+    if (ret) return ret;
+
+    if (remove_attrs) {
+        ret = sysdb_remove_attrs(domain, name,
+                                 SYSDB_MEMBER_USER,
+                                 remove_attrs);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_CONF_SETTINGS,
+                  "Could not remove missing attributes\n");
+        }
+    }
+
+    return EOK;
+}
+
 /* =Store-Group-(Native/Legacy)-(replaces-existing-data)================== */
 
 /* this function does not check that all user members are actually present */
+
+static errno_t sysdb_store_new_group(struct sss_domain_info *domain,
+                                     const char *name,
+                                     gid_t gid,
+                                     struct sysdb_attrs *attrs,
+                                     uint64_t cache_timeout,
+                                     time_t now);
+
+static errno_t sysdb_store_group_attrs(struct sss_domain_info *domain,
+                                       const char *name,
+                                       gid_t gid,
+                                       struct ldb_message *cached_group,
+                                       struct sysdb_attrs *attrs,
+                                       uint64_t cache_timeout,
+                                       time_t now);
 
 int sysdb_store_group(struct sss_domain_info *domain,
                       const char *name,
@@ -2032,16 +2674,38 @@ int sysdb_store_group(struct sss_domain_info *domain,
                       time_t now)
 {
     TALLOC_CTX *tmp_ctx;
-    static const char *src_attrs[] = { SYSDB_NAME, SYSDB_GIDNUM,
-                                       SYSDB_ORIG_MODSTAMP, NULL };
+    static const char *src_attrs[] = { "*", NULL };
     struct ldb_message *msg;
     bool new_group = false;
     int ret;
+    errno_t sret = EOK;
+    bool in_transaction = false;
+
+    /* get transaction timestamp */
+    if (!now) {
+        now = time(NULL);
+    }
+
+    ret = sysdb_check_and_update_ts_grp(domain, name, attrs,
+                                        cache_timeout, now);
+    if (ret == EOK) {
+        DEBUG(SSSDBG_TRACE_LIBS,
+              "The group record of %s did not change, only updated "
+              "the timestamp cache\n", name);
+        return EOK;
+    }
 
     tmp_ctx = talloc_new(NULL);
     if (!tmp_ctx) {
         return ENOMEM;
     }
+
+    ret = sysdb_transaction_start(domain->sysdb);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Failed to start transaction\n");
+        goto done;
+    }
+    in_transaction = true;
 
     ret = sysdb_search_group_by_name(tmp_ctx, domain, name, src_attrs, &msg);
     if (ret && ret != ENOENT) {
@@ -2063,80 +2727,34 @@ int sysdb_store_group(struct sss_domain_info *domain,
         }
     }
 
-    /* get transaction timestamp */
-    if (!now) {
-        now = time(NULL);
-    }
-
-    /* FIXME: use the remote modification timestamp to know if the
-     * group needs any update */
-
     if (new_group) {
-        /* group doesn't exist, turn into adding a group */
-        ret = sysdb_add_group(domain, name, gid, attrs, cache_timeout,
-                              now);
-        if (ret == EEXIST) {
-            /* This may be a group rename. If there is a group with the
-             * same GID, remove it and try to add the basic group again
-             */
-            DEBUG(SSSDBG_TRACE_LIBS, "sysdb_add_group failed: [EEXIST].\n");
-            ret = sysdb_delete_group(domain, NULL, gid);
-            if (ret == ENOENT) {
-                /* Not found by GID, return the original EEXIST,
-                 * this may be a conflict in MPG domain or something
-                 * else */
-                DEBUG(SSSDBG_TRACE_LIBS,
-                      "sysdb_delete_group failed (while renaming group). Not "
-                      "found by gid: [%"SPRIgid"].\n", gid);
-                return EEXIST;
-            } else if (ret != EOK) {
-                DEBUG(SSSDBG_TRACE_LIBS, "sysdb_add_group failed.\n");
-                goto done;
-            }
-            DEBUG(SSSDBG_MINOR_FAILURE,
-                  "A group with the same GID [%"SPRIgid"] was removed from "
-                  "the cache\n", gid);
-            ret = sysdb_add_group(domain, name, gid, attrs, cache_timeout,
-                                  now);
-            if (ret) {
-                DEBUG(SSSDBG_MINOR_FAILURE,
-                      "sysdb_add_group failed (while renaming group) for: "
-                      "%s [%"SPRIgid"].\n", name, gid);
-            }
-        }
+        ret = sysdb_store_new_group(domain, name, gid, attrs,
+                                    cache_timeout, now);
+    } else {
+        ret = sysdb_store_group_attrs(domain, name, gid, msg, attrs,
+                                      cache_timeout, now);
+    }
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, "Cache update failed: %d\n", ret);
         goto done;
     }
 
-    /* the group exists, let's just replace attributes when set */
-    if (gid) {
-        ret = sysdb_attrs_add_uint32(attrs, SYSDB_GIDNUM, gid);
-        if (ret) {
-            DEBUG(SSSDBG_TRACE_LIBS, "Failed to add GID.\n");
-            goto done;
-        }
-    }
-
-    ret = sysdb_attrs_add_time_t(attrs, SYSDB_LAST_UPDATE, now);
-    if (ret) {
-        DEBUG(SSSDBG_TRACE_LIBS, "Failed to add sysdb-last-update.\n");
+    sret = sysdb_transaction_commit(domain->sysdb);
+    if (sret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Failed to commit transaction\n");
+        ret = EIO;
         goto done;
     }
-
-    ret = sysdb_attrs_add_time_t(attrs, SYSDB_CACHE_EXPIRE,
-                                 ((cache_timeout) ?
-                                  (now + cache_timeout) : 0));
-    if (ret) {
-        DEBUG(SSSDBG_TRACE_LIBS, "Failed to add sysdb-cache-expire.\n");
-        goto done;
-    }
-
-    ret = sysdb_set_group_attr(domain, name, attrs, SYSDB_MOD_REP);
-    if (ret) {
-        DEBUG(SSSDBG_TRACE_LIBS, "sysdb_set_group_attr failed.\n");
-        goto done;
-    }
+    in_transaction = false;
 
 done:
+    if (in_transaction) {
+        sret = sysdb_transaction_cancel(domain->sysdb);
+        if (sret != EOK) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "Could not cancel transaction\n");
+        }
+    }
+
     if (ret) {
         DEBUG(SSSDBG_TRACE_FUNC, "Error: %d (%s)\n", ret, strerror(ret));
     }
@@ -2144,6 +2762,93 @@ done:
     return ret;
 }
 
+
+static errno_t sysdb_store_new_group(struct sss_domain_info *domain,
+                                     const char *name,
+                                     gid_t gid,
+                                     struct sysdb_attrs *attrs,
+                                     uint64_t cache_timeout,
+                                     time_t now)
+{
+    errno_t ret;
+
+    /* group doesn't exist, turn into adding a group */
+    ret = sysdb_add_group(domain, name, gid, attrs, cache_timeout, now);
+    if (ret == EEXIST) {
+        /* This may be a group rename. If there is a group with the
+         * same GID, remove it and try to add the basic group again
+         */
+        DEBUG(SSSDBG_TRACE_LIBS, "sysdb_add_group failed: [EEXIST].\n");
+        ret = sysdb_delete_group(domain, NULL, gid);
+        if (ret == ENOENT) {
+            /* Not found by GID, return the original EEXIST,
+             * this may be a conflict in MPG domain or something
+             * else */
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "sysdb_delete_group failed (while renaming group). Not "
+                  "found by gid: [%"SPRIgid"].\n", gid);
+            return EEXIST;
+        } else if (ret != EOK) {
+            DEBUG(SSSDBG_OP_FAILURE, "sysdb_add_group failed.\n");
+            return ret;
+        }
+
+        DEBUG(SSSDBG_TRACE_FUNC,
+                "A group with the same GID [%"SPRIgid"] was removed from "
+                "the cache\n", gid);
+        ret = sysdb_add_group(domain, name, gid, attrs, cache_timeout, now);
+        if (ret) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                    "sysdb_add_group failed (while renaming group) for: "
+                    "%s [%"SPRIgid"].\n", name, gid);
+            return ret;
+        }
+    }
+
+    return EOK;
+}
+
+static errno_t sysdb_store_group_attrs(struct sss_domain_info *domain,
+                                       const char *name,
+                                       gid_t gid,
+                                       struct ldb_message *cached_group,
+                                       struct sysdb_attrs *attrs,
+                                       uint64_t cache_timeout,
+                                       time_t now)
+{
+    errno_t ret;
+
+    /* the group exists, let's just replace attributes when set */
+    if (gid) {
+        ret = sysdb_attrs_add_uint32(attrs, SYSDB_GIDNUM, gid);
+        if (ret) {
+            DEBUG(SSSDBG_TRACE_LIBS, "Failed to add GID.\n");
+            return ret;
+        }
+    }
+
+    ret = sysdb_attrs_add_time_t(attrs, SYSDB_LAST_UPDATE, now);
+    if (ret) {
+        DEBUG(SSSDBG_TRACE_LIBS, "Failed to add sysdb-last-update.\n");
+        return ret;
+    }
+
+    ret = sysdb_attrs_add_time_t(attrs, SYSDB_CACHE_EXPIRE,
+                                 ((cache_timeout) ?
+                                  (now + cache_timeout) : 0));
+    if (ret) {
+        DEBUG(SSSDBG_TRACE_LIBS, "Failed to add sysdb-cache-expire.\n");
+        return ret;
+    }
+
+    ret = sysdb_set_group_attr(domain, name, attrs, SYSDB_MOD_REP);
+    if (ret) {
+        DEBUG(SSSDBG_TRACE_LIBS, "sysdb_set_group_attr failed.\n");
+        return ret;
+    }
+
+    return EOK;
+}
 
 /* =Add-User-to-Group(Native/Legacy)====================================== */
 static int
@@ -2156,16 +2861,36 @@ sysdb_group_membership_mod(struct sss_domain_info *domain,
 {
     struct ldb_dn *group_dn;
     struct ldb_dn *member_dn;
+    char *member_domname;
+    struct sss_domain_info *member_dom;
     int ret;
     TALLOC_CTX *tmp_ctx = talloc_new(NULL);
     if (!tmp_ctx) {
         return ENOMEM;
     }
 
+    ret = sss_parse_internal_fqname(tmp_ctx, member,
+                                    NULL, &member_domname);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE,
+              "Failed to parser internal fqname '%s' [%d]: %s\n",
+              member, ret, sss_strerror(ret));
+        goto done;
+    }
+
+    member_dom = find_domain_by_name(get_domains_head(domain),
+                                     member_domname, false);
+    if (member_dom == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE,
+              "Domain [%s] was not found\n", member_domname);
+        ret = EINVAL;
+        goto done;
+    }
+
     if (type == SYSDB_MEMBER_USER) {
-        member_dn = sysdb_user_dn(tmp_ctx, domain, member);
+        member_dn = sysdb_user_dn(tmp_ctx, member_dom, member);
     } else if (type == SYSDB_MEMBER_GROUP) {
-        member_dn = sysdb_group_dn(tmp_ctx, domain, member);
+        member_dn = sysdb_group_dn(tmp_ctx, member_dom, member);
     } else {
         ret = EINVAL;
         goto done;
@@ -2642,12 +3367,13 @@ fail:
 
 /* =Search-Users-with-Custom-Filter====================================== */
 
-int sysdb_search_users(TALLOC_CTX *mem_ctx,
-                       struct sss_domain_info *domain,
-                       const char *sub_filter,
-                       const char **attrs,
-                       size_t *msgs_count,
-                       struct ldb_message ***msgs)
+static int sysdb_cache_search_users(TALLOC_CTX *mem_ctx,
+                                    struct sss_domain_info *domain,
+                                    struct ldb_context *ldb,
+                                    const char *sub_filter,
+                                    const char **attrs,
+                                    size_t *msgs_count,
+                                    struct ldb_message ***msgs)
 {
     TALLOC_CTX *tmp_ctx;
     struct ldb_dn *basedn;
@@ -2676,9 +3402,9 @@ int sysdb_search_users(TALLOC_CTX *mem_ctx,
     DEBUG(SSSDBG_TRACE_INTERNAL,
           "Search users with filter: %s\n", filter);
 
-    ret = sysdb_search_entry(mem_ctx, domain->sysdb, basedn,
-                             LDB_SCOPE_SUBTREE, filter, attrs,
-                             msgs_count, msgs);
+    ret = sysdb_cache_search_entry(mem_ctx, ldb, basedn,
+                                   LDB_SCOPE_SUBTREE, filter, attrs,
+                                   msgs_count, msgs);
     if (ret) {
         goto fail;
     }
@@ -2694,6 +3420,55 @@ fail:
         DEBUG(SSSDBG_MINOR_FAILURE, "Error: %d (%s)\n", ret, strerror(ret));
     }
     talloc_zfree(tmp_ctx);
+    return ret;
+}
+
+int sysdb_search_users(TALLOC_CTX *mem_ctx,
+                       struct sss_domain_info *domain,
+                       const char *sub_filter,
+                       const char **attrs,
+                       size_t *msgs_count,
+                       struct ldb_message ***msgs)
+{
+    errno_t ret;
+
+    ret = sysdb_cache_search_users(mem_ctx, domain, domain->sysdb->ldb,
+                                   sub_filter, attrs, msgs_count, msgs);
+    if (ret != EOK) {
+        return ret;
+    }
+
+    return sysdb_merge_msg_list_ts_attrs(domain->sysdb, *msgs_count, *msgs,
+                                         attrs);
+}
+
+int sysdb_search_ts_users(TALLOC_CTX *mem_ctx,
+                          struct sss_domain_info *domain,
+                          const char *sub_filter,
+                          const char **attrs,
+                          struct ldb_result *res)
+{
+    size_t msgs_count;
+    struct ldb_message **msgs;
+    int ret;
+
+    if (res == NULL) {
+        return EINVAL;
+    }
+
+    ZERO_STRUCT(*res);
+
+    if (domain->sysdb->ldb_ts == NULL) {
+        return ENOENT;
+    }
+
+    ret = sysdb_cache_search_users(mem_ctx, domain, domain->sysdb->ldb_ts,
+                                    sub_filter, attrs, &msgs_count, &msgs);
+    if (ret == EOK) {
+        res->count = (unsigned)msgs_count;
+        res->msgs = msgs;
+    }
+
     return ret;
 }
 
@@ -2809,12 +3584,13 @@ fail:
 
 /* =Search-Groups-with-Custom-Filter===================================== */
 
-int sysdb_search_groups(TALLOC_CTX *mem_ctx,
-                        struct sss_domain_info *domain,
-                        const char *sub_filter,
-                        const char **attrs,
-                        size_t *msgs_count,
-                        struct ldb_message ***msgs)
+static int sysdb_cache_search_groups(TALLOC_CTX *mem_ctx,
+                                     struct sss_domain_info *domain,
+                                     struct ldb_context *ldb,
+                                     const char *sub_filter,
+                                     const char **attrs,
+                                     size_t *msgs_count,
+                                     struct ldb_message ***msgs)
 {
     TALLOC_CTX *tmp_ctx;
     struct ldb_dn *basedn;
@@ -2843,9 +3619,9 @@ int sysdb_search_groups(TALLOC_CTX *mem_ctx,
     DEBUG(SSSDBG_TRACE_INTERNAL,
           "Search groups with filter: %s\n", filter);
 
-    ret = sysdb_search_entry(mem_ctx, domain->sysdb, basedn,
-                             LDB_SCOPE_SUBTREE, filter, attrs,
-                             msgs_count, msgs);
+    ret = sysdb_cache_search_entry(mem_ctx, ldb, basedn,
+                                   LDB_SCOPE_SUBTREE, filter, attrs,
+                                   msgs_count, msgs);
     if (ret) {
         goto fail;
     }
@@ -2861,6 +3637,55 @@ fail:
         DEBUG(SSSDBG_MINOR_FAILURE, "Error: %d (%s)\n", ret, strerror(ret));
     }
     talloc_zfree(tmp_ctx);
+    return ret;
+}
+
+int sysdb_search_groups(TALLOC_CTX *mem_ctx,
+                        struct sss_domain_info *domain,
+                        const char *sub_filter,
+                        const char **attrs,
+                        size_t *msgs_count,
+                        struct ldb_message ***msgs)
+{
+    errno_t ret;
+
+    ret = sysdb_cache_search_groups(mem_ctx, domain, domain->sysdb->ldb,
+                                    sub_filter, attrs, msgs_count, msgs);
+    if (ret != EOK) {
+        return ret;
+    }
+
+    return sysdb_merge_msg_list_ts_attrs(domain->sysdb, *msgs_count, *msgs,
+                                         attrs);
+}
+
+int sysdb_search_ts_groups(TALLOC_CTX *mem_ctx,
+                           struct sss_domain_info *domain,
+                           const char *sub_filter,
+                           const char **attrs,
+                           struct ldb_result *res)
+{
+    size_t msgs_count;
+    struct ldb_message **msgs;
+    int ret;
+
+    if (res == NULL) {
+        return EINVAL;
+    }
+
+    ZERO_STRUCT(*res);
+
+    if (domain->sysdb->ldb_ts == NULL) {
+        return ENOENT;
+    }
+
+    ret = sysdb_cache_search_groups(mem_ctx, domain, domain->sysdb->ldb_ts,
+                                    sub_filter, attrs, &msgs_count, &msgs);
+    if (ret == EOK) {
+        res->count = (unsigned)msgs_count;
+        res->msgs = msgs;
+    }
+
     return ret;
 }
 
@@ -3665,6 +4490,13 @@ static errno_t sysdb_search_object_by_str_attr(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
+    /* Merge in the timestamps from the fast ts db */
+    ret = sysdb_merge_res_ts_attrs(domain->sysdb, res, attrs);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_MINOR_FAILURE, "Cannot merge timestamp cache values\n");
+        /* non-fatal */
+    }
+
     *_res = talloc_steal(mem_ctx, res);
 
 done:
@@ -3854,6 +4686,80 @@ done:
     if (ret == ENOENT) {
         DEBUG(SSSDBG_TRACE_FUNC, "No such entry\n");
     } else if (ret) {
+        DEBUG(SSSDBG_OP_FAILURE, "Error: %d (%s)\n", ret, strerror(ret));
+    }
+    talloc_free(tmp_ctx);
+    return ret;
+}
+
+errno_t sysdb_get_user_members_recursively(TALLOC_CTX *mem_ctx,
+                                           struct sss_domain_info *dom,
+                                           struct ldb_dn *group_dn,
+                                           struct ldb_result **members)
+{
+    TALLOC_CTX *tmp_ctx;
+    int ret;
+    size_t count;
+    struct ldb_result *res;
+    struct ldb_dn *base_dn;
+    char *filter;
+    char *sanitized_name;
+    const char *attrs[] = SYSDB_PW_ATTRS;
+    struct ldb_message **msgs;
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    base_dn = sysdb_base_dn(dom->sysdb, tmp_ctx);
+    if (base_dn == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "sysdb_base_dn failed.\n");
+        ret = ENOMEM;
+        goto done;
+    }
+
+    ret = sss_filter_sanitize(tmp_ctx, ldb_dn_get_linearized(group_dn),
+                              &sanitized_name);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Failed to sanitize the given name:'%s'.\n",
+              ldb_dn_get_linearized(group_dn));
+        goto done;
+    }
+
+    filter = talloc_asprintf(tmp_ctx, "(&("SYSDB_UC")("SYSDB_MEMBEROF"=%s))",
+                             sanitized_name);
+    if (filter == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "talloc_asprintf failed.\n");
+        ret = ENOMEM;
+        goto done;
+    }
+
+    ret = sysdb_search_entry(tmp_ctx, dom->sysdb, base_dn, LDB_SCOPE_SUBTREE,
+                             filter, attrs, &count, &msgs);
+    if (ret != EOK) {
+        goto done;
+    }
+
+    res = talloc_zero(tmp_ctx, struct ldb_result);
+    if (res == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, "talloc_zero failed.\n");
+        ret = ENOMEM;
+        goto done;
+    }
+
+    res->count = count;
+    res->msgs = talloc_steal(res, msgs);
+
+    ret = EOK;
+
+done:
+    if (ret == EOK) {
+        *members = talloc_steal(mem_ctx, res);
+    } else if (ret == ENOENT) {
+        DEBUG(SSSDBG_TRACE_FUNC, "No such entry\n");
+    } else {
         DEBUG(SSSDBG_OP_FAILURE, "Error: %d (%s)\n", ret, strerror(ret));
     }
     talloc_free(tmp_ctx);

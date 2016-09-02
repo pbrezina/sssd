@@ -58,7 +58,8 @@ int sss_ini_get_mtime(struct sss_ini_initdata *init_data,
 
 /* Load configuration */
 int sss_ini_get_config(struct sss_ini_initdata *init_data,
-                       const char *config_file);
+                       const char *config_file,
+                       const char *config_dir);
 /* Get configuration object */
 int sss_ini_get_cfgobj(struct sss_ini_initdata *init_data,
                        const char *section, const char *name);
@@ -77,5 +78,24 @@ void sss_ini_config_destroy(struct sss_ini_initdata *init_data);
 int sss_confdb_create_ldif(TALLOC_CTX *mem_ctx,
                            struct sss_ini_initdata *init_data,
                            const char **config_ldif);
+
+/* Validate sssd.conf if libini_config support it */
+int sss_ini_call_validators(struct sss_ini_initdata *data,
+                            const char *rules_path);
+
+/* Get errors from validators in array of strings */
+int sss_ini_call_validators_strs(TALLOC_CTX *mem_ctx,
+                                 struct sss_ini_initdata *data,
+                                 const char *rules_path,
+                                 char ***_strs,
+                                 size_t *_num_errors);
+
+/* Get pointer to list of snippet parsing errors */
+struct ref_array *
+sss_ini_get_ra_error_list(struct sss_ini_initdata *init_data);
+
+/* Get pointer to list of successfuly merged snippet files */
+struct ref_array *
+sss_ini_get_ra_success_list(struct sss_ini_initdata *init_data);
 
 #endif /* __SSS_INI_H__ */

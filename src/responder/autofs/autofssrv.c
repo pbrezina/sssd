@@ -44,17 +44,6 @@ struct mon_cli_iface monitor_autofs_methods = {
     .sysbusReconnect = NULL,
 };
 
-static struct data_provider_iface autofs_dp_methods = {
-    { &data_provider_iface_meta, 0 },
-    .RegisterService = NULL,
-    .pamHandler = NULL,
-    .sudoHandler = NULL,
-    .autofsHandler = NULL,
-    .hostHandler = NULL,
-    .getDomains = NULL,
-    .getAccountInfo = NULL,
-};
-
 static errno_t
 autofs_get_config(struct autofs_ctx *actx,
                   struct confdb_ctx *cdb)
@@ -79,9 +68,7 @@ autofs_dp_reconnect_init(struct sbus_connection *conn,
         DEBUG(SSSDBG_TRACE_FUNC, "Reconnected to the Data Provider.\n");
 
         /* Identify ourselves to the data provider */
-        ret = dp_common_send_id(be_conn->conn,
-                                DATA_PROVIDER_VERSION,
-                                "autofs");
+        ret = rdp_register_client(be_conn, "autofs");
         /* all fine */
         if (ret == EOK) {
             handle_requests_after_reconnect(be_conn->rctx);
@@ -132,7 +119,8 @@ autofs_process_init(TALLOC_CTX *mem_ctx,
                            SSS_AUTOFS_SBUS_SERVICE_VERSION,
                            &monitor_autofs_methods,
                            "autofs",
-                           &autofs_dp_methods.vtable,
+                           NULL,
+                           autofs_connection_setup,
                            &rctx);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "sss_process_init() failed\n");

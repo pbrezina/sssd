@@ -43,11 +43,14 @@ static errno_t updated_users_by_filter(TALLOC_CTX *mem_ctx,
 
     recent_filter = talloc_asprintf(mem_ctx, "(%s>=%lu)",
                                     SYSDB_LAST_UPDATE, since);
+    if (recent_filter == NULL) {
+        return ENOMEM;
+    }
+
     ret = sysdb_enumpwent_filter_with_views(mem_ctx, domain,
                                             name_filter, recent_filter,
                                             _res);
     talloc_free(recent_filter);
-
     return ret;
 }
 
@@ -62,11 +65,14 @@ static errno_t updated_groups_by_filter(TALLOC_CTX *mem_ctx,
 
     recent_filter = talloc_asprintf(mem_ctx, "(%s>=%lu)",
                                     SYSDB_LAST_UPDATE, since);
+    if (recent_filter == NULL) {
+        return ENOMEM;
+    }
+
     ret = sysdb_enumgrent_filter_with_views(mem_ctx, domain,
                                             name_filter, recent_filter,
                                             _res);
     talloc_free(recent_filter);
-
     return ret;
 }
 
@@ -374,6 +380,57 @@ cache_req_set_name(struct cache_req *cr, const char *name)
 }
 
 static errno_t
+cache_req_domain_lookup_name(TALLOC_CTX *mem_ctx,
+                             struct cache_req *cr,
+                             struct sss_domain_info *domain,
+                             struct resp_ctx *rctx,
+                             const char **_name,
+                             const char **_debugobj)
+{
+    const char *name = NULL;
+    const char *debugobj = NULL;
+    TALLOC_CTX *tmp_ctx = NULL;
+    errno_t ret;
+
+    if (cr->data->name.name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Bug: parsed name is NULL?\n");
+        ret = ERR_INTERNAL;
+        goto done;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    name = sss_get_cased_name(tmp_ctx, cr->data->name.name,
+                              domain->case_sensitive);
+    if (name == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    name = sss_reverse_replace_space(tmp_ctx, name, rctx->override_space);
+    if (name == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    debugobj = talloc_asprintf(tmp_ctx, "%s@%s", name, domain->name);
+    if (debugobj == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    ret = EOK;
+    *_name = talloc_steal(mem_ctx, name);
+    *_debugobj = talloc_steal(mem_ctx, debugobj);
+done:
+    talloc_free(tmp_ctx);
+    return ret;
+}
+
+static errno_t
 cache_req_set_domain(struct cache_req *cr,
                      struct sss_domain_info *domain,
                      struct resp_ctx *rctx)
@@ -395,26 +452,45 @@ cache_req_set_domain(struct cache_req *cr,
 
     switch (cr->data->type) {
     case CACHE_REQ_USER_BY_NAME:
-    case CACHE_REQ_USER_BY_UPN:
     case CACHE_REQ_GROUP_BY_NAME:
-    case CACHE_REQ_USER_BY_FILTER:
-    case CACHE_REQ_GROUP_BY_FILTER:
     case CACHE_REQ_INITGROUPS:
-    case CACHE_REQ_INITGROUPS_BY_UPN:
-        if (cr->data->name.name == NULL) {
-            DEBUG(SSSDBG_CRIT_FAILURE, "Bug: parsed name is NULL?\n");
-            ret = ERR_INTERNAL;
+        ret = cache_req_domain_lookup_name(tmp_ctx, cr, domain, rctx,
+                                           &name, &debugobj);
+        if (ret != EOK) {
             goto done;
         }
 
-        name = sss_get_cased_name(tmp_ctx, cr->data->name.name,
-                                  domain->case_sensitive);
+        name = sss_create_internal_fqname(tmp_ctx, name, domain->name);
         if (name == NULL) {
             ret = ENOMEM;
             goto done;
         }
 
-        name = sss_reverse_replace_space(tmp_ctx, name, rctx->override_space);
+        break;
+
+    case CACHE_REQ_USER_BY_FILTER:
+    case CACHE_REQ_GROUP_BY_FILTER:
+        ret = cache_req_domain_lookup_name(tmp_ctx, cr, domain, rctx,
+                                           &name, &debugobj);
+        if (ret != EOK) {
+            goto done;
+        }
+
+        break;
+
+    case CACHE_REQ_USER_BY_UPN:
+    case CACHE_REQ_INITGROUPS_BY_UPN:
+        if (cr->data->name.name == NULL) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "Bug: parsed UPN is NULL?\n");
+            ret = ERR_INTERNAL;
+            goto done;
+        }
+
+        /* When looking up UPNs we don't want to reverse-replace spaces,
+         * just search whatever the user passed in. strdup the name so we
+         * can safely steal it later.
+         */
+        name = talloc_strdup(tmp_ctx, cr->data->name.name);
         if (name == NULL) {
             ret = ENOMEM;
             goto done;
@@ -920,7 +996,7 @@ static struct tevent_req *cache_req_cache_send(TALLOC_CTX *mem_ctx,
 
     req = tevent_req_create(mem_ctx, &state, struct cache_req_cache_state);
     if (req == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, ("tevent_req_create() failed\n"));
+        DEBUG(SSSDBG_CRIT_FAILURE, "tevent_req_create() failed\n");
         return NULL;
     }
 
@@ -1160,7 +1236,7 @@ struct tevent_req *cache_req_send(TALLOC_CTX *mem_ctx,
 
     req = tevent_req_create(mem_ctx, &state, struct cache_req_state);
     if (req == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, ("tevent_req_create() failed\n"));
+        DEBUG(SSSDBG_CRIT_FAILURE, "tevent_req_create() failed\n");
         return NULL;
     }
 
@@ -1309,8 +1385,7 @@ static errno_t cache_req_next_domain(struct tevent_req *req)
             break;
         }
 
-        ret = cache_req_set_domain(state->cr, state->domain,
-                                         state->rctx);
+        ret = cache_req_set_domain(state->cr, state->domain, state->rctx);
         if (ret != EOK) {
             return ret;
         }
@@ -1403,7 +1478,7 @@ errno_t cache_req_recv(TALLOC_CTX *mem_ctx,
         if (state->cr->data->name.lookup == NULL) {
             *_name = NULL;
         } else {
-            name = talloc_strdup(mem_ctx, state->cr->data->name.name);
+            name = talloc_strdup(mem_ctx, state->cr->data->name.lookup);
             if (name == NULL) {
                 return ENOMEM;
             }

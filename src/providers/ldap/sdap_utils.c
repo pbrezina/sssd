@@ -77,14 +77,27 @@ errno_t
 sdap_save_all_names(const char *name,
                     struct sysdb_attrs *ldap_attrs,
                     struct sss_domain_info *dom,
+                    enum sysdb_member_type entry_type,
                     struct sysdb_attrs *attrs)
 {
     const char **aliases = NULL;
-    const char *domname;
+    const char *sysdb_alias;
     errno_t ret;
     TALLOC_CTX *tmp_ctx;
     int i;
     bool lowercase = !dom->case_sensitive;
+    bool store_as_fqdn;
+    const char **emails;
+
+    switch (entry_type) {
+    case SYSDB_MEMBER_USER:
+    case SYSDB_MEMBER_GROUP:
+        store_as_fqdn = true;
+        break;
+    default:
+        store_as_fqdn = false;
+        break;
+    }
 
     tmp_ctx = talloc_new(NULL);
     if (!tmp_ctx) {
@@ -100,14 +113,20 @@ sdap_save_all_names(const char *name,
     }
 
     for (i = 0; aliases[i]; i++) {
-        domname = sss_get_domain_name(tmp_ctx, aliases[i], dom);
-        if (domname == NULL) {
+        if (store_as_fqdn) {
+            sysdb_alias = sss_create_internal_fqname(tmp_ctx, aliases[i],
+                                                 dom->name);
+        } else {
+            sysdb_alias = aliases[i];
+        }
+
+        if (sysdb_alias == NULL) {
             ret = ENOMEM;
             goto done;
         }
 
         if (lowercase) {
-            ret = sysdb_attrs_add_lc_name_alias(attrs, domname);
+            ret = sysdb_attrs_add_lc_name_alias(attrs, sysdb_alias);
             if (ret) {
                 DEBUG(SSSDBG_OP_FAILURE, "Failed to add lower-cased version "
                                           "of alias [%s] into the "
@@ -115,7 +134,7 @@ sdap_save_all_names(const char *name,
                 goto done;
             }
         } else {
-            ret = sysdb_attrs_add_string(attrs, SYSDB_NAME_ALIAS, domname);
+            ret = sysdb_attrs_add_string(attrs, SYSDB_NAME_ALIAS, sysdb_alias);
             if (ret) {
                 DEBUG(SSSDBG_OP_FAILURE, "Failed to add alias [%s] into the "
                                           "attribute list\n", aliases[i]);
@@ -123,6 +142,27 @@ sdap_save_all_names(const char *name,
             }
         }
 
+    }
+
+    ret = sysdb_attrs_get_string_array(ldap_attrs, SYSDB_USER_EMAIL, tmp_ctx,
+                                       &emails);
+    if (ret == EOK) {
+        for (i = 0; emails[i] != NULL; i++) {
+            if (is_email_from_domain(emails[i], dom)) {
+                ret = sysdb_attrs_add_lc_name_alias_safe(attrs, emails[i]);
+                if (ret) {
+                    DEBUG(SSSDBG_OP_FAILURE,
+                          "Failed to add lower-cased version of email [%s] "
+                          "into the alias list\n", emails[i]);
+                    goto done;
+                }
+            }
+        }
+    } else if (ret == ENOENT) {
+        DEBUG(SSSDBG_TRACE_ALL, "No email addresses available.\n");
+    } else {
+        DEBUG(SSSDBG_OP_FAILURE,
+              "sysdb_attrs_get_string_array failed, skipping ...\n");
     }
 
     ret = EOK;
@@ -186,4 +226,32 @@ char *sdap_combine_filters(TALLOC_CTX *mem_ctx,
                            const char *extra_filter)
 {
     return sdap_combine_filters_ex(mem_ctx, '&', base_filter, extra_filter);
+}
+
+char *get_enterprise_principal_string_filter(TALLOC_CTX *mem_ctx,
+                                             const char *attr_name,
+                                             const char *princ,
+                                             struct dp_option *sdap_basic_opts)
+{
+    const char *realm;
+    char *p;
+
+    if (attr_name == NULL || princ == NULL || sdap_basic_opts == NULL) {
+        return NULL;
+    }
+
+    realm = dp_opt_get_cstring(sdap_basic_opts, SDAP_KRB5_REALM);
+    if (realm == NULL) {
+        return NULL;
+    }
+
+    p = strchr(princ, '@');
+    if (p == NULL) {
+        return NULL;
+    }
+
+    return talloc_asprintf(mem_ctx, "(%s=%.*s\\\\@%s@%s)", attr_name,
+                                                           (int) (p - princ),
+                                                           princ,
+                                                           p + 1, realm);
 }

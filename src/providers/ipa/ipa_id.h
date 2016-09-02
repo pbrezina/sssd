@@ -33,7 +33,16 @@
 
 #define IPA_DEFAULT_VIEW_NAME "Default Trust View"
 
-void ipa_account_info_handler(struct be_req *breq);
+struct tevent_req *
+ipa_account_info_handler_send(TALLOC_CTX *mem_ctx,
+                              struct ipa_id_ctx *id_ctx,
+                              struct dp_id_data *data,
+                              struct dp_req_params *params);
+
+errno_t ipa_account_info_handler_recv(TALLOC_CTX *mem_ctx,
+                                      struct tevent_req *req,
+                                      struct dp_reply_std *data);
+
 struct tevent_req *ipa_get_netgroups_send(TALLOC_CTX *memctx,
                                           struct tevent_context *ev,
                                           struct sysdb_ctx *sysdb,
@@ -50,8 +59,6 @@ int ipa_get_netgroups_recv(struct tevent_req *req,
                            size_t *reply_count,
                            struct sysdb_attrs ***reply);
 
-void ipa_check_online(struct be_req *be_req);
-
 struct tevent_req *ipa_s2n_get_acct_info_send(TALLOC_CTX *mem_ctx,
                                              struct tevent_context *ev,
                                              struct ipa_id_ctx *ipa_ctx,
@@ -67,21 +74,21 @@ struct tevent_req *ipa_get_subdom_acct_send(TALLOC_CTX *memctx,
                                             struct tevent_context *ev,
                                             struct ipa_id_ctx *ipa_ctx,
                                             struct sysdb_attrs *override_attrs,
-                                            struct be_acct_req *ar);
+                                            struct dp_id_data *ar);
 int ipa_get_subdom_acct_recv(struct tevent_req *req, int *dp_error_out);
 
-errno_t get_be_acct_req_for_sid(TALLOC_CTX *mem_ctx, const char *sid,
+errno_t get_dp_id_data_for_sid(TALLOC_CTX *mem_ctx, const char *sid,
                                 const char *domain_name,
-                                struct be_acct_req **_ar);
+                                struct dp_id_data **_ar);
 
-errno_t get_be_acct_req_for_uuid(TALLOC_CTX *mem_ctx, const char *uuid,
+errno_t get_dp_id_data_for_uuid(TALLOC_CTX *mem_ctx, const char *uuid,
                                  const char *domain_name,
-                                 struct be_acct_req **_ar);
+                                 struct dp_id_data **_ar);
 
-errno_t get_be_acct_req_for_user_name(TALLOC_CTX *mem_ctx,
+errno_t get_dp_id_data_for_user_name(TALLOC_CTX *mem_ctx,
                                       const char *user_name,
                                       const char *domain_name,
-                                      struct be_acct_req **_ar);
+                                      struct dp_id_data **_ar);
 
 struct tevent_req *ipa_get_ad_override_send(TALLOC_CTX *mem_ctx,
                                             struct tevent_context *ev,
@@ -89,7 +96,7 @@ struct tevent_req *ipa_get_ad_override_send(TALLOC_CTX *mem_ctx,
                                             struct ipa_options *ipa_options,
                                             const char *ipa_realm,
                                             const char *view_name,
-                                            struct be_acct_req *ar);
+                                            struct dp_id_data *ar);
 
 errno_t ipa_get_ad_override_recv(struct tevent_req *req, int *dp_error_out,
                                  TALLOC_CTX *mem_ctx,
@@ -98,8 +105,7 @@ errno_t ipa_get_ad_override_recv(struct tevent_req *req, int *dp_error_out,
 struct tevent_req *ipa_subdomain_account_send(TALLOC_CTX *memctx,
                                               struct tevent_context *ev,
                                               struct ipa_id_ctx *ipa_ctx,
-                                              struct be_req *be_req,
-                                              struct be_acct_req *ar);
+                                              struct dp_id_data *ar);
 
 errno_t ipa_subdomain_account_recv(struct tevent_req *req, int *dp_error_out);
 
@@ -108,7 +114,7 @@ errno_t split_ipa_anchor(TALLOC_CTX *mem_ctx, const char *anchor,
 
 errno_t get_object_from_cache(TALLOC_CTX *mem_ctx,
                               struct sss_domain_info *dom,
-                              struct be_acct_req *ar,
+                              struct dp_id_data *ar,
                               struct ldb_message **_msg);
 
 struct tevent_req *
@@ -129,4 +135,12 @@ struct tevent_req *ipa_get_subdom_acct_process_pac_send(TALLOC_CTX *mem_ctx,
                                                    struct ldb_message *user_msg);
 
 errno_t ipa_get_subdom_acct_process_pac_recv(struct tevent_req *req);
+
+struct tevent_req *
+ipa_resolve_user_list_send(TALLOC_CTX *memctx, struct tevent_context *ev,
+                           struct ipa_id_ctx *ipa_ctx,
+                           const char *domain_name,
+                           struct ldb_message_element *users);
+int ipa_resolve_user_list_recv(struct tevent_req *req, int *dp_error);
+
 #endif

@@ -25,7 +25,7 @@
 #ifndef SDAP_ACCESS_H_
 #define SDAP_ACCESS_H_
 
-#include "providers/dp_backend.h"
+#include "providers/backend.h"
 #include "providers/ldap/ldap_common.h"
 
 /* Attributes in sysdb, used for caching last values of lockout or filter
@@ -74,6 +74,17 @@ struct sdap_access_ctx {
     const char *filter;
     int access_rule[LDAP_ACCESS_LAST + 1];
 };
+
+struct tevent_req *
+sdap_pam_access_handler_send(TALLOC_CTX *mem_ctx,
+                           struct sdap_access_ctx *access_ctx,
+                           struct pam_data *pd,
+                           struct dp_req_params *params);
+
+errno_t
+sdap_pam_access_handler_recv(TALLOC_CTX *mem_ctx,
+                             struct tevent_req *req,
+                             struct pam_data **_data);
 
 struct tevent_req *
 sdap_access_send(TALLOC_CTX *mem_ctx,

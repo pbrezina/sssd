@@ -34,6 +34,8 @@ struct ipa_service {
     struct krb5_service *krb5_service;
 };
 
+struct ipa_init_ctx;
+
 enum ipa_basic_opt {
     IPA_DOMAIN = 0,
     IPA_SERVER,
@@ -258,10 +260,10 @@ int ipa_get_autofs_options(struct ipa_options *ipa_opts,
 errno_t ipa_get_dyndns_options(struct be_ctx *be_ctx,
                                struct ipa_options *ctx);
 
-int ipa_autofs_init(struct be_ctx *be_ctx,
-                    struct ipa_id_ctx *id_ctx,
-                    struct bet_ops **ops,
-                    void **pvt_data);
+errno_t ipa_autofs_init(TALLOC_CTX *mem_ctx,
+                        struct be_ctx *be_ctx,
+                        struct ipa_id_ctx *id_ctx,
+                        struct dp_method *dp_methods);
 
 int ipa_service_init(TALLOC_CTX *memctx, struct be_ctx *ctx,
                      const char *primary_servers,
@@ -269,10 +271,10 @@ int ipa_service_init(TALLOC_CTX *memctx, struct be_ctx *ctx,
                      struct ipa_options *options,
                      struct ipa_service **_service);
 
-int ipa_sudo_init(struct be_ctx *be_ctx,
+int ipa_sudo_init(TALLOC_CTX *mem_ctx,
+                  struct be_ctx *be_ctx,
                   struct ipa_id_ctx *id_ctx,
-                  struct bet_ops **ops,
-                  void **pvt_data);
+                  struct dp_method *dp_methods);
 
 errno_t get_idmap_data_from_range(struct range_info *r, char *domain_name,
                                   char **_name, char **_sid, uint32_t *_rid,
@@ -287,4 +289,7 @@ errno_t ipa_idmap_get_ranges_from_sysdb(struct sdap_idmap_ctx *idmap_ctx,
 errno_t ipa_idmap_init(TALLOC_CTX *mem_ctx,
                        struct sdap_id_ctx *id_ctx,
                        struct sdap_idmap_ctx **_idmap_ctx);
+
+
+struct krb5_ctx *ipa_init_get_krb5_auth_ctx(void *data);
 #endif /* _IPA_COMMON_H_ */

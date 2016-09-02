@@ -46,6 +46,8 @@
 
 struct sss_ini_initdata {
     char **error_list;
+    struct ref_array *ra_success_list;
+    struct ref_array *ra_error_list;
     struct ini_cfgobj *sssd_config;
     struct value_obj *obj;
     const struct stat *cstat;
@@ -56,8 +58,6 @@ struct sss_ini_initdata {
 #define sss_ini_get_attr_list                  ini_get_attribute_list
 #define sss_ini_get_const_string_config_value  ini_get_const_string_config_value
 #define sss_ini_get_config_obj                 ini_get_config_valueobj
-
-
 
 #else
 
@@ -182,7 +182,7 @@ int sss_ini_get_mtime(struct sss_ini_initdata *init_data,
 
 /* Print ini_config errors */
 
-void sss_ini_config_print_errors(char **error_list)
+static void sss_ini_config_print_errors(char **error_list)
 {
 #ifdef HAVE_LIBINI_CONFIG_V1
     unsigned count = 0;
@@ -192,7 +192,7 @@ void sss_ini_config_print_errors(char **error_list)
     }
 
     while (error_list[count]) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "%s\n", error_list[count]);
+        DEBUG(SSSDBG_FATAL_FAILURE, "%s\n", error_list[count]);
         count++;
     }
 #endif
@@ -205,10 +205,19 @@ void sss_ini_config_print_errors(char **error_list)
 /* Load configuration */
 
 int sss_ini_get_config(struct sss_ini_initdata *init_data,
-                       const char *config_file)
+                       const char *config_file,
+                       const char *config_dir)
 {
     int ret;
 #ifdef HAVE_LIBINI_CONFIG_V1
+#ifdef HAVE_LIBINI_CONFIG_V1_3
+    const char *patterns[] = { "^[^\\.].*\\.conf$", NULL };
+    const char *sections[] = { ".*", NULL };
+    uint32_t i = 0;
+    char *msg = NULL;
+    struct access_check snip_check;
+    struct ini_cfgobj *modified_sssd_config = NULL;
+#endif /* HAVE_LIBINI_CONFIG_V1_3 */
 
     /* Create config object */
     ret = ini_config_create(&(init_data->sssd_config));
@@ -244,6 +253,55 @@ int sss_ini_get_config(struct sss_ini_initdata *init_data,
         return ret;
     }
 
+#ifdef HAVE_LIBINI_CONFIG_V1_3
+    snip_check.flags = INI_ACCESS_CHECK_MODE | INI_ACCESS_CHECK_UID
+                       | INI_ACCESS_CHECK_GID;
+    snip_check.uid = 0; /* owned by root */
+    snip_check.gid = 0; /* owned by root */
+    snip_check.mode = S_IRUSR; /* r**------ */
+    snip_check.mask = ALLPERMS & ~(S_IWUSR | S_IXUSR);
+
+    ret = ini_config_augment(init_data->sssd_config,
+                             config_dir,
+                             patterns,
+                             sections,
+                             &snip_check,
+                             INI_STOP_ON_ANY,
+                             INI_MV1S_OVERWRITE,
+                             INI_PARSE_NOWRAP,
+                             INI_MV2S_OVERWRITE,
+                             &modified_sssd_config,
+                             &init_data->ra_error_list,
+                             &init_data->ra_success_list);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Failed to augment configuration [%d]: %s",
+              ret, sss_strerror(ret));
+    }
+
+    while (ref_array_get(init_data->ra_success_list, i, &msg) != NULL) {
+        DEBUG(SSSDBG_TRACE_FUNC,
+              "Config merge success: %s\n", msg);
+        i++;
+    }
+
+    i = 0;
+    while (ref_array_get(init_data->ra_error_list, i, &msg) != NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Config merge error: %s\n", msg);
+        i++;
+    }
+
+    /* switch config objects if there are no errors */
+    if (modified_sssd_config != NULL) {
+        ini_config_destroy(init_data->sssd_config);
+        init_data->sssd_config = modified_sssd_config;
+    } else {
+        DEBUG(SSSDBG_TRACE_FUNC,
+              "Using only main configuration file due to errors in merging\n");
+    }
+#endif
+
     return ret;
 
 #else
@@ -274,7 +332,25 @@ int sss_ini_get_config(struct sss_ini_initdata *init_data,
 #endif
 }
 
+struct ref_array *
+sss_ini_get_ra_success_list(struct sss_ini_initdata *init_data)
+{
+#ifdef HAVE_LIBINI_CONFIG_V1_3
+    return init_data->ra_success_list;
+#else
+    return NULL;
+#endif /* HAVE_LIBINI_CONFIG_V1_3 */
+}
 
+struct ref_array *
+sss_ini_get_ra_error_list(struct sss_ini_initdata *init_data)
+{
+#ifdef HAVE_LIBINI_CONFIG_V1_3
+    return init_data->ra_error_list;
+#else
+    return NULL;
+#endif /* HAVE_LIBINI_CONFIG_V1_3 */
+}
 
 /* Get configuration object */
 
@@ -284,8 +360,6 @@ int sss_ini_get_cfgobj(struct sss_ini_initdata *init_data,
     return sss_ini_get_config_obj(section,name, init_data->sssd_config,
                                   INI_GET_FIRST_VALUE, &init_data->obj);
 }
-
-
 
 /* Check configuration object */
 
@@ -484,4 +558,153 @@ int sss_confdb_create_ldif(TALLOC_CTX *mem_ctx,
 error:
     talloc_free(ldif);
     return ret;
+}
+
+#ifdef HAVE_LIBINI_CONFIG_V1_3
+static int sss_ini_call_validators_errobj(struct sss_ini_initdata *data,
+                                          const char *rules_path,
+                                          struct ini_errobj *errobj)
+{
+    int ret;
+    struct ini_cfgobj *rules_cfgobj = NULL;
+
+    ret = ini_rules_read_from_file(rules_path, &rules_cfgobj);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to read sssd.conf schema %d [%s]\n", ret, strerror(ret));
+        goto done;
+    }
+
+    ret = ini_rules_check(rules_cfgobj, data->sssd_config, NULL, errobj);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "ini_rules_check failed %d [%s]\n", ret, strerror(ret));
+        goto done;
+    }
+
+done:
+    if (rules_cfgobj) ini_config_destroy(rules_cfgobj);
+
+    return ret;
+}
+#endif /* HAVE_LIBINI_CONFIG_V1_3 */
+
+int sss_ini_call_validators(struct sss_ini_initdata *data,
+                            const char *rules_path)
+{
+#ifdef HAVE_LIBINI_CONFIG_V1_3
+    int ret;
+    struct ini_errobj *errobj = NULL;
+
+    ret = ini_errobj_create(&errobj);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "Failed to create error list\n");
+        goto done;
+    }
+
+    ret = sss_ini_call_validators_errobj(data,
+                                         rules_path,
+                                         errobj);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Failed to get errors from validators.\n");
+        goto done;
+    }
+
+    /* Do not error out when validators find some issue */
+    while (!ini_errobj_no_more_msgs(errobj)) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "%s\n", ini_errobj_get_msg(errobj));
+        ini_errobj_next(errobj);
+    }
+
+    ret = EOK;
+
+done:
+    ini_errobj_destroy(&errobj);
+    return ret;
+#else
+    DEBUG(SSSDBG_TRACE_FUNC,
+          "libini_config does not support configuration file validataion\n");
+    return EOK;
+#endif /* HAVE_LIBINI_CONFIG_V1_3 */
+}
+
+int sss_ini_call_validators_strs(TALLOC_CTX *mem_ctx,
+                                 struct sss_ini_initdata *data,
+                                 const char *rules_path,
+                                 char ***_errors,
+                                 size_t *_num_errors)
+{
+#ifdef HAVE_LIBINI_CONFIG_V1_3
+    TALLOC_CTX *tmp_ctx = NULL;
+    struct ini_errobj *errobj = NULL;
+    int ret;
+    size_t num_errors;
+    char **errors = NULL;
+
+    if (_num_errors == NULL || _errors == NULL) {
+        return EINVAL;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    ret = ini_errobj_create(&errobj);
+    if (ret != EOK) {
+        goto done;
+    }
+
+    ret = sss_ini_call_validators_errobj(data,
+                                         rules_path,
+                                         errobj);
+    if (ret != EOK) {
+        goto done;
+    }
+    num_errors = ini_errobj_count(errobj);
+    if (num_errors == 0) {
+        *_num_errors = num_errors;
+        goto done;
+    }
+
+    errors = talloc_array(tmp_ctx, char *, num_errors);
+    if (errors == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    for (int i = 0; i < num_errors; i++) {
+        errors[i] = talloc_strdup(errors, ini_errobj_get_msg(errobj));
+        if (errors[i] == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+
+        ini_errobj_next(errobj);
+    }
+
+    *_num_errors = num_errors;
+    *_errors = talloc_steal(mem_ctx, errors);
+
+    ret = EOK;
+
+done:
+    talloc_free(tmp_ctx);
+    ini_errobj_destroy(&errobj);
+
+    return ret;
+
+#else
+    DEBUG(SSSDBG_TRACE_FUNC,
+          "libini_config does not support configuration file validataion\n");
+
+    if (_num_errors == NULL || _errors == NULL) {
+        return EINVAL;
+    }
+
+    _num_errors = 0;
+    return EOK;
+#endif /* HAVE_LIBINI_CONFIG_V1_3 */
 }

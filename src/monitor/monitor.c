@@ -55,9 +55,6 @@
 #include <keyutils.h>
 #endif
 
-/* ping time cannot be less then once every few seconds or the
- * monitor will get crazy hammering children with messages */
-#define MONITOR_DEF_PING_TIME 10
 /* terminate the child after this interval by default if it
  * doesn't shutdown on receiving SIGTERM */
 #define MONITOR_DEF_FORCE_TIME 60
@@ -77,7 +74,6 @@
 
 /* name of the monitor server instance */
 #define MONITOR_NAME        "sssd"
-#define SSSD_PIDFILE_PATH   PID_PATH"/"MONITOR_NAME".pid"
 
 /* Special value to leave the Kerberos Replay Cache set to use
  * the libkrb5 defaults
@@ -116,22 +112,15 @@ struct mt_svc {
     char *identity;
     pid_t pid;
 
-    char *diag_cmd;
-    int ping_time;
     int kill_time;
-
-    struct tevent_timer *kill_timer;
 
     bool svc_started;
 
     int restarts;
     time_t last_restart;
-    int failed_pongs;
     DBusPendingCall *pending;
 
     int debug_level;
-
-    struct tevent_timer *ping_ev;
 
     struct sss_child_ctx *child_ctx;
 };
@@ -183,12 +172,7 @@ static int start_service(struct mt_svc *mt_svc);
 
 static int monitor_service_init(struct sbus_connection *conn, void *data);
 
-static int service_send_ping(struct mt_svc *svc);
 static int service_signal_reset_offline(struct mt_svc *svc);
-static void ping_check(DBusPendingCall *pending, void *data);
-
-static void set_tasks_checker(struct mt_svc *srv);
-static int monitor_kill_service (struct mt_svc *svc);
 
 static int get_service_config(struct mt_ctx *ctx, const char *name,
                               struct mt_svc **svc_cfg);
@@ -337,7 +321,7 @@ static int svc_destructor(void *mem)
         DLIST_REMOVE(svc->mt_ctx->svc_list, svc);
     }
 
-    /* Cancel any pending pings */
+    /* Cancel any pending calls */
     if (svc->pending) {
         dbus_pending_call_cancel(svc->pending);
     }
@@ -384,77 +368,6 @@ static int add_svc_conn_spy(struct mt_svc *svc)
     return EOK;
 }
 
-static char *expand_diag_cmd(struct mt_svc *svc,
-                             const char *template)
-{
-    TALLOC_CTX *tmp_ctx = NULL;
-    char *copy;
-    char *p_copy;
-    char *n;
-    char *result = NULL;
-    char action;
-    char *res = NULL;
-
-    if (template == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Missing template.\n");
-        return NULL;
-    }
-
-    tmp_ctx = talloc_new(NULL);
-    if (!tmp_ctx) return NULL;
-
-    copy = talloc_strdup(tmp_ctx, template);
-    if (copy == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_strdup failed.\n");
-        goto done;
-    }
-
-    result = talloc_strdup(tmp_ctx, "");
-    if (result == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_strdup failed.\n");
-        goto done;
-    }
-
-    p_copy = copy;
-    while ((n = strchr(p_copy, '%')) != NULL) {
-        *n = '\0';
-        n++;
-        if ( *n == '\0' ) {
-            DEBUG(SSSDBG_CRIT_FAILURE,
-                  "format error, single %% at the end of the template.\n");
-            goto done;
-        }
-
-        action = *n;
-        switch (action) {
-        case 'p':
-            result = talloc_asprintf_append(result, "%s%d", p_copy, svc->pid);
-            break;
-        default:
-            DEBUG(SSSDBG_CRIT_FAILURE,
-                  "format error, unknown template [%%%c].\n", *n);
-            goto done;
-        }
-
-        if (result == NULL) {
-            DEBUG(SSSDBG_CRIT_FAILURE, "talloc_asprintf_append failed.\n");
-            goto done;
-        }
-
-        p_copy = n + 1;
-    }
-
-    result = talloc_asprintf_append(result, "%s", p_copy);
-    if (result == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "talloc_asprintf_append failed.\n");
-        goto done;
-    }
-
-    res = talloc_move(svc, &result);
-done:
-    talloc_zfree(tmp_ctx);
-    return res;
-}
 
 static void svc_child_info(struct mt_svc *svc, int wait_status)
 {
@@ -476,82 +389,6 @@ static void svc_child_info(struct mt_svc *svc, int wait_status)
          * call to the SIGCHLD handler
          */
     }
-}
-
-static void svc_diag_cmd_exit_handler(int pid, int wait_status, void *pvt)
-{
-    struct mt_svc *svc = talloc_get_type(pvt, struct mt_svc);
-
-    svc_child_info(svc, wait_status);
-}
-
-static void svc_run_diag_cmd(struct mt_svc *svc)
-{
-    pid_t pkc_pid;
-    char **args;
-    int ret;
-    int debug_fd;
-    char *diag_cmd;
-    struct sss_child_ctx *diag_child_ctx;
-
-    if (svc->diag_cmd == NULL) {
-        return;
-    }
-
-    pkc_pid = fork();
-    if (pkc_pid != 0) {
-        /* parent, schedule SIGKILL */
-
-        ret = sss_child_register(svc,
-                                 svc->mt_ctx->sigchld_ctx,
-                                 pkc_pid,
-                                 svc_diag_cmd_exit_handler,
-                                 svc,
-                                 &diag_child_ctx);
-        if (ret != EOK) {
-            DEBUG(SSSDBG_CRIT_FAILURE, "Cannot register child %d\n", pkc_pid);
-            /* Try to go on ... */
-        }
-
-        return;
-    }
-
-    /* child, execute diagnostics */
-    diag_cmd = expand_diag_cmd(svc, svc->diag_cmd);
-    if (diag_cmd == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "Failed to expand [%s]\n", svc->diag_cmd);
-        _exit(1);
-    }
-
-    if (debug_level >= SSSDBG_TRACE_LIBS) {
-        debug_fd = get_fd_from_debug_file();
-        ret = dup2(debug_fd, STDERR_FILENO);
-        if (ret == -1) {
-            ret = errno;
-            DEBUG(SSSDBG_MINOR_FAILURE,
-                "dup2 failed for stderr [%d][%s].\n", ret, sss_strerror(ret));
-            /* failure to redirect stderr is not fatal */
-        }
-
-        ret = dup2(debug_fd, STDOUT_FILENO);
-        if (ret == -1) {
-            ret = errno;
-            DEBUG(SSSDBG_MINOR_FAILURE,
-                "dup2 failed for stdout [%d][%s].\n", ret, sss_strerror(ret));
-            /* failure to redirect stdout is not fatal */
-        }
-    }
-
-    args = parse_args(diag_cmd);
-    execvp(args[0], args);
-
-    /* If we are here, exec() has failed
-     * Print errno and abort quickly */
-    ret = errno;
-    DEBUG(SSSDBG_FATAL_FAILURE,
-          "Could not exec %s, reason: %s\n", svc->diag_cmd, strerror(ret));
-    _exit(1);
 }
 
 static int mark_service_as_started(struct mt_svc *svc)
@@ -700,159 +537,7 @@ static int monitor_dbus_init(struct mt_ctx *ctx)
     return ret;
 }
 
-static void tasks_check_handler(struct tevent_context *ev,
-                                struct tevent_timer *te,
-                                struct timeval t, void *ptr)
-{
-    struct mt_svc *svc = talloc_get_type(ptr, struct mt_svc);
-    int ret;
-
-    ret = service_send_ping(svc);
-    switch (ret) {
-    case EOK:
-        /* all fine */
-        break;
-
-    case ENXIO:
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "Child (%s) not responding! (yet)\n", svc->name);
-        break;
-
-    default:
-        /* TODO: should we tear it down ? */
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "Sending a message to service (%s) failed!!\n", svc->name);
-        break;
-    }
-
-    if (svc->failed_pongs >= 3) {
-        /* too long since we last heard of this process */
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "Killing service [%s], not responding to pings!\n",
-               svc->name);
-        sss_log(SSS_LOG_ERR,
-                "Killing service [%s], not responding to pings!\n",
-                svc->name);
-
-        /* Kill the service. The SIGCHLD handler will restart it */
-        monitor_kill_service(svc);
-        return;
-    }
-
-    /* all fine, set up the task checker again */
-    set_tasks_checker(svc);
-}
-
-static void set_tasks_checker(struct mt_svc *svc)
-{
-    struct tevent_timer *te = NULL;
-    struct timeval tv;
-
-    gettimeofday(&tv, NULL);
-    tv.tv_sec += svc->ping_time;
-    tv.tv_usec = 0;
-    te = tevent_add_timer(svc->mt_ctx->ev, svc, tv, tasks_check_handler, svc);
-    if (te == NULL) {
-        DEBUG(SSSDBG_FATAL_FAILURE,
-              "failed to add event, monitor offline for [%s]!\n",
-                  svc->name);
-        /* FIXME: shutdown ? */
-    }
-    svc->ping_ev = te;
-}
-
 static void monitor_restart_service(struct mt_svc *svc);
-static void mt_svc_sigkill(struct tevent_context *ev,
-                           struct tevent_timer *te,
-                           struct timeval t, void *ptr);
-static int monitor_kill_service (struct mt_svc *svc)
-{
-    int ret;
-    struct timeval tv;
-
-    ret = kill(svc->pid, SIGTERM);
-    if (ret == -1) {
-        ret = errno;
-        DEBUG(SSSDBG_FATAL_FAILURE,
-              "Sending signal to child (%s:%d) failed: [%d]: %s! "
-               "Ignore and pretend child is dead.\n",
-               svc->name, svc->pid, ret, strerror(ret));
-        /* The only thing we can try here is to launch a new process
-         * and hope that it works.
-         */
-        monitor_restart_service(svc);
-        return EOK;
-    }
-
-    svc_run_diag_cmd(svc);
-
-    /* Set up a timer to send SIGKILL if this process
-     * doesn't exit within the configured interval
-     */
-    tv = tevent_timeval_current_ofs(svc->kill_time, 0);
-    svc->kill_timer = tevent_add_timer(svc->mt_ctx->ev,
-                                       svc,
-                                       tv,
-                                       mt_svc_sigkill,
-                                       svc);
-    if (svc->kill_timer == NULL) {
-        /* Nothing much we can do */
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "Failed to allocate timed event: mt_svc_sigkill.\n");
-        /* We'll just have to hope that the SIGTERM succeeds */
-    }
-    return EOK;
-}
-
-static void mt_svc_sigkill(struct tevent_context *ev,
-                           struct tevent_timer *te,
-                           struct timeval t, void *ptr)
-{
-    int ret;
-    struct mt_svc *svc = talloc_get_type(ptr, struct mt_svc);
-
-    DEBUG(SSSDBG_FATAL_FAILURE,
-          "[%s][%d] is not responding to SIGTERM. Sending SIGKILL.\n",
-           svc->name, svc->pid);
-    sss_log(SSS_LOG_ERR,
-            "[%s][%d] is not responding to SIGTERM. Sending SIGKILL.\n",
-            svc->name, svc->pid);
-
-    /* timer was succesfully executed and it will be released by tevent */
-    svc->kill_timer = NULL;
-
-    ret = kill(svc->pid, SIGKILL);
-    if (ret != EOK) {
-        ret = errno;
-        DEBUG(SSSDBG_FATAL_FAILURE,
-              "Sending signal to child (%s:%d) failed! "
-              "Ignore and pretend child is dead.\n",
-              svc->name, svc->pid);
-
-        if (ret == ESRCH) {
-            /* The process doesn't exist
-             * This most likely means we hit a race where
-             * the SIGTERM concluded just after the timer
-             * fired but before we called kill() here.
-             * We'll just do nothing, since the
-             * mt_svc_exit_handler() should be doing the
-             * necessary work.
-             */
-            return;
-        }
-
-        /* Something went really wrong.
-         * The only thing we can try here is to launch a new process
-         * and hope that it works.
-         */
-        monitor_restart_service(svc);
-    }
-
-    /* The process should terminate immediately and then be
-     * restarted by the mt_svc_exit_handler()
-     */
-    return;
-}
 
 static void reload_reply(DBusPendingCall *pending, void *data)
 {
@@ -930,7 +615,6 @@ static int service_signal(struct mt_svc *svc, const char *svc_signal)
         DEBUG(SSSDBG_FATAL_FAILURE,
               "Out of memory trying to allocate memory to invoke: %s\n",
                svc_signal);
-        monitor_kill_service(svc);
         return ENOMEM;
     }
 
@@ -1214,63 +898,6 @@ static int get_monitor_config(struct mt_ctx *ctx)
     return EOK;
 }
 
-static errno_t get_ping_config(struct mt_ctx *ctx, const char *path,
-                               struct mt_svc *svc)
-{
-    errno_t ret;
-
-    ret = confdb_get_int(ctx->cdb, path,
-                         CONFDB_DOMAIN_TIMEOUT,
-                         MONITOR_DEF_PING_TIME, &svc->ping_time);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-               "Failed to get ping timeout for '%s'\n", svc->name);
-        return ret;
-    }
-
-    /* 'timeout = 0' should be translated to the default */
-    if (svc->ping_time == 0) {
-        svc->ping_time = MONITOR_DEF_PING_TIME;
-    }
-
-    DEBUG(SSSDBG_CONF_SETTINGS,
-          "Time between service pings for [%s]: [%d]\n",
-           svc->name, svc->ping_time);
-
-    ret = confdb_get_string(ctx->cdb, svc, path,
-                            CONFDB_MONITOR_PRE_KILL_CMD,
-                            NULL, &svc->diag_cmd);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "Failed to get diagnostics command for %s\n", svc->name);
-        return ret;
-    }
-    if (svc->diag_cmd) {
-        DEBUG(SSSDBG_CONF_SETTINGS,
-              "Diagnostics command: [%s]\n", svc->diag_cmd);
-    }
-
-    ret = confdb_get_int(ctx->cdb, path,
-                         CONFDB_SERVICE_FORCE_TIMEOUT,
-                         MONITOR_DEF_FORCE_TIME, &svc->kill_time);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "Failed to get kill timeout for %s\n", svc->name);
-        return ret;
-    }
-
-    /* 'force_timeout = 0' should be translated to the default */
-    if (svc->kill_time == 0) {
-        svc->kill_time = MONITOR_DEF_FORCE_TIME;
-    }
-
-    DEBUG(SSSDBG_CONF_SETTINGS,
-          "Time between SIGTERM and SIGKILL for [%s]: [%d]\n",
-           svc->name, svc->kill_time);
-
-    return EOK;
-}
-
 /* This is a temporary function that returns false if the service
  * being started was only tested when running as root.
  */
@@ -1407,14 +1034,6 @@ static int get_service_config(struct mt_ctx *ctx, const char *name,
         }
     }
 
-    ret = get_ping_config(ctx, path, svc);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "Failed to get ping timeouts for %s\n", svc->name);
-        talloc_free(svc);
-        return ret;
-    }
-
     svc->last_restart = now;
 
     *svc_cfg = svc;
@@ -1498,14 +1117,6 @@ static int get_provider_config(struct mt_ctx *ctx, const char *name,
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE,
               "Failed to find command from [%s] configuration\n", name);
-        talloc_free(svc);
-        return ret;
-    }
-
-    ret = get_ping_config(ctx, path, svc);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "Failed to get ping timeouts for %s\n", svc->name);
         talloc_free(svc);
         return ret;
     }
@@ -1661,7 +1272,7 @@ static int monitor_cleanup(void)
     int ret;
 
     errno = 0;
-    ret = unlink(SSSD_PIDFILE_PATH);
+    ret = unlink(SSSD_PIDFILE);
     if (ret == -1) {
         ret = errno;
         DEBUG(SSSDBG_FATAL_FAILURE,
@@ -1872,6 +1483,7 @@ static int monitor_ctx_destructor(void *mem)
  */
 errno_t load_configuration(TALLOC_CTX *mem_ctx,
                            const char *config_file,
+                           const char *config_dir,
                            struct mt_ctx **monitor)
 {
     errno_t ret;
@@ -1892,52 +1504,10 @@ errno_t load_configuration(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = confdb_init(ctx, &ctx->cdb, cdb_file);
+    ret = confdb_setup(ctx, cdb_file, config_file, config_dir, &ctx->cdb);
     if (ret != EOK) {
-        DEBUG(SSSDBG_FATAL_FAILURE,"The confdb initialization failed\n");
-        goto done;
-    }
-
-    /* Initialize the CDB from the configuration file */
-    ret = confdb_test(ctx->cdb);
-    if (ret == ENOENT) {
-        /* First-time setup */
-
-        /* Purge any existing confdb in case an old
-         * misconfiguration gets in the way
-         */
-        talloc_zfree(ctx->cdb);
-        ret = unlink(cdb_file);
-        if (ret != EOK && errno != ENOENT) {
-            ret = errno;
-            DEBUG(SSSDBG_MINOR_FAILURE,
-                  "Purging existing confdb failed: %d [%s].\n",
-                  ret, sss_strerror(ret));
-            goto done;
-        }
-
-        ret = confdb_init(ctx, &ctx->cdb, cdb_file);
-        if (ret != EOK) {
-            DEBUG(SSSDBG_FATAL_FAILURE,"The confdb initialization failed\n");
-            goto done;
-        }
-
-        /* Load special entries */
-        ret = confdb_create_base(ctx->cdb);
-        if (ret != EOK) {
-            DEBUG(SSSDBG_FATAL_FAILURE,
-                  "Unable to load special entries into confdb\n");
-            goto done;
-        }
-    } else if (ret != EOK) {
-        DEBUG(SSSDBG_FATAL_FAILURE, "Fatal error initializing confdb\n");
-        goto done;
-    }
-
-    ret = confdb_init_db(config_file, ctx->cdb);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_FATAL_FAILURE, "ConfDB initialization has failed [%s]\n",
-              sss_strerror(ret));
+        DEBUG(SSSDBG_FATAL_FAILURE, "Unable to setup ConfDB [%d]: %s\n",
+             ret, sss_strerror(ret));
         goto done;
     }
 
@@ -2471,7 +2041,8 @@ static void missing_resolv_conf(struct tevent_context *ev,
 }
 
 static int monitor_process_init(struct mt_ctx *ctx,
-                                const char *config_file)
+                                const char *config_file,
+                                bool opt_netlinkoff)
 {
     TALLOC_CTX *tmp_ctx;
     struct tevent_signal *tes;
@@ -2482,6 +2053,7 @@ static int monitor_process_init(struct mt_ctx *ctx,
     int num_providers;
     int ret;
     int error;
+    struct sysdb_upgrade_ctx db_up_ctx;
 
     /* Set up the environment variable for the Kerberos Replay Cache */
     ret = confdb_get_string(ctx->cdb, ctx,
@@ -2583,7 +2155,9 @@ static int monitor_process_init(struct mt_ctx *ctx,
     if (!tmp_ctx) {
         return ENOMEM;
     }
-    ret = sysdb_init_ext(tmp_ctx, ctx->domains, true,
+
+    db_up_ctx.cdb = ctx->cdb;
+    ret = sysdb_init_ext(tmp_ctx, ctx->domains, &db_up_ctx,
                          true, ctx->uid, ctx->gid);
     if (ret != EOK) {
         SYSDB_VERSION_ERROR_DAEMON(ret);
@@ -2599,12 +2173,14 @@ static int monitor_process_init(struct mt_ctx *ctx,
         return ret;
     }
 
-    ret = setup_netlink(ctx, ctx->ev, network_status_change_cb,
-                        ctx, &ctx->nlctx);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_OP_FAILURE,
-              "Cannot set up listening for network notifications\n");
-        return ret;
+    if (opt_netlinkoff == false) {
+        ret = setup_netlink(ctx, ctx->ev, network_status_change_cb,
+                            ctx, &ctx->nlctx);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_OP_FAILURE,
+                  "Cannot set up listening for network notifications\n");
+            return ret;
+        }
     }
 
     /* start providers */
@@ -2699,134 +2275,6 @@ static int monitor_service_init(struct sbus_connection *conn, void *data)
                                     MON_SRV_PATH, mini);
 }
 
-/* service_send_ping
- * this function send a dbus ping to a service.
- * It returns EOK if all is fine or ENXIO if the connection is
- * not available (either not yet set up or teared down).
- * Returns e generic error in other cases.
- */
-static int service_send_ping(struct mt_svc *svc)
-{
-    DBusMessage *msg;
-    int ret;
-
-    if (!svc->conn) {
-        DEBUG(SSSDBG_TRACE_INTERNAL, "Service not yet initialized\n");
-        return ENXIO;
-    }
-
-    DEBUG(SSSDBG_TRACE_INTERNAL, "Pinging %s\n", svc->name);
-
-    /*
-     * Set up identity request
-     * This should be a well-known path and method
-     * for all services
-     */
-    msg = dbus_message_new_method_call(NULL,
-                                       MONITOR_PATH,
-                                       MON_CLI_IFACE,
-                                       MON_CLI_IFACE_PING);
-    if (!msg) {
-        DEBUG(SSSDBG_FATAL_FAILURE,"Out of memory?!\n");
-        talloc_zfree(svc->conn);
-        return ENOMEM;
-    }
-
-    ret = sbus_conn_send(svc->conn, msg,
-                         svc->ping_time * 1000, /* milliseconds */
-                         ping_check, svc, &svc->pending);
-    dbus_message_unref(msg);
-    return ret;
-}
-
-static void ping_check(DBusPendingCall *pending, void *data)
-{
-    struct mt_svc *svc;
-    DBusMessage *reply;
-    const char *dbus_error_name;
-    size_t len;
-    int type;
-
-    svc = talloc_get_type(data, struct mt_svc);
-    if (!svc) {
-        /* The connection probably went down before the callback fired.
-         * Not much we can do. */
-        DEBUG(SSSDBG_CRIT_FAILURE, "Invalid service pointer.\n");
-        return;
-    }
-    svc->pending = NULL;
-
-    reply = dbus_pending_call_steal_reply(pending);
-    if (!reply) {
-        /* reply should never be null. This function shouldn't be called
-         * until reply is valid or timeout has occurred. If reply is NULL
-         * here, something is seriously wrong and we should bail out.
-         */
-        DEBUG(SSSDBG_FATAL_FAILURE,
-              "A reply callback was called but no reply was received"
-                  " and no timeout occurred\n");
-
-        /* Destroy this connection */
-        sbus_disconnect(svc->conn);
-        goto done;
-    }
-
-    type = dbus_message_get_type(reply);
-    switch (type) {
-    case DBUS_MESSAGE_TYPE_METHOD_RETURN:
-        /* ok peer replied,
-         * make sure we reset the failure counter in the service structure */
-
-        DEBUG(SSSDBG_TRACE_INTERNAL,
-              "Service %s replied to ping\n", svc->name);
-
-        svc->failed_pongs = 0;
-        break;
-
-    case DBUS_MESSAGE_TYPE_ERROR:
-
-        dbus_error_name = dbus_message_get_error_name(reply);
-        if (!dbus_error_name) {
-            dbus_error_name = "<UNKNOWN>";
-        }
-
-        len = strlen(DBUS_ERROR_NO_REPLY);
-
-        /* Increase failed pong count */
-        if (strnlen(dbus_error_name, len + 1) == len
-                && strncmp(dbus_error_name, DBUS_ERROR_NO_REPLY, len) == 0) {
-            DEBUG(SSSDBG_CRIT_FAILURE,
-                  "A service PING timed out on [%s]. "
-                   "Attempt [%d]\n",
-                   svc->name, svc->failed_pongs);
-            svc->failed_pongs++;
-
-            if (debug_level & SSSDBG_TRACE_LIBS) {
-                svc_run_diag_cmd(svc);
-            }
-            break;
-        }
-
-        DEBUG(SSSDBG_FATAL_FAILURE,
-              "A service PING returned an error [%s], closing connection.\n",
-               dbus_error_name);
-        /* Falling through to default intentionally*/
-    default:
-        /*
-         * Timeout or other error occurred or something
-         * unexpected happened.
-         * It doesn't matter which, because either way we
-         * know that this connection isn't trustworthy.
-         * We'll destroy it now.
-         */
-        sbus_disconnect(svc->conn);
-    }
-
-done:
-    dbus_pending_call_unref(pending);
-    dbus_message_unref(reply);
-}
-
 static void service_startup_handler(struct tevent_context *ev,
                                     struct tevent_timer *te,
                                     struct timeval t, void *ptr);
@@ -2881,7 +2329,6 @@ static void service_startup_handler(struct tevent_context *ev,
 
         /* Parent */
         mt_svc->mt_ctx->check_children = true;
-        mt_svc->failed_pongs = 0;
 
         /* Handle process exit */
         ret = sss_child_register(mt_svc,
@@ -2899,7 +2346,6 @@ static void service_startup_handler(struct tevent_context *ev,
         }
 
         DLIST_ADD(mt_svc->mt_ctx->svc_list, mt_svc);
-        set_tasks_checker(mt_svc);
 
         return;
     }
@@ -2957,11 +2403,6 @@ static void mt_svc_exit_handler(int pid, int wait_status, void *pvt)
     DEBUG(SSSDBG_TRACE_LIBS,
           "SIGCHLD handler of service %s called\n", svc->name);
     svc_child_info(svc, wait_status);
-
-    /* Clear the kill_timer so we don't try to SIGKILL it after it's
-     * already gone.
-     */
-    talloc_zfree(svc->kill_timer);
 
     /* Check the number of restart tries and relaunch the service */
     monitor_restart_service(svc);
@@ -3028,7 +2469,9 @@ int main(int argc, const char *argv[])
     poptContext pc;
     int opt_daemon = 0;
     int opt_interactive = 0;
+    int opt_genconf = 0;
     int opt_version = 0;
+    int opt_netlinkoff = 0;
     char *opt_config_file = NULL;
     char *config_file = NULL;
     int flags = 0;
@@ -3045,10 +2488,15 @@ int main(int argc, const char *argv[])
          _("Become a daemon (default)"), NULL }, \
         {"interactive", 'i', POPT_ARG_NONE, &opt_interactive, 0, \
          _("Run interactive (not a daemon)"), NULL}, \
+        {"disable-netlink", '\0', POPT_ARG_NONE, &opt_netlinkoff, 0, \
+         _("Disable netlink interface"), NULL}, \
         {"config", 'c', POPT_ARG_STRING, &opt_config_file, 0, \
          _("Specify a non-default config file"), NULL}, \
-         {"version", '\0', POPT_ARG_NONE, &opt_version, 0, \
-          _("Print version number and exit"), NULL }, \
+        {"genconf", 'g', POPT_ARG_NONE, &opt_genconf, 0, \
+         _("Refresh the configuration database, then exit"), \
+         NULL}, \
+        {"version", '\0', POPT_ARG_NONE, &opt_version, 0, \
+         _("Print version number and exit"), NULL }, \
         POPT_TABLEEND
     };
 
@@ -3086,7 +2534,13 @@ int main(int argc, const char *argv[])
         return 1;
     }
 
-    if (!opt_daemon && !opt_interactive) {
+    if (opt_genconf && (opt_daemon || opt_interactive)) {
+        fprintf(stderr, "Option -g is incompatible with -D or -i\n");
+        poptPrintUsage(pc, stderr, 0);
+        return 1;
+    }
+
+    if (!opt_daemon && !opt_interactive && !opt_genconf) {
         opt_daemon = 1;
     }
 
@@ -3108,6 +2562,10 @@ int main(int argc, const char *argv[])
     if (opt_daemon) flags |= FLAGS_DAEMON;
     if (opt_interactive) {
         flags |= FLAGS_INTERACTIVE;
+        debug_to_stderr = 1;
+    }
+    if (opt_genconf) {
+        flags |= FLAGS_GEN_CONF;
         debug_to_stderr = 1;
     }
 
@@ -3189,7 +2647,8 @@ int main(int argc, const char *argv[])
     }
 
     /* Parse config file, fail if cannot be done */
-    ret = load_configuration(tmp_ctx, config_file, &monitor);
+    ret = load_configuration(tmp_ctx, config_file, CONFDB_DEFAULT_CONFIG_DIR,
+                             &monitor);
     if (ret != EOK) {
         switch (ret) {
         case ERR_MISSING_CONF:
@@ -3215,6 +2674,10 @@ int main(int argc, const char *argv[])
         return 4;
     }
 
+    /* at this point we are done generating the config file, we may exit
+     * if that's all we were asked to do */
+    if (opt_genconf) return 0;
+
     /* set up things like debug , signals, daemonization, etc... */
     monitor->conf_path = CONFDB_MONITOR_CONF_ENTRY;
     ret = close(STDIN_FILENO);
@@ -3229,8 +2692,8 @@ int main(int argc, const char *argv[])
     monitor->ev = main_ctx->event_ctx;
     talloc_steal(main_ctx, monitor);
 
-    ret = monitor_process_init(monitor,
-                               config_file);
+    ret = monitor_process_init(monitor, config_file,
+                               opt_netlinkoff);
     if (ret != EOK) return 3;
     talloc_free(tmp_ctx);
 

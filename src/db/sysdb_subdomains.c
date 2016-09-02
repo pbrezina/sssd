@@ -237,6 +237,7 @@ errno_t sysdb_update_subdomains(struct sss_domain_info *domain)
                            SYSDB_SUBDOMAIN_ENUM,
                            SYSDB_SUBDOMAIN_FOREST,
                            SYSDB_SUBDOMAIN_TRUST_DIRECTION,
+                           SYSDB_UPN_SUFFIXES,
                            NULL};
     struct sss_domain_info *dom;
     struct ldb_dn *basedn;
@@ -248,6 +249,8 @@ errno_t sysdb_update_subdomains(struct sss_domain_info *domain)
     bool mpg;
     bool enumerate;
     uint32_t trust_direction;
+    struct ldb_message_element *tmp_el;
+    const char **upn_suffixes;
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
@@ -307,6 +310,17 @@ errno_t sysdb_update_subdomains(struct sss_domain_info *domain)
 
         forest = ldb_msg_find_attr_as_string(res->msgs[i],
                                              SYSDB_SUBDOMAIN_FOREST, NULL);
+
+        upn_suffixes = NULL;
+        tmp_el = ldb_msg_find_element(res->msgs[0], SYSDB_UPN_SUFFIXES);
+        if (tmp_el != NULL) {
+            upn_suffixes = sss_ldb_el_to_string_list(tmp_ctx, tmp_el);
+            if (upn_suffixes == NULL) {
+                DEBUG(SSSDBG_OP_FAILURE, "sss_ldb_el_to_string_list failed.\n");
+                ret = ENOMEM;
+                goto done;
+            }
+        }
 
         trust_direction = ldb_msg_find_attr_as_int(res->msgs[i],
                                              SYSDB_SUBDOMAIN_TRUST_DIRECTION,
@@ -382,6 +396,9 @@ errno_t sysdb_update_subdomains(struct sss_domain_info *domain)
                     }
                 }
 
+                talloc_zfree(dom->upn_suffixes);
+                dom->upn_suffixes = talloc_steal(dom, upn_suffixes);
+
                 if (!dom->has_views && dom->view_name == NULL) {
                     /* maybe views are not initialized, copy from parent */
                     dom->has_views = dom->parent->has_views;
@@ -448,6 +465,7 @@ errno_t sysdb_master_domain_update(struct sss_domain_info *domain)
     errno_t ret;
     TALLOC_CTX *tmp_ctx;
     const char *tmp_str;
+    struct ldb_message_element *tmp_el;
     struct ldb_dn *basedn;
     struct ldb_result *res;
     const char *attrs[] = {"cn",
@@ -455,6 +473,7 @@ errno_t sysdb_master_domain_update(struct sss_domain_info *domain)
                            SYSDB_SUBDOMAIN_FLAT,
                            SYSDB_SUBDOMAIN_ID,
                            SYSDB_SUBDOMAIN_FOREST,
+                           SYSDB_UPN_SUFFIXES,
                            NULL};
     char *view_name = NULL;
 
@@ -537,6 +556,19 @@ errno_t sysdb_master_domain_update(struct sss_domain_info *domain)
             ret = ENOMEM;
             goto done;
         }
+    }
+
+    tmp_el = ldb_msg_find_element(res->msgs[0], SYSDB_UPN_SUFFIXES);
+    if (tmp_el != NULL) {
+        talloc_free(domain->upn_suffixes);
+        domain->upn_suffixes = sss_ldb_el_to_string_list(domain, tmp_el);
+        if (domain->upn_suffixes == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "sss_ldb_el_to_string_list failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+    } else {
+        talloc_zfree(domain->upn_suffixes);
     }
 
     ret = sysdb_get_view_name(tmp_ctx, domain->sysdb, &view_name);
@@ -633,7 +665,8 @@ errno_t sysdb_master_domain_add_info(struct sss_domain_info *domain,
                                      const char *realm,
                                      const char *flat,
                                      const char *id,
-                                     const char* forest)
+                                     const char *forest,
+                                     struct ldb_message_element *upn_suffixes)
 {
     TALLOC_CTX *tmp_ctx;
     struct ldb_message *msg;
@@ -720,7 +753,6 @@ errno_t sysdb_master_domain_add_info(struct sss_domain_info *domain,
             ret = sysdb_error_to_errno(ret);
             goto done;
         }
-
         ret = ldb_msg_add_string(msg, SYSDB_SUBDOMAIN_REALM, realm);
         if (ret != LDB_SUCCESS) {
             ret = sysdb_error_to_errno(ret);
@@ -728,6 +760,36 @@ errno_t sysdb_master_domain_add_info(struct sss_domain_info *domain,
         }
 
         do_update = true;
+    }
+
+    if (upn_suffixes != NULL) {
+        talloc_free(discard_const(upn_suffixes->name));
+        upn_suffixes->name = talloc_strdup(upn_suffixes, SYSDB_UPN_SUFFIXES);
+        if (upn_suffixes->name == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "talloc_strdup failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+
+        ret = ldb_msg_add(msg, upn_suffixes, LDB_FLAG_MOD_REPLACE);
+        if (ret != LDB_SUCCESS) {
+            ret = sysdb_error_to_errno(ret);
+            goto done;
+        }
+
+        do_update = true;
+    } else {
+        /* Remove alternative_domain_suffixes from the cache */
+        if (domain->upn_suffixes != NULL) {
+            ret = ldb_msg_add_empty(msg, SYSDB_UPN_SUFFIXES,
+                                    LDB_FLAG_MOD_DELETE, NULL);
+            if (ret != LDB_SUCCESS) {
+                ret = sysdb_error_to_errno(ret);
+                goto done;
+            }
+
+            do_update = true;
+        }
     }
 
     if (do_update == false) {
@@ -761,7 +823,8 @@ errno_t sysdb_subdomain_store(struct sysdb_ctx *sysdb,
                               const char *name, const char *realm,
                               const char *flat_name, const char *domain_id,
                               bool mpg, bool enumerate, const char *forest,
-                              uint32_t trust_direction)
+                              uint32_t trust_direction,
+                              struct ldb_message_element *upn_suffixes)
 {
     TALLOC_CTX *tmp_ctx;
     struct ldb_message *msg;
@@ -775,8 +838,10 @@ errno_t sysdb_subdomain_store(struct sysdb_ctx *sysdb,
                            SYSDB_SUBDOMAIN_ENUM,
                            SYSDB_SUBDOMAIN_FOREST,
                            SYSDB_SUBDOMAIN_TRUST_DIRECTION,
+                           SYSDB_UPN_SUFFIXES,
                            NULL};
     const char *tmp_str;
+    struct ldb_message_element *tmp_el;
     bool tmp_bool;
     bool store = false;
     int realm_flags = 0;
@@ -786,6 +851,7 @@ errno_t sysdb_subdomain_store(struct sysdb_ctx *sysdb,
     int enum_flags = 0;
     int forest_flags = 0;
     int td_flags = 0;
+    int upn_flags = 0;
     uint32_t tmp_td;
     int ret;
 
@@ -819,6 +885,7 @@ errno_t sysdb_subdomain_store(struct sysdb_ctx *sysdb,
         enum_flags = LDB_FLAG_MOD_ADD;
         if (forest) forest_flags = LDB_FLAG_MOD_ADD;
         if (trust_direction) td_flags = LDB_FLAG_MOD_ADD;
+        if (upn_suffixes) upn_flags = LDB_FLAG_MOD_ADD;
     } else if (res->count != 1) {
         ret = EINVAL;
         goto done;
@@ -870,11 +937,21 @@ errno_t sysdb_subdomain_store(struct sysdb_ctx *sysdb,
         if (tmp_td != trust_direction) {
             td_flags = LDB_FLAG_MOD_REPLACE;
         }
+
+        if (upn_suffixes) {
+            tmp_el = ldb_msg_find_element(res->msgs[0], SYSDB_UPN_SUFFIXES);
+            /* Luckily ldb_msg_element_compare() only compares the values and
+             * not the name. */
+            if (tmp_el == NULL
+                    || ldb_msg_element_compare(upn_suffixes, tmp_el) != 0) {
+                upn_flags = LDB_FLAG_MOD_REPLACE;
+            }
+        }
     }
 
     if (!store && realm_flags == 0 && flat_flags == 0 && id_flags == 0
             && mpg_flags == 0 && enum_flags == 0 && forest_flags == 0
-            && td_flags == 0) {
+            && td_flags == 0 && upn_flags == 0) {
         ret = EOK;
         goto done;
     }
@@ -997,6 +1074,24 @@ errno_t sysdb_subdomain_store(struct sysdb_ctx *sysdb,
 
         ret = ldb_msg_add_fmt(msg, SYSDB_SUBDOMAIN_TRUST_DIRECTION,
                               "%u", trust_direction);
+        if (ret != LDB_SUCCESS) {
+            ret = sysdb_error_to_errno(ret);
+            goto done;
+        }
+    }
+
+    if (upn_flags) {
+        tmp_el = talloc_zero(tmp_ctx, struct ldb_message_element);
+        if (tmp_el == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "talloc_zero failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+
+        tmp_el->name = SYSDB_UPN_SUFFIXES;
+        tmp_el->num_values = upn_suffixes->num_values;
+        tmp_el->values = upn_suffixes->values;
+        ret = ldb_msg_add(msg, tmp_el, upn_flags);
         if (ret != LDB_SUCCESS) {
             ret = sysdb_error_to_errno(ret);
             goto done;

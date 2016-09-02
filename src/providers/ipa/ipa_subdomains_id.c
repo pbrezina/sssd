@@ -40,9 +40,8 @@ static struct tevent_req *
 ipa_srv_ad_acct_send(TALLOC_CTX *mem_ctx,
                      struct tevent_context *ev,
                      struct ipa_id_ctx *ipa_ctx,
-                     struct be_req *be_req,
                      struct sysdb_attrs *override_attrs,
-                     struct be_acct_req *ar);
+                     struct dp_id_data *ar);
 static errno_t
 ipa_srv_ad_acct_recv(struct tevent_req *req, int *dp_error_out);
 
@@ -53,8 +52,7 @@ struct ipa_subdomain_account_state {
     struct sdap_id_op *op;
     struct sysdb_ctx *sysdb;
     struct sss_domain_info *domain;
-    struct be_req *be_req;
-    struct be_acct_req *ar;
+    struct dp_id_data *ar;
 
     bool ipa_server_mode;
     bool server_retry;
@@ -70,13 +68,12 @@ static void ipa_subdomain_account_connected(struct tevent_req *subreq);
 static void ipa_subdomain_account_got_override(struct tevent_req *subreq);
 static void ipa_subdomain_account_done(struct tevent_req *subreq);
 static errno_t ipa_subdomain_account_get_original_step(struct tevent_req *req,
-                                                       struct be_acct_req *ar);
+                                                       struct dp_id_data *ar);
 
 struct tevent_req *ipa_subdomain_account_send(TALLOC_CTX *memctx,
                                               struct tevent_context *ev,
                                               struct ipa_id_ctx *ipa_ctx,
-                                              struct be_req *be_req,
-                                              struct be_acct_req *ar)
+                                              struct dp_id_data *ar)
 {
     struct tevent_req *req;
     struct ipa_subdomain_account_state *state;
@@ -109,7 +106,6 @@ struct tevent_req *ipa_subdomain_account_send(TALLOC_CTX *memctx,
         goto fail;
     }
     state->sysdb = state->domain->sysdb;
-    state->be_req = be_req;
     state->ar = ar;
     state->ipa_server_mode = dp_opt_get_bool(state->ipa_ctx->ipa_options->basic,
                                              IPA_SERVER_MODE);
@@ -203,7 +199,7 @@ static void ipa_subdomain_account_got_override(struct tevent_req *subreq)
     int dp_error = DP_ERR_FATAL;
     int ret;
     const char *anchor = NULL;
-    struct be_acct_req *ar;
+    struct dp_id_data *ar;
 
     ret = ipa_get_ad_override_recv(subreq, &dp_error, state,
                                    &state->override_attrs);
@@ -225,12 +221,12 @@ static void ipa_subdomain_account_got_override(struct tevent_req *subreq)
         if (anchor != NULL && strncmp(OVERRIDE_ANCHOR_SID_PREFIX, anchor,
                                       OVERRIDE_ANCHOR_SID_PREFIX_LEN) == 0) {
 
-            ret = get_be_acct_req_for_sid(state,
+            ret = get_dp_id_data_for_sid(state,
                                         anchor + OVERRIDE_ANCHOR_SID_PREFIX_LEN,
                                         state->ar->domain,
                                         &ar);
             if (ret != EOK) {
-                DEBUG(SSSDBG_OP_FAILURE, "get_be_acct_req_for_sid failed.\n");
+                DEBUG(SSSDBG_OP_FAILURE, "get_dp_id_data_for_sid failed.\n");
                 goto fail;
             }
 
@@ -269,7 +265,7 @@ fail:
 }
 
 static errno_t ipa_subdomain_account_get_original_step(struct tevent_req *req,
-                                                       struct be_acct_req *ar)
+                                                       struct dp_id_data *ar)
 {
     struct ipa_subdomain_account_state *state = tevent_req_data(req,
                                             struct ipa_subdomain_account_state);
@@ -277,7 +273,7 @@ static errno_t ipa_subdomain_account_get_original_step(struct tevent_req *req,
 
     if (state->ipa_server_mode) {
         subreq = ipa_srv_ad_acct_send(state, state->ev, state->ipa_ctx,
-                                      state->be_req, state->override_attrs, ar);
+                                      state->override_attrs, ar);
     } else {
         subreq = ipa_get_subdom_acct_send(state, state->ev, state->ipa_ctx,
                                           state->override_attrs, ar);
@@ -348,6 +344,7 @@ struct ipa_get_subdom_acct {
     int entry_type;
     const char *filter;
     int filter_type;
+    const char *extra_value;
     bool use_pac;
     struct ldb_message *user_msg;
 
@@ -361,7 +358,7 @@ struct tevent_req *ipa_get_subdom_acct_send(TALLOC_CTX *memctx,
                                             struct tevent_context *ev,
                                             struct ipa_id_ctx *ipa_ctx,
                                             struct sysdb_attrs *override_attrs,
-                                            struct be_acct_req *ar)
+                                            struct dp_id_data *ar)
 {
     struct tevent_req *req;
     struct ipa_get_subdom_acct *state;
@@ -397,12 +394,12 @@ struct tevent_req *ipa_get_subdom_acct_send(TALLOC_CTX *memctx,
     state->entry_type = (ar->entry_type & BE_REQ_TYPE_MASK);
     state->filter = ar->filter_value;
     state->filter_type = ar->filter_type;
+    state->extra_value = ar->extra_value;
 
     switch (state->entry_type) {
         case BE_REQ_USER:
         case BE_REQ_GROUP:
         case BE_REQ_BY_SECID:
-        case BE_REQ_BY_CERT:
         case BE_REQ_USER_AND_GROUP:
             ret = EOK;
             break;
@@ -445,6 +442,7 @@ static void ipa_get_subdom_acct_connected(struct tevent_req *subreq)
     int ret;
     char *endptr;
     struct req_input *req_input;
+    char *shortname;
 
     ret = sdap_id_op_connect_recv(subreq, &dp_error);
     talloc_zfree(subreq);
@@ -503,7 +501,24 @@ static void ipa_get_subdom_acct_connected(struct tevent_req *subreq)
     switch (state->filter_type) {
         case BE_FILTER_NAME:
             req_input->type = REQ_INP_NAME;
-            req_input->inp.name = talloc_strdup(req_input, state->filter);
+            /* The extdom plugin expects the shortname and domain separately,
+             * but for UPN/email lookup we need to send the raw name */
+            if (state->extra_value != NULL
+                    && strcmp(state->extra_value, EXTRA_NAME_IS_UPN) == 0) {
+                req_input->inp.name = talloc_strdup(req_input, state->filter);
+            } else {
+                ret = sss_parse_internal_fqname(req_input, state->filter,
+                                                &shortname, NULL);
+                if (ret != EOK) {
+                    DEBUG(SSSDBG_CRIT_FAILURE,
+                          "Cannot parse internal name [%s]: %d\n",
+                          state->filter, ret);
+                    tevent_req_error(req, ret);
+                    return;
+                }
+
+                req_input->inp.name = talloc_steal(req_input, shortname);
+            }
             if (req_input->inp.name == NULL) {
                 DEBUG(SSSDBG_OP_FAILURE, "talloc_strdup failed.\n");
                 tevent_req_error(req, ENOMEM);
@@ -625,8 +640,7 @@ struct ipa_get_ad_acct_state {
     int dp_error;
     struct tevent_context *ev;
     struct ipa_id_ctx *ipa_ctx;
-    struct be_req *be_req;
-    struct be_acct_req *ar;
+    struct dp_id_data *ar;
     struct sss_domain_info *obj_dom;
     char *object_sid;
     struct sysdb_attrs *override_attrs;
@@ -646,9 +660,8 @@ static struct tevent_req *
 ipa_get_ad_acct_send(TALLOC_CTX *mem_ctx,
                      struct tevent_context *ev,
                      struct ipa_id_ctx *ipa_ctx,
-                     struct be_req *be_req,
                      struct sysdb_attrs *override_attrs,
-                     struct be_acct_req *ar)
+                     struct dp_id_data *ar)
 {
     errno_t ret;
     struct tevent_req *req;
@@ -665,7 +678,6 @@ ipa_get_ad_acct_send(TALLOC_CTX *mem_ctx,
     state->dp_error = -1;
     state->ev = ev;
     state->ipa_ctx = ipa_ctx;
-    state->be_req = be_req;
     state->ar = ar;
     state->obj_msg = NULL;
     state->override_attrs = override_attrs;
@@ -715,7 +727,7 @@ ipa_get_ad_acct_send(TALLOC_CTX *mem_ctx,
         goto fail;
     }
 
-    subreq = ad_handle_acct_info_send(req, be_req, ar, sdap_id_ctx,
+    subreq = ad_handle_acct_info_send(req, ar, sdap_id_ctx,
                                       ad_id_ctx->ad_options, sdom, clist);
     if (subreq == NULL) {
         ret = ENOMEM;
@@ -750,7 +762,6 @@ get_subdomain_homedir_of_user(TALLOC_CTX *mem_ctx, struct sss_domain_info *dom,
                               const char *original, const char **_homedir)
 {
     errno_t ret;
-    const char *name;
     const char *homedir;
     TALLOC_CTX *tmp_ctx;
     struct sss_nss_homedir_ctx homedir_ctx;
@@ -771,26 +782,16 @@ get_subdomain_homedir_of_user(TALLOC_CTX *mem_ctx, struct sss_domain_info *dom,
     ZERO_STRUCT(homedir_ctx);
 
     homedir_ctx.uid = uid;
+    homedir_ctx.username = fqname;
     homedir_ctx.domain = dom->name;
     homedir_ctx.flatname = dom->flat_name;
     homedir_ctx.config_homedir_substr = dom->homedir_substr;
     homedir_ctx.original = original;
-    ret = sss_parse_name_const(tmp_ctx, dom->names, fqname,
-                               NULL, &name);
-    if (ret != EOK) {
-        goto done;
-    }
 
     /* To be compatible with the old winbind based user lookups and IPA
      * clients the user name in the home directory path will be lower-case. */
-    homedir_ctx.username = sss_tc_utf8_str_tolower(tmp_ctx, name);
-    if (homedir_ctx.username == NULL) {
-        ret = ENOMEM;
-        goto done;
-    }
-
     homedir = expand_homedir_template(tmp_ctx, dom->subdomain_homedir,
-                                      &homedir_ctx);
+                                      false, &homedir_ctx);
     if (homedir == NULL) {
         DEBUG(SSSDBG_OP_FAILURE, "expand_homedir_template failed\n");
         ret = ENOMEM;
@@ -803,6 +804,7 @@ get_subdomain_homedir_of_user(TALLOC_CTX *mem_ctx, struct sss_domain_info *dom,
     }
     *_homedir = talloc_steal(mem_ctx, homedir);
 
+    ret = EOK;
 done:
     talloc_free(tmp_ctx);
     return ret;
@@ -953,7 +955,7 @@ done:
 
 errno_t get_object_from_cache(TALLOC_CTX *mem_ctx,
                               struct sss_domain_info *dom,
-                              struct be_acct_req *ar,
+                              struct dp_id_data *ar,
                               struct ldb_message **_msg)
 {
     errno_t ret;
@@ -968,7 +970,6 @@ errno_t get_object_from_cache(TALLOC_CTX *mem_ctx,
                             SYSDB_GHOST,
                             SYSDB_HOMEDIR,
                             NULL };
-    char *name;
 
     if (ar->filter_type == BE_FILTER_SECID) {
         ret = sysdb_search_object_by_sid(mem_ctx, dom, ar->filter_value, attrs,
@@ -1041,25 +1042,27 @@ errno_t get_object_from_cache(TALLOC_CTX *mem_ctx,
             goto done;
         }
     } else if (ar->filter_type == BE_FILTER_NAME) {
-        name = sss_get_domain_name(mem_ctx, ar->filter_value, dom);
-        if (name == NULL) {
-            DEBUG(SSSDBG_OP_FAILURE, "sss_get_domain_name failed\n");
-            ret = ENOMEM;
-            goto done;
-        }
-
         switch (ar->entry_type & BE_REQ_TYPE_MASK) {
         case BE_REQ_GROUP:
-            ret = sysdb_search_group_by_name(mem_ctx, dom, name, attrs, &msg);
+            ret = sysdb_search_group_by_name(mem_ctx, dom, ar->filter_value,
+                                             attrs, &msg);
             break;
         case BE_REQ_INITGROUPS:
         case BE_REQ_USER:
         case BE_REQ_USER_AND_GROUP:
-            ret = sysdb_search_user_by_name(mem_ctx, dom, name, attrs, &msg);
-            if (ret == ENOENT && (ar->entry_type & BE_REQ_TYPE_MASK)
+            if (ar->extra_value
+                    && strcmp(ar->extra_value, EXTRA_NAME_IS_UPN) == 0) {
+                ret = sysdb_search_user_by_upn(mem_ctx, dom, ar->filter_value,
+                                               attrs, &msg);
+            } else {
+                ret = sysdb_search_user_by_name(mem_ctx, dom, ar->filter_value,
+                                                attrs, &msg);
+                if (ret == ENOENT && (ar->entry_type & BE_REQ_TYPE_MASK)
                                                      == BE_REQ_USER_AND_GROUP) {
-                ret = sysdb_search_group_by_name(mem_ctx, dom, name,
-                                                 attrs, &msg);
+                    ret = sysdb_search_group_by_name(mem_ctx, dom,
+                                                     ar->filter_value, attrs,
+                                                     &msg);
+                }
             }
             break;
         default:
@@ -1096,7 +1099,7 @@ ipa_get_ad_acct_ad_part_done(struct tevent_req *subreq)
                                                 struct ipa_get_ad_acct_state);
     errno_t ret;
     const char *sid;
-    struct be_acct_req *ar;
+    struct dp_id_data *ar;
 
     ret = ad_handle_acct_info_recv(subreq, &state->dp_error, NULL);
     talloc_zfree(subreq);
@@ -1144,10 +1147,10 @@ ipa_get_ad_acct_ad_part_done(struct tevent_req *subreq)
             goto fail;
         }
 
-        ret = get_be_acct_req_for_sid(state, state->object_sid,
+        ret = get_dp_id_data_for_sid(state, state->object_sid,
                                       state->obj_dom->name, &ar);
         if (ret != EOK) {
-            DEBUG(SSSDBG_OP_FAILURE, "get_be_acct_req_for_sid failed.\n");
+            DEBUG(SSSDBG_OP_FAILURE, "get_dp_id_data_for_sid failed.\n");
             goto fail;
         }
 
@@ -1214,6 +1217,67 @@ fail:
     return;
 }
 
+static void ipa_check_ghost_members_done(struct tevent_req *subreq);
+static errno_t ipa_check_ghost_members(struct tevent_req *req)
+{
+    struct ipa_get_ad_acct_state *state = tevent_req_data(req,
+                                                struct ipa_get_ad_acct_state);
+    errno_t ret;
+    struct tevent_req *subreq;
+    struct ldb_message_element *ghosts = NULL;
+
+
+    if (state->obj_msg == NULL) {
+        ret = get_object_from_cache(state, state->obj_dom, state->ar,
+                                    &state->obj_msg);
+        if (ret == ENOENT) {
+            DEBUG(SSSDBG_MINOR_FAILURE,
+                  "Object not found, ending request\n");
+            return EOK;
+        } else if (ret != EOK) {
+            DEBUG(SSSDBG_OP_FAILURE, "get_object_from_cache failed.\n");
+            return ret;
+        }
+    }
+
+    ghosts = ldb_msg_find_element(state->obj_msg, SYSDB_GHOST);
+
+    if (ghosts != NULL) {
+        /* Resolve ghost members */
+        subreq = ipa_resolve_user_list_send(state, state->ev,
+                                            state->ipa_ctx,
+                                            state->obj_dom->name,
+                                            ghosts);
+        if (subreq == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "ipa_resolve_user_list_send failed.\n");
+            return ENOMEM;
+        }
+        tevent_req_set_callback(subreq, ipa_check_ghost_members_done, req);
+        return EAGAIN;
+    }
+
+    return EOK;
+}
+
+static void ipa_check_ghost_members_done(struct tevent_req *subreq)
+{
+    struct tevent_req *req = tevent_req_callback_data(subreq,
+                                                struct tevent_req);
+    int ret;
+
+    ret = ipa_resolve_user_list_recv(subreq, NULL);
+    talloc_zfree(subreq);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, "ipa_resolve_user_list request failed [%d]\n",
+                                  ret);
+        tevent_req_error(req, ret);
+        return;
+    }
+
+    tevent_req_done(req);
+    return;
+}
+
 static errno_t ipa_get_ad_apply_override_step(struct tevent_req *req)
 {
     struct ipa_get_ad_acct_state *state = tevent_req_data(req,
@@ -1241,9 +1305,25 @@ static errno_t ipa_get_ad_apply_override_step(struct tevent_req *req)
     entry_type = (state->ar->entry_type & BE_REQ_TYPE_MASK);
     if (entry_type != BE_REQ_INITGROUPS
             && entry_type != BE_REQ_USER
-            && entry_type != BE_REQ_BY_SECID) {
+            && entry_type != BE_REQ_BY_SECID
+            && entry_type != BE_REQ_GROUP) {
         tevent_req_done(req);
         return EOK;
+    }
+
+    /* expand ghost members, if any, to get group members with overrides
+     * right. */
+    if (entry_type == BE_REQ_GROUP) {
+        ret = ipa_check_ghost_members(req);
+        if (ret == EOK) {
+            tevent_req_done(req);
+            return EOK;
+        } else if (ret == EAGAIN) {
+            return EOK;
+        } else {
+            DEBUG(SSSDBG_OP_FAILURE, "ipa_check_ghost_members failed.\n");
+            return ret;
+        }
     }
 
     /* Replace ID with name in search filter */
@@ -1404,9 +1484,8 @@ ipa_get_ad_acct_recv(struct tevent_req *req, int *dp_error_out)
 struct ipa_srv_ad_acct_state {
     struct tevent_context *ev;
     struct ipa_id_ctx *ipa_ctx;
-    struct be_req *be_req;
     struct sysdb_attrs *override_attrs;
-    struct be_acct_req *ar;
+    struct dp_id_data *ar;
 
     struct sss_domain_info *obj_dom;
     struct be_ctx *be_ctx;
@@ -1423,9 +1502,8 @@ static struct tevent_req *
 ipa_srv_ad_acct_send(TALLOC_CTX *mem_ctx,
                      struct tevent_context *ev,
                      struct ipa_id_ctx *ipa_ctx,
-                     struct be_req *be_req,
                      struct sysdb_attrs *override_attrs,
-                     struct be_acct_req *ar)
+                     struct dp_id_data *ar)
 {
     errno_t ret;
     struct tevent_req *req;
@@ -1438,12 +1516,11 @@ ipa_srv_ad_acct_send(TALLOC_CTX *mem_ctx,
 
     state->ev = ev;
     state->ipa_ctx = ipa_ctx;
-    state->be_req = be_req;
     state->override_attrs = override_attrs;
     state->ar = ar;
     state->retry = true;
     state->dp_error = DP_ERR_FATAL;
-    state->be_ctx = be_req_get_be_ctx(state->be_req);
+    state->be_ctx = ipa_ctx->sdap_id_ctx->be;
 
     state->obj_dom = find_domain_by_name(
                                   state->ipa_ctx->sdap_id_ctx->be->domain,
@@ -1475,7 +1552,7 @@ static int ipa_srv_ad_acct_lookup_step(struct tevent_req *req)
 
     DEBUG(SSSDBG_TRACE_FUNC, "Looking up AD account\n");
     subreq = ipa_get_ad_acct_send(state, state->ev, state->ipa_ctx,
-                                  state->be_req, state->override_attrs,
+                                  state->override_attrs,
                                   state->ar);
     if (subreq == NULL) {
         return ENOMEM;

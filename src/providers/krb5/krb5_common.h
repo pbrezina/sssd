@@ -29,7 +29,7 @@
 #include "config.h"
 #include <stdbool.h>
 
-#include "providers/dp_backend.h"
+#include "providers/backend.h"
 #include "util/util.h"
 #include "util/sss_krb5.h"
 
@@ -189,10 +189,6 @@ errno_t krb5_get_simple_upn(TALLOC_CTX *mem_ctx, struct krb5_ctx *krb5_ctx,
 
 errno_t compare_principal_realm(const char *upn, const char *realm,
                                 bool *different_realm);
-
-int sssm_krb5_auth_init(struct be_ctx *bectx,
-                        struct bet_ops **ops,
-                        void **pvt_auth_data);
 
 /* from krb5_keytab.c */
 

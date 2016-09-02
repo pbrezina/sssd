@@ -66,17 +66,6 @@ struct mon_cli_iface monitor_pam_methods = {
     .sysbusReconnect = NULL,
 };
 
-static struct data_provider_iface pam_dp_methods = {
-    { &data_provider_iface_meta, 0 },
-    .RegisterService = NULL,
-    .pamHandler = NULL,
-    .sudoHandler = NULL,
-    .autofsHandler = NULL,
-    .hostHandler = NULL,
-    .getDomains = NULL,
-    .getAccountInfo = NULL,
-};
-
 static void pam_dp_reconnect_init(struct sbus_connection *conn, int status, void *pvt)
 {
     struct be_conn *be_conn = talloc_get_type(pvt, struct be_conn);
@@ -87,9 +76,7 @@ static void pam_dp_reconnect_init(struct sbus_connection *conn, int status, void
         DEBUG(SSSDBG_CRIT_FAILURE, "Reconnected to the Data Provider.\n");
 
         /* Identify ourselves to the data provider */
-        ret = dp_common_send_id(be_conn->conn,
-                                DATA_PROVIDER_VERSION,
-                                "PAM");
+        ret = rdp_register_client(be_conn, "PAM");
         /* all fine */
         if (ret == EOK) {
             handle_requests_after_reconnect(be_conn->rctx);
@@ -203,7 +190,8 @@ static int pam_process_init(TALLOC_CTX *mem_ctx,
                            SSS_PAM_SBUS_SERVICE_NAME,
                            SSS_PAM_SBUS_SERVICE_VERSION,
                            &monitor_pam_methods,
-                           "PAM", &pam_dp_methods.vtable,
+                           "PAM", NULL,
+                           sss_connection_setup,
                            &rctx);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "sss_process_init() failed\n");

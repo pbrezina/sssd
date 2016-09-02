@@ -1,16 +1,21 @@
 dist_noinst_DATA = \
     config.py.m4 \
     sssd_id.py \
+    sssd_ldb.py \
+    sssd_netgroup.py \
     ds.py \
     ds_openldap.py \
     ent.py \
     ent_test.py \
     ldap_ent.py \
     ldap_local_override_test.py \
-    ldap_test.py \
     test_local_domain.py \
     util.py \
+    test_enumeration.py \
+    test_ldap.py \
     test_memory_cache.py \
+    test_ts_cache.py \
+    test_netgroup.py \
     $(NULL)
 
 config.py: config.py.m4

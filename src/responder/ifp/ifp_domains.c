@@ -28,6 +28,9 @@
 #include "confdb/confdb.h"
 #include "responder/common/responder.h"
 #include "responder/ifp/ifp_domains.h"
+#include "responder/common/data_provider/rdp.h"
+#include "sbus/sssd_dbus_errors.h"
+#include "providers/data_provider/dp_responder_iface.h"
 
 #define RETURN_DOM_PROP_AS_STRING(dbus_req, pvt_data, out, property) do { \
     struct sss_domain_info *__dom;                                        \
@@ -533,4 +536,97 @@ void ifp_dom_get_parent_domain(struct sbus_request *dbus_req,
 
     *_out = sbus_opath_compose(dbus_req, IFP_PATH_DOMAINS,
                                dom->parent->name);
+}
+
+int ifp_domains_domain_is_online(struct sbus_request *sbus_req,
+                                 void *data)
+{
+    struct ifp_ctx *ifp_ctx;
+    struct sss_domain_info *dom;
+
+    ifp_ctx = talloc_get_type(data, struct ifp_ctx);
+
+    dom = get_domain_info_from_req(sbus_req, data);
+    if (dom == NULL) {
+        sbus_request_reply_error(sbus_req, SBUS_ERROR_UNKNOWN_DOMAIN,
+                                 "Unknown domain");
+        return EOK;
+    }
+
+    rdp_message_send_and_reply(sbus_req, ifp_ctx->rctx, dom, DP_PATH,
+                               IFACE_DP_BACKEND, IFACE_DP_BACKEND_ISONLINE,
+                               DBUS_TYPE_STRING, &dom->name);
+
+    return EOK;
+}
+
+int ifp_domains_domain_list_services(struct sbus_request *sbus_req,
+                                     void *data)
+{
+    struct ifp_ctx *ifp_ctx;
+    struct sss_domain_info *dom;
+
+    ifp_ctx = talloc_get_type(data, struct ifp_ctx);
+
+    dom = get_domain_info_from_req(sbus_req, data);
+    if (dom == NULL) {
+        sbus_request_reply_error(sbus_req, SBUS_ERROR_UNKNOWN_DOMAIN,
+                                 "Unknown domain");
+        return EOK;
+    }
+
+    rdp_message_send_and_reply(sbus_req, ifp_ctx->rctx, dom, DP_PATH,
+                               IFACE_DP_FAILOVER,
+                               IFACE_DP_FAILOVER_LISTSERVICES,
+                               DBUS_TYPE_STRING, &dom->name);
+
+    return EOK;
+}
+
+int ifp_domains_domain_active_server(struct sbus_request *sbus_req,
+                                     void *data,
+                                     const char *service)
+{
+    struct ifp_ctx *ifp_ctx;
+    struct sss_domain_info *dom;
+
+    ifp_ctx = talloc_get_type(data, struct ifp_ctx);
+
+    dom = get_domain_info_from_req(sbus_req, data);
+    if (dom == NULL) {
+        sbus_request_reply_error(sbus_req, SBUS_ERROR_UNKNOWN_DOMAIN,
+                                 "Unknown domain");
+        return EOK;
+    }
+
+    rdp_message_send_and_reply(sbus_req, ifp_ctx->rctx, dom, DP_PATH,
+                               IFACE_DP_FAILOVER,
+                               IFACE_DP_FAILOVER_ACTIVESERVER,
+                               DBUS_TYPE_STRING, &service);
+
+    return EOK;
+}
+
+int ifp_domains_domain_list_servers(struct sbus_request *sbus_req,
+                                    void *data,
+                                    const char *service)
+{
+    struct ifp_ctx *ifp_ctx;
+    struct sss_domain_info *dom;
+
+    ifp_ctx = talloc_get_type(data, struct ifp_ctx);
+
+    dom = get_domain_info_from_req(sbus_req, data);
+    if (dom == NULL) {
+        sbus_request_reply_error(sbus_req, SBUS_ERROR_UNKNOWN_DOMAIN,
+                                 "Unknown domain");
+        return EOK;
+    }
+
+    rdp_message_send_and_reply(sbus_req, ifp_ctx->rctx, dom, DP_PATH,
+                               IFACE_DP_FAILOVER,
+                               IFACE_DP_FAILOVER_LISTSERVERS,
+                               DBUS_TYPE_STRING, &service);
+
+    return EOK;
 }

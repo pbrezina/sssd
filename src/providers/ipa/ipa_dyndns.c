@@ -28,7 +28,7 @@
 #include "providers/ipa/ipa_common.h"
 #include "providers/ipa/ipa_dyndns.h"
 #include "providers/data_provider.h"
-#include "providers/dp_dyndns.h"
+#include "providers/be_dyndns.h"
 
 void ipa_dyndns_update(void *pvt);
 
@@ -161,6 +161,26 @@ ipa_dyndns_update_send(struct ipa_options *ctx)
         return NULL;
     }
     state->ipa_ctx = ctx;
+
+    /* The following three checks are here to prevent SEGFAULT
+     * from ticket #3076. */
+    if (ctx->service == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "service structure not initialized\n");
+        ret = EINVAL;
+        goto done;
+    }
+
+    if (ctx->service->sdap == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "sdap structure not initialized\n");
+        ret = EINVAL;
+        goto done;
+    }
+
+    if (ctx->service->sdap->uri == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "LDAP uri not set\n");
+        ret = EINVAL;
+        goto done;
+    }
 
     if (ctx->dyndns_ctx->last_refresh + 60 > time(NULL) ||
         ctx->dyndns_ctx->timer_in_progress) {

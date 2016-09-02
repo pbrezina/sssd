@@ -22,7 +22,7 @@
 #ifndef _LDAP_COMMON_H_
 #define _LDAP_COMMON_H_
 
-#include "providers/dp_backend.h"
+#include "providers/backend.h"
 #include "providers/ldap/sdap.h"
 #include "providers/ldap/sdap_id_op.h"
 #include "providers/fail_over.h"
@@ -78,12 +78,15 @@ struct sdap_auth_ctx {
     struct sdap_service *chpass_service;
 };
 
-int sssm_ldap_id_init(struct be_ctx *bectx,
-                      struct bet_ops **ops,
-                      void **pvt_data);
+struct tevent_req *
+sdap_online_check_handler_send(TALLOC_CTX *mem_ctx,
+                               struct sdap_id_ctx *id_ctx,
+                               void *data,
+                               struct dp_req_params *params);
 
-void sdap_check_online(struct be_req *breq);
-void sdap_do_online_check(struct be_req *be_req, struct sdap_id_ctx *ctx);
+errno_t sdap_online_check_handler_recv(TALLOC_CTX *mem_ctx,
+                                       struct tevent_req *req,
+                                       struct dp_reply_std *data);
 
 struct tevent_req* sdap_reinit_cleanup_send(TALLOC_CTX *mem_ctx,
                                             struct be_ctx *be_ctx,
@@ -92,9 +95,15 @@ struct tevent_req* sdap_reinit_cleanup_send(TALLOC_CTX *mem_ctx,
 errno_t sdap_reinit_cleanup_recv(struct tevent_req *req);
 
 /* id */
-void sdap_account_info_handler(struct be_req *breq);
-void sdap_handle_account_info(struct be_req *breq, struct sdap_id_ctx *ctx,
-                              struct sdap_id_conn_ctx *conn);
+struct tevent_req *
+sdap_account_info_handler_send(TALLOC_CTX *mem_ctx,
+                               struct sdap_id_ctx *id_ctx,
+                               struct dp_id_data *data,
+                               struct dp_req_params *params);
+
+errno_t sdap_account_info_handler_recv(TALLOC_CTX *mem_ctx,
+                                       struct tevent_req *req,
+                                       struct dp_reply_std *data);
 
 /* Set up enumeration and/or cleanup */
 int ldap_id_setup_tasks(struct sdap_id_ctx *ctx);
@@ -106,12 +115,12 @@ int sdap_id_setup_tasks(struct be_ctx *be_ctx,
                         void *pvt);
 
 /* Allow shortcutting an enumeration request */
-bool sdap_is_enum_request(struct be_acct_req *ar);
+bool sdap_is_enum_request(struct dp_id_data *ar);
 
 struct tevent_req *
 sdap_handle_acct_req_send(TALLOC_CTX *mem_ctx,
                           struct be_ctx *be_ctx,
-                          struct be_acct_req *ar,
+                          struct dp_id_data *ar,
                           struct sdap_id_ctx *id_ctx,
                           struct sdap_domain *sdom,
                           struct sdap_id_conn_ctx *conn,
@@ -121,20 +130,39 @@ sdap_handle_acct_req_recv(struct tevent_req *req,
                           int *_dp_error, const char **_err,
                           int *sdap_ret);
 
-/* auth */
-void sdap_pam_auth_handler(struct be_req *breq);
+struct tevent_req *
+sdap_pam_auth_handler_send(TALLOC_CTX *mem_ctx,
+                           struct sdap_auth_ctx *auth_ctx,
+                           struct pam_data *pd,
+                           struct dp_req_params *params);
 
-/* chpass */
-void sdap_pam_chpass_handler(struct be_req *breq);
+errno_t
+sdap_pam_auth_handler_recv(TALLOC_CTX *mem_ctx,
+                             struct tevent_req *req,
+                             struct pam_data **_data);
 
-/* access */
-void sdap_pam_access_handler(struct be_req *breq);
+struct tevent_req *
+sdap_pam_chpass_handler_send(TALLOC_CTX *mem_ctx,
+                           struct sdap_auth_ctx *auth_ctx,
+                           struct pam_data *pd,
+                           struct dp_req_params *params);
+
+errno_t
+sdap_pam_chpass_handler_recv(TALLOC_CTX *mem_ctx,
+                             struct tevent_req *req,
+                             struct pam_data **_data);
 
 /* autofs */
-void sdap_autofs_handler(struct be_req *breq);
+struct tevent_req *
+sdap_autofs_handler_send(TALLOC_CTX *mem_ctx,
+                         struct sdap_id_ctx *id_ctx,
+                         struct dp_autofs_data *data,
+                         struct dp_req_params *params);
 
-void sdap_handler_done(struct be_req *req, int dp_err,
-                       int error, const char *errstr);
+errno_t
+sdap_autofs_handler_recv(TALLOC_CTX *mem_ctx,
+                         struct tevent_req *req,
+                         struct dp_reply_std *data);
 
 int sdap_service_init(TALLOC_CTX *memctx, struct be_ctx *ctx,
                       const char *service_name, const char *dns_service_name,
@@ -271,6 +299,11 @@ char *sdap_or_filters(TALLOC_CTX *mem_ctx,
 char *sdap_combine_filters(TALLOC_CTX *mem_ctx,
                            const char *base_filter,
                            const char *extra_filter);
+
+char *get_enterprise_principal_string_filter(TALLOC_CTX *mem_ctx,
+                                             const char *attr_name,
+                                             const char *princ,
+                                             struct dp_option *sdap_basic_opts);
 
 char *sdap_get_access_filter(TALLOC_CTX *mem_ctx,
                              const char *base_filter);

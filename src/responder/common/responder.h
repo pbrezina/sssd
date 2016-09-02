@@ -33,6 +33,7 @@
 #include <ldb.h>
 #include <dhash.h>
 
+#include "data_provider/rdp.h"
 #include "sbus/sssd_dbus.h"
 #include "responder/common/negcache.h"
 #include "sss_client/sss_cli.h"
@@ -65,6 +66,11 @@ struct cli_protocol_version {
     uint32_t version;
     const char *date;
     const char *description;
+};
+
+struct cli_protocol {
+    struct cli_request *creq;
+    struct cli_protocol_version *cli_protocol_version;
 };
 
 struct resp_ctx;
@@ -129,26 +135,14 @@ struct cli_ctx {
     struct resp_ctx *rctx;
     int cfd;
     struct tevent_fd *cfde;
+    tevent_fd_handler_t cfd_handler;
     struct sockaddr_un addr;
-    struct cli_request *creq;
-    struct cli_protocol_version *cli_protocol_version;
     int priv;
 
     struct cli_creds *creds;
 
-    int pwent_dom_idx;
-    int pwent_cur;
-
-    int grent_dom_idx;
-    int grent_cur;
-
-    int svc_dom_idx;
-    int svcent_cur;
-
-    char *netgr_name;
-    int netgrent_cur;
-
-    char *automntmap_name;
+    void *protocol_ctx;
+    void *state_ctx;
 
     struct tevent_timer *idle;
 };
@@ -164,10 +158,12 @@ struct mon_cli_iface;
 /*
  * responder_common.c
  *
- * NOTE: We would like to use more strong typing for the @dp_vtable argument
- * but can't since it accepts either a struct data_provider_iface
- * or struct data_provider_rev_iface. So pass the base struct: sbus_vtable
  */
+
+typedef int (*connection_setup_t)(struct cli_ctx *cctx);
+
+int sss_connection_setup(struct cli_ctx *cctx);
+
 int sss_process_init(TALLOC_CTX *mem_ctx,
                      struct tevent_context *ev,
                      struct confdb_ctx *cdb,
@@ -181,7 +177,8 @@ int sss_process_init(TALLOC_CTX *mem_ctx,
                      uint16_t svc_version,
                      struct mon_cli_iface *monitor_intf,
                      const char *cli_name,
-                     struct sbus_vtable *dp_intf,
+                     struct sbus_iface_map *sbus_iface,
+                     connection_setup_t conn_setup,
                      struct resp_ctx **responder_ctx);
 
 int sss_dp_get_domain_conn(struct resp_ctx *rctx, const char *domain,
@@ -193,6 +190,8 @@ errno_t responder_get_domain_by_id(struct resp_ctx *rctx, const char *id,
                                    struct sss_domain_info **_ret_dom);
 
 int create_pipe_fd(const char *sock_name, int *_fd, mode_t umaskval);
+int activate_unix_sockets(struct resp_ctx *rctx,
+                          connection_setup_t conn_setup);
 
 /* responder_cmd.c */
 int sss_cmd_empty_packet(struct sss_packet *packet);
@@ -316,6 +315,12 @@ bool sss_utf8_check(const uint8_t *s, size_t n);
 
 void responder_set_fd_limit(rlim_t fd_limit);
 
+errno_t reset_idle_timer(struct cli_ctx *cctx);
+void idle_handler(struct tevent_context *ev,
+                  struct tevent_timer *te,
+                  struct timeval current_time,
+                  void *data);
+
 #define GET_DOMAINS_DEFAULT_TIMEOUT 60
 
 struct tevent_req *sss_dp_get_domains_send(TALLOC_CTX *mem_ctx,
@@ -346,5 +351,11 @@ errno_t sss_parse_inp_recv(struct tevent_req *req, TALLOC_CTX *mem_ctx,
 
 const char **parse_attr_list_ex(TALLOC_CTX *mem_ctx, const char *conf_str,
                                 const char **defaults);
+
+char *sss_resp_create_fqname(TALLOC_CTX *mem_ctx,
+                             struct resp_ctx *rctx,
+                             struct sss_domain_info *dom,
+                             bool name_is_upn,
+                             const char *orig_name);
 
 #endif /* __SSS_RESPONDER_H__ */

@@ -39,7 +39,7 @@
 #include "providers/ldap/sdap_access.h"
 #include "providers/ldap/sdap_async.h"
 #include "providers/data_provider.h"
-#include "providers/dp_backend.h"
+#include "providers/backend.h"
 #include "providers/ldap/ldap_auth.h"
 
 #define PERMANENTLY_LOCKED_ACCOUNT "000001010000Z"
@@ -884,12 +884,11 @@ static struct tevent_req *sdap_access_filter_send(TALLOC_CTX *mem_ctx,
     }
 
     /* Construct the filter */
-    /* Subdomain users are identified by FQDN. We need to use just the username */
-    ret = sss_parse_name(state, domain->names, username, NULL, &name);
+    ret = sss_parse_internal_fqname(state, username, &name, NULL);
     if (ret != EOK) {
         DEBUG(SSSDBG_OP_FAILURE,
               "Could not parse [%s] into name and "
-               "domain components, access might fail\n", username);
+              "domain components, access might fail\n", username);
         name = discard_const(username);
     }
 

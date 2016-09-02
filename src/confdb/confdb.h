@@ -1,7 +1,7 @@
 /*
    SSSD
 
-   NSS Configuratoin DB
+   SSSD Configuration DB
 
    Copyright (C) Simo Sorce <ssorce@redhat.com>	2008
 
@@ -42,6 +42,7 @@
 #define CONFDB_FILE "config.ldb"
 #define SSSD_DEFAULT_CONFIG_FILE SSSD_DEFAULT_CONF_DIR"/sssd.conf"
 #define SSSD_CONFIG_FILE SSSD_CONF_DIR"/sssd.conf"
+#define CONFDB_DEFAULT_CONFIG_DIR SSSD_CONF_DIR"/conf.d"
 #define SSSD_MIN_ID 1
 #define SSSD_LOCAL_MINID 1000
 #define CONFDB_DEFAULT_SHELL_FALLBACK "/bin/sh"
@@ -57,8 +58,6 @@
 #define CONFDB_SERVICE_DEBUG_TIMESTAMPS "debug_timestamps"
 #define CONFDB_SERVICE_DEBUG_MICROSECONDS "debug_microseconds"
 #define CONFDB_SERVICE_DEBUG_TO_FILES "debug_to_files"
-#define CONFDB_SERVICE_TIMEOUT "timeout"
-#define CONFDB_SERVICE_FORCE_TIMEOUT "force_timeout"
 #define CONFDB_SERVICE_RECON_RETRIES "reconnection_retries"
 #define CONFDB_SERVICE_FD_LIMIT "fd_limit"
 #define CONFDB_SERVICE_ALLOWED_UIDS "allowed_uids"
@@ -73,7 +72,6 @@
 #define CONFDB_MONITOR_DEFAULT_DOMAIN "default_domain_suffix"
 #define CONFDB_MONITOR_OVERRIDE_SPACE "override_space"
 #define CONFDB_MONITOR_USER_RUNAS "user"
-#define CONFDB_MONITOR_PRE_KILL_CMD "diag_cmd"
 #define CONFDB_MONITOR_CERT_VERIFICATION "certificate_verification"
 
 /* Both monitor and domains */
@@ -221,6 +219,10 @@
 #define CONFDB_PROXY_PAM_TARGET "proxy_pam_target"
 #define CONFDB_PROXY_FAST_ALIAS "proxy_fast_alias"
 
+/* Secrets Service */
+#define CONFDB_SEC_CONF_ENTRY "config/secrets"
+
+
 struct confdb_ctx;
 struct config_file_ctx;
 
@@ -311,6 +313,7 @@ struct sss_domain_info {
      */
     char *forest;
     struct sss_domain_info *forest_root;
+    const char **upn_suffixes;
 };
 
 /**
@@ -563,6 +566,32 @@ int confdb_set_string(struct confdb_ctx *cdb,
 int confdb_get_string_as_list(struct confdb_ctx *cdb, TALLOC_CTX *ctx,
                               const char *section, const char *attribute,
                               char ***result);
+
+/**
+ * @brief Convenience function to retrieve a list of subsections given a
+ * configuration section name
+ *
+ * @param[in] mem_ctx The parent memory context for the returned list
+ * @param[in] cdb The connection object to the confdb
+ * @param[in] section The ConfDB section to look for.
+ *                    All sections should start with 'config/'.
+ *                    Subsections are separated by slashes.
+ * @param[out] sections Names of the subsections realtive to the section
+ *                      requested. If "a/b" is requested then "c/d" is
+ *                      returned for the section named [a/b/c/d]
+ * @param[out] num_sections Number of section names returned
+ *
+ * @return 0 - Successfully retrieved the entry (or used the default)
+ * @return ENOMEM - There was insufficient memory to complete the operation
+ * @return EINVAL - The section could not be parsed.
+ * @return ENOENT - No section was found.
+ * @return EIO - An I/O error occurred while communicating with the ConfDB
+ */
+int confdb_get_sub_sections(TALLOC_CTX *mem_ctx,
+                            struct confdb_ctx *cdb,
+                            const char *section,
+                            char ***sections,
+                            int *num_sections);
 /**
  * @}
  */

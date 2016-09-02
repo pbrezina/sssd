@@ -31,12 +31,20 @@
 #include "providers/ldap/sdap.h"
 #include "providers/ldap/sdap_idmap.h"
 #include "providers/ldap/sdap_async_private.h"
+#include "providers/ldap/ldap_opts.h"
 
 #define TESTS_PATH "tp_" BASE_FILE_STEM
 #define TEST_CONF_DB "test_ldap_nested_groups_conf.ldb"
 #define TEST_DOM_NAME "ldap_nested_groups_test"
 #define TEST_ID_PROVIDER "ldap"
 #define TEST_EXT_MEMBER "extMember"
+
+bool _dp_target_enabled(struct data_provider *provider,
+                        const char *module_name,
+                        ...)
+{
+    return true;
+}
 
 #define new_test(test) \
     cmocka_unit_test_setup_teardown(nested_groups_test_ ## test, \
@@ -641,7 +649,7 @@ struct test_ext_pvt {
 
 struct test_ext_member {
     const char *sid;
-    const char *name;
+    const char *short_name;
     id_t id;
     enum sysdb_member_type member_type;
 } test_ext_member_table[] = {
@@ -684,7 +692,7 @@ struct tevent_req *test_resolve_ext_send(TALLOC_CTX *mem_ctx,
     for (size_t i = 0; test_ext_member_table[i].sid; i++) {
         if (strcmp(ext_member, test_ext_member_table[i].sid) == 0) {
             ret = test_resolve_ext_save_obj(state, test_pvt->dom_head,
-                                            test_ext_member_table[i].name,
+                                            test_ext_member_table[i].short_name,
                                             test_ext_member_table[i].id,
                                             test_ext_member_table[i].member_type,
                                             &member);
@@ -725,10 +733,17 @@ static errno_t test_resolve_ext_save_obj(TALLOC_CTX *mem_ctx,
     char *home;
     struct sysdb_attrs **members;
     TALLOC_CTX *tmp_ctx;
+    char *fqdn;
 
     tmp_ctx = talloc_new(mem_ctx);
     if (tmp_ctx == NULL) {
         return ENOMEM;
+    }
+
+    fqdn = sss_create_internal_fqname(tmp_ctx, name, dom->name);
+    if (fqdn == NULL) {
+        ret = ENOMEM;
+        goto done;
     }
 
     if (member_type == SYSDB_MEMBER_USER) {
@@ -738,24 +753,24 @@ static errno_t test_resolve_ext_save_obj(TALLOC_CTX *mem_ctx,
             goto done;
         }
 
-        ret = sysdb_store_user(dom, name, "*", id, id,
+        ret = sysdb_store_user(dom, fqdn, "*", id, id,
                                name, home, "/bin/bash", NULL, NULL,
                                NULL, 1000, time(NULL));
         if (ret != EOK) {
             goto done;
         }
 
-        ret = sysdb_getpwnam(tmp_ctx, dom, name, &res);
+        ret = sysdb_getpwnam(tmp_ctx, dom, fqdn, &res);
         if (ret != EOK) {
             goto done;
         }
     } else if (member_type == SYSDB_MEMBER_GROUP) {
-        ret = sysdb_store_group(dom, name, id, NULL, 1000, time(NULL));
+        ret = sysdb_store_group(dom, fqdn, id, NULL, 1000, time(NULL));
         if (ret != EOK) {
             goto done;
         }
 
-        ret = sysdb_getgrnam(tmp_ctx, dom, name, &res);
+        ret = sysdb_getgrnam(tmp_ctx, dom, fqdn, &res);
         if (ret != EOK) {
             goto done;
         }
@@ -828,6 +843,7 @@ static int nested_group_external_member_teardown(void **state)
     struct nested_groups_test_ctx *test_ctx = talloc_get_type(*state,
                                                struct nested_groups_test_ctx);
     errno_t ret;
+    char *fqdn;
     int i;
 
     ret = sysdb_delete_group(test_ctx->tctx->dom, "rootgroup", 0);
@@ -836,22 +852,29 @@ static int nested_group_external_member_teardown(void **state)
     }
 
     for (i = 0; test_ext_member_table[i].sid != NULL; i++) {
+        fqdn = sss_create_internal_fqname(test_ctx,
+                                          test_ext_member_table[i].short_name,
+                                          test_ctx->tctx->dom->name);
+        if (fqdn == NULL) {
+            return 1;
+        }
+
         switch (test_ext_member_table[i].member_type) {
         case SYSDB_MEMBER_USER:
             ret = sysdb_delete_user(test_ctx->tctx->dom,
-                                    test_ext_member_table[i].name,
-                                    0);
+                                    fqdn, 0);
             break;
 
         case SYSDB_MEMBER_GROUP:
             ret = sysdb_delete_group(test_ctx->tctx->dom,
-                                     test_ext_member_table[i].name,
-                                     0);
+                                     fqdn, 0);
             break;
 
         default:
             continue;
         }
+
+        talloc_zfree(fqdn);
 
         if (ret != EOK && ret != ENOENT) {
             return 1;
@@ -926,6 +949,7 @@ nested_group_test_save_group(struct nested_groups_test_ctx *test_ctx,
     errno_t ret;
     struct sysdb_attrs *sysdb_grattrs = NULL;
     const char *s;
+    char *fqdn_gr;
 
     sysdb_grattrs = sysdb_new_attrs(test_ctx);
     if (sysdb_grattrs == NULL) {
@@ -934,23 +958,99 @@ nested_group_test_save_group(struct nested_groups_test_ctx *test_ctx,
 
     ret = sysdb_attrs_get_string(ldap_attrs, SYSDB_ORIG_DN, &s);
     if (ret != EOK) {
+        talloc_free(sysdb_grattrs);
         return ret;
     }
 
     ret = sysdb_attrs_add_string(sysdb_grattrs, SYSDB_ORIG_DN, s);
     if (ret != EOK) {
+        talloc_free(sysdb_grattrs);
         return ret;
     }
 
+    fqdn_gr = sss_create_internal_fqname(test_ctx, gr->gr_name,
+                                         test_ctx->tctx->dom->name);
+    if (fqdn_gr == NULL) {
+        talloc_free(sysdb_grattrs);
+        return ENOMEM;
+    }
+
     ret = sysdb_store_group(test_ctx->tctx->dom,
-                            gr->gr_name, gr->gr_gid,
+                            fqdn_gr, gr->gr_gid,
                             sysdb_grattrs, 0, time(NULL));
+    talloc_free(fqdn_gr);
     talloc_free(sysdb_grattrs);
     if (ret != EOK) {
         return ret;
     }
 
     return EOK;
+}
+
+static errno_t
+nested_group_test_link_group(struct nested_groups_test_ctx *test_ctx,
+                             const char *shortname_parent,
+                             const char *shortname_child)
+{
+    errno_t ret;
+    char *fqdn_parent;
+    char *fqdn_child;
+
+    fqdn_parent = sss_create_internal_fqname(test_ctx, shortname_parent,
+                                             test_ctx->tctx->dom->name);
+    if (fqdn_parent == NULL) {
+        return ENOMEM;
+    }
+
+    fqdn_child = sss_create_internal_fqname(test_ctx, shortname_child,
+                                            test_ctx->tctx->dom->name);
+    if (fqdn_child == NULL) {
+        return ENOMEM;
+    }
+
+    ret = sysdb_add_group_member(test_ctx->tctx->dom,
+                                 fqdn_parent,
+                                 fqdn_child,
+                                 SYSDB_MEMBER_GROUP, false);
+    talloc_free(fqdn_parent);
+    talloc_free(fqdn_child);
+    return ret;
+}
+
+static void assert_sysdb_name_equal(struct nested_groups_test_ctx *test_ctx,
+                                    struct ldb_message *msg,
+                                    const char *shortname)
+{
+    const char *s;
+    char *fqname;
+
+    fqname = sss_create_internal_fqname(test_ctx, shortname,
+                                        test_ctx->tctx->dom->name);
+    assert_non_null(fqname);
+
+    s = ldb_msg_find_attr_as_string(msg, SYSDB_NAME, NULL);
+    assert_string_equal(s, fqname);
+    talloc_free(fqname);
+}
+
+static void assert_member_dn(struct nested_groups_test_ctx *test_ctx,
+                             const char *member_name,
+                             const char *exp_member_name)
+{
+    const char *s;
+    char *fqname;
+
+    fqname = sss_create_internal_fqname(test_ctx, exp_member_name,
+                                        test_ctx->tctx->dom->name);
+    assert_non_null(fqname);
+
+    s = sysdb_group_strdn(test_ctx,
+                          test_ctx->tctx->dom->name,
+                          fqname);
+    talloc_free(fqname);
+    assert_non_null(s);
+
+    assert_string_equal(member_name, s);
 }
 
 static void nested_group_external_member_test(void **state)
@@ -968,7 +1068,6 @@ static void nested_group_external_member_test(void **state)
     struct group nested_group;
     struct group ext_group;
     struct group ext_group_nested;
-    const char *s;
     const char *rootgroup_members[] = {
         "cn=nested_group,"GROUP_BASE_DN,
         "cn=extgroup,"GROUP_BASE_DN,
@@ -994,6 +1093,7 @@ static void nested_group_external_member_test(void **state)
                                      NULL
     };
     TALLOC_CTX *req_mem_ctx = NULL;
+    char *fqdn;
 
     /* LDAP provider doesn't support external groups by default */
     test_ctx->sdap_opts->group_map[SDAP_AT_GROUP_MEMBER].name = \
@@ -1078,22 +1178,19 @@ static void nested_group_external_member_test(void **state)
                                        &ext_group_nested);
     assert_int_equal(ret, EOK);
 
-    ret = sysdb_add_group_member(test_ctx->tctx->dom,
-                                 rootgroup.gr_name,
-                                 ext_group.gr_name,
-                                 SYSDB_MEMBER_GROUP, false);
+    ret = nested_group_test_link_group(test_ctx,
+                                       rootgroup.gr_name,
+                                       ext_group.gr_name);
     assert_int_equal(ret, EOK);
 
-    ret = sysdb_add_group_member(test_ctx->tctx->dom,
-                                 rootgroup.gr_name,
-                                 nested_group.gr_name,
-                                 SYSDB_MEMBER_GROUP, false);
+    ret = nested_group_test_link_group(test_ctx,
+                                       rootgroup.gr_name,
+                                       nested_group.gr_name);
     assert_int_equal(ret, EOK);
 
-    ret = sysdb_add_group_member(test_ctx->tctx->dom,
-                                 nested_group.gr_name,
-                                 ext_group_nested.gr_name,
-                                 SYSDB_MEMBER_GROUP, false);
+    ret = nested_group_test_link_group(test_ctx,
+                                       nested_group.gr_name,
+                                       ext_group_nested.gr_name);
     assert_int_equal(ret, EOK);
 
     /* Resolve external members */
@@ -1115,37 +1212,69 @@ static void nested_group_external_member_test(void **state)
     assert_int_equal(ret, ERR_OK);
 
     /* Make sure that extuser1001 is a member of rootgroup now */
-    ret = sysdb_initgroups(test_ctx, test_ctx->tctx->dom, "ext_user10001", &res);
-    assert_int_equal(ret, EOK);
-    s = ldb_msg_find_attr_as_string(res->msgs[1], SYSDB_NAME, NULL);
-    assert_string_equal(s, rootgroup.gr_name);
-    s = ldb_msg_find_attr_as_string(res->msgs[2], SYSDB_NAME, NULL);
-    assert_string_equal(s, nested_group.gr_name);
+    fqdn = sss_create_internal_fqname(test_ctx, "ext_user10001",
+                                      test_ctx->tctx->dom->name);
+    assert_non_null(fqdn);
 
-    ret = sysdb_getgrnam(test_ctx, test_ctx->tctx->dom,
-                         "ext_group20001", &res);
+    ret = sysdb_initgroups(test_ctx, test_ctx->tctx->dom, fqdn, &res);
+    talloc_zfree(fqdn);
+    assert_int_equal(ret, EOK);
+    assert_sysdb_name_equal(test_ctx, res->msgs[1], rootgroup.gr_name);
+    assert_sysdb_name_equal(test_ctx, res->msgs[2], nested_group.gr_name);
+
+    fqdn = sss_create_internal_fqname(test_ctx, "ext_group20001",
+                                      test_ctx->tctx->dom->name);
+    assert_non_null(fqdn);
+
     ret = sysdb_search_group_by_name(test_ctx,
                                      test_ctx->tctx->dom,
-                                     "ext_group20001",
+                                     fqdn,
                                      sysdb_gr_attrs,
                                      &msg);
     assert_int_equal(ret, EOK);
     member = ldb_msg_find_element(msg, SYSDB_MEMBEROF);
     assert_int_equal(member->num_values, 2);
 
-    s = sysdb_group_strdn(test_ctx,
-                          test_ctx->tctx->dom->name,
-                          rootgroup.gr_name);
-    assert_non_null(s);
-    assert_string_equal(member->values[0].data, s);
-
-    s = sysdb_group_strdn(test_ctx,
-                          test_ctx->tctx->dom->name,
-                          nested_group.gr_name);
-    assert_non_null(s);
-    assert_string_equal(member->values[1].data, s);
+    assert_member_dn(test_ctx,
+                     (const char *) member->values[0].data,
+                     rootgroup.gr_name);
+    assert_member_dn(test_ctx,
+                     (const char *) member->values[1].data,
+                     nested_group.gr_name);
 }
 
+static void test_get_enterprise_principal_string_filter(void **state)
+{
+    int ret;
+    char *ep_filter;
+    struct dp_option *no_krb5_realm_opt = default_basic_opts;
+
+    struct dp_option *krb5_realm_opt;
+
+    ret = dp_copy_defaults(NULL, default_basic_opts, SDAP_OPTS_BASIC,
+                           &krb5_realm_opt);
+    assert_int_equal(ret, EOK);
+
+    ret = dp_opt_set_string(krb5_realm_opt, SDAP_KRB5_REALM, "TEST.DOM");
+    assert_int_equal(ret, EOK);
+
+    ep_filter = get_enterprise_principal_string_filter(NULL, NULL, NULL, NULL);
+    assert_null(ep_filter);
+
+    ep_filter = get_enterprise_principal_string_filter(NULL, "aBC", "p@d.c",
+                                                       no_krb5_realm_opt);
+    assert_null(ep_filter);
+
+    ep_filter = get_enterprise_principal_string_filter(NULL, "aBC", "p",
+                                                       krb5_realm_opt);
+    assert_null(ep_filter);
+
+    ep_filter = get_enterprise_principal_string_filter(NULL, "aBC", "p@d.c",
+                                                       krb5_realm_opt);
+    assert_non_null(ep_filter);
+    assert_string_equal(ep_filter, "(aBC=p\\\\@d.c@TEST.DOM)");
+    talloc_free(ep_filter);
+}
 
 int main(int argc, const char *argv[])
 {
@@ -1172,6 +1301,7 @@ int main(int argc, const char *argv[])
         cmocka_unit_test_setup_teardown(nested_group_external_member_test,
                                         nested_group_external_member_setup,
                                         nested_group_external_member_teardown),
+        cmocka_unit_test(test_get_enterprise_principal_string_filter),
     };
 
     /* Set debug level to invalid value so we can deside if -d 0 was used. */

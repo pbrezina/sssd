@@ -426,7 +426,7 @@ static errno_t ipa_add_ad_memberships_recv(struct tevent_req *req,
 
 struct tevent_req *ipa_get_ad_memberships_send(TALLOC_CTX *mem_ctx,
                                         struct tevent_context *ev,
-                                        struct be_acct_req *ar,
+                                        struct dp_id_data *ar,
                                         struct ipa_server_mode_ctx *server_mode,
                                         struct sss_domain_info *user_dom,
                                         struct sdap_id_ctx *sdap_id_ctx,
@@ -829,6 +829,8 @@ static void ipa_add_ad_memberships_get_next(struct tevent_req *req)
     int ret;
     const struct ldb_val *val;
     bool missing_groups;
+    const char *fq_name;
+    char *tmp_str;
 
     while (state->groups[state->iter] != NULL
             && state->groups[state->iter][0] == '\0') {
@@ -870,12 +872,22 @@ static void ipa_add_ad_memberships_get_next(struct tevent_req *req)
         goto fail;
     }
 
+    fq_name = (const char *) val->data;
+    if (strchr(fq_name, '@') == NULL) {
+        tmp_str = sss_create_internal_fqname(state, fq_name,
+                                             state->group_dom->name);
+        /* keep using val->data if sss_create_internal_fqname() fails */
+        if (tmp_str != NULL) {
+            fq_name = tmp_str;
+        }
+    }
+
 /* TODO: here is would be useful for have a filter type like BE_FILTER_DN to
  * directly fetch the group with the corresponding DN. */
     subreq = groups_get_send(state, state->ev,
                                  state->sdap_id_ctx, state->group_sdom,
                                  state->sdap_id_ctx->conn,
-                                 (const char *) val->data,
+                                 fq_name,
                                  BE_FILTER_NAME, BE_ATTR_CORE,
                                  false, false);
     if (subreq == NULL) {
@@ -1068,7 +1080,7 @@ struct tevent_req *ipa_ext_group_member_send(TALLOC_CTX *mem_ctx,
     struct ipa_ext_member_state *state;
     struct tevent_req *req;
     struct tevent_req *subreq;
-    struct be_acct_req *ar;
+    struct dp_id_data *ar;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state, struct ipa_ext_member_state);
@@ -1101,15 +1113,16 @@ struct tevent_req *ipa_ext_group_member_send(TALLOC_CTX *mem_ctx,
         goto immediate;
     }
 
-    ret = get_be_acct_req_for_sid(state, ext_member, state->dom->name, &ar);
+    ret = get_dp_id_data_for_sid(state, ext_member, state->dom->name, &ar);
     if (ret != EOK) {
         DEBUG(SSSDBG_MINOR_FAILURE,
               "Cannot create the account request for [%s]\n", ext_member);
         goto immediate;
     }
 
-    subreq = be_get_account_info_send(state, ev, NULL,
-                                      ipa_ctx->sdap_id_ctx->be, ar);
+    subreq = dp_req_send(state, ipa_ctx->sdap_id_ctx->be->provider, NULL,
+                         ar->domain, "External Member",
+                         DPT_ID, DPM_ACCOUNT_HANDLER, 0, ar, NULL);
     if (subreq == NULL) {
         ret = ENOMEM;
         goto immediate;
@@ -1135,19 +1148,22 @@ static void ipa_ext_group_member_done(struct tevent_req *subreq)
     struct ipa_ext_member_state *state = tevent_req_data(req,
                                                 struct ipa_ext_member_state);
     errno_t ret;
-    int err_maj;
-    int err_min;
-    const char *err_msg;
     struct ldb_message *msg;
     struct sysdb_attrs **members;
+    struct dp_reply_std *reply;
 
-    ret = be_get_account_info_recv(subreq, state,
-                                   &err_maj, &err_min, &err_msg);
+
+    ret = dp_req_recv_ptr(state, subreq, struct dp_reply_std, &reply);
     talloc_free(subreq);
     if (ret != EOK) {
-        DEBUG(SSSDBG_OP_FAILURE,
-              "be request failed %d:%d: %s\n", err_maj, err_min, err_msg);
+        DEBUG(SSSDBG_OP_FAILURE, "dp_req_recv failed\n");
         tevent_req_error(req, ret);
+        return;
+    } else if (reply->dp_error != DP_ERR_OK) {
+        DEBUG(SSSDBG_MINOR_FAILURE,
+              "Cannot refresh data from DP: %u,%u: %s\n",
+              reply->dp_error, reply->error, reply->message);
+        tevent_req_error(req, EIO);
         return;
     }
 

@@ -26,7 +26,7 @@
 #include "util/util.h"
 #include "providers/ldap/sdap_dyndns.h"
 #include "providers/data_provider.h"
-#include "providers/dp_dyndns.h"
+#include "providers/be_dyndns.h"
 #include "providers/ad/ad_common.h"
 
 void ad_dyndns_update(void *pvt);
@@ -47,7 +47,7 @@ errno_t ad_dyndns_init(struct be_ctx *be_ctx,
 
     if (dp_opt_get_bool(ad_opts->dyndns_ctx->opts,
                         DP_OPT_DYNDNS_UPDATE) == false) {
-        DEBUG(SSSDBG_CONF_SETTINGS, "Dynamic DNS updates not set\n");
+        DEBUG(SSSDBG_CONF_SETTINGS, "Dynamic DNS updates are off.\n");
         return EOK;
     }
 

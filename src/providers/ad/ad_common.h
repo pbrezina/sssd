@@ -42,6 +42,7 @@ struct ad_options;
 
 enum ad_basic_opt {
     AD_DOMAIN = 0,
+    AD_ENABLED_DOMAINS,
     AD_SERVER,
     AD_BACKUP_SERVER,
     AD_HOSTNAME,
@@ -172,17 +173,24 @@ errno_t ad_dyndns_init(struct be_ctx *be_ctx,
                        struct ad_options *ctx);
 void ad_dyndns_timer(void *pvt);
 
-int ad_sudo_init(struct be_ctx *be_ctx,
-                 struct ad_id_ctx *id_ctx,
-                 struct bet_ops **ops,
-                 void **pvt_data);
+errno_t ad_sudo_init(TALLOC_CTX *mem_ctx,
+                    struct be_ctx *be_ctx,
+                    struct ad_id_ctx *id_ctx,
+                    struct dp_method *dp_methods);
 
-int ad_autofs_init(struct be_ctx *be_ctx,
-                  struct ad_id_ctx *id_ctx,
-                  struct bet_ops **ops,
-                  void **pvt_data);
+errno_t ad_autofs_init(TALLOC_CTX *mem_ctx,
+                       struct be_ctx *be_ctx,
+                       struct ad_id_ctx *id_ctx,
+                       struct dp_method *dp_methods);
 
 errno_t ad_machine_account_password_renewal_init(struct be_ctx *be_ctx,
                                                  struct ad_options *ad_opts);
+
+errno_t netlogon_get_domain_info(TALLOC_CTX *mem_ctx,
+                                 struct sysdb_attrs *reply,
+                                 bool check_next_nearest_site_as_well,
+                                 char **_flat_name,
+                                 char **_site,
+                                 char **_forest);
 
 #endif /* AD_COMMON_H_ */

@@ -585,6 +585,7 @@ static void pam_handle_cached_login(struct pam_auth_req *preq, int ret,
 static void pam_reply(struct pam_auth_req *preq)
 {
     struct cli_ctx *cctx;
+    struct cli_protocol *prctx;
     uint8_t *body;
     size_t blen;
     int ret;
@@ -606,6 +607,7 @@ static void pam_reply(struct pam_auth_req *preq)
     pd = preq->pd;
     cctx = preq->cctx;
     pctx = talloc_get_type(preq->cctx->rctx->pvt_ctx, struct pam_ctx);
+    prctx = talloc_get_type(cctx->protocol_ctx, struct cli_protocol);
 
     ret = confdb_get_int(pctx->rctx->cdb, CONFDB_PAM_CONF_ENTRY,
                          CONFDB_PAM_VERBOSITY, DEFAULT_PAM_VERBOSITY,
@@ -738,8 +740,8 @@ static void pam_reply(struct pam_auth_req *preq)
         return;
     }
 
-    ret = sss_packet_new(cctx->creq, 0, sss_packet_get_cmd(cctx->creq->in),
-                         &cctx->creq->out);
+    ret = sss_packet_new(prctx->creq, 0, sss_packet_get_cmd(prctx->creq->in),
+                         &prctx->creq->out);
     if (ret != EOK) {
         goto done;
     }
@@ -805,7 +807,7 @@ static void pam_reply(struct pam_auth_req *preq)
         resp = resp->next;
     }
 
-    ret = sss_packet_grow(cctx->creq->out, sizeof(int32_t) +
+    ret = sss_packet_grow(prctx->creq->out, sizeof(int32_t) +
                                            sizeof(int32_t) +
                                            resp_c * 2* sizeof(int32_t) +
                                            resp_size);
@@ -813,7 +815,7 @@ static void pam_reply(struct pam_auth_req *preq)
         goto done;
     }
 
-    sss_packet_get_body(cctx->creq->out, &body, &blen);
+    sss_packet_get_body(prctx->creq->out, &body, &blen);
     DEBUG(SSSDBG_FUNC_DATA, "blen: %zu\n", blen);
     p = 0;
 
@@ -922,18 +924,54 @@ static void pam_check_user_dp_callback(uint16_t err_maj, uint32_t err_min,
 static int pam_check_user_search(struct pam_auth_req *preq);
 static int pam_check_user_done(struct pam_auth_req *preq, int ret);
 
+static errno_t pam_cmd_assume_upn(struct pam_auth_req *preq)
+{
+    int ret;
+
+    if (!preq->pd->name_is_upn
+            && preq->pd->logon_name != NULL
+            && strchr(preq->pd->logon_name, '@') != NULL) {
+        DEBUG(SSSDBG_TRACE_ALL,
+              "No entry found so far, trying UPN/email lookup with [%s].\n",
+              preq->pd->logon_name);
+        /* Assuming Kerberos principal */
+        preq->domain = preq->cctx->rctx->domains;
+        preq->check_provider =
+                            NEED_CHECK_PROVIDER(preq->domain->provider);
+        preq->pd->user = talloc_strdup(preq->pd, preq->pd->logon_name);
+        if (preq->pd->user == NULL) {
+            DEBUG(SSSDBG_OP_FAILURE, "talloc_strdup failed.\n");
+            return ENOMEM;
+        }
+        preq->pd->name_is_upn = true;
+        preq->pd->domain = NULL;
+
+        ret = pam_check_user_search(preq);
+        if (ret == EOK) {
+            pam_dom_forwarder(preq);
+        }
+        return EOK;
+    }
+
+    return ENOENT;
+}
+
+
 /* TODO: we should probably return some sort of cookie that is set in the
  * PAM_ENVIRONMENT, so that we can save performing some calls and cache
  * data. */
 
 static errno_t pam_forwarder_parse_data(struct cli_ctx *cctx, struct pam_data *pd)
 {
+    struct cli_protocol *prctx;
     uint8_t *body;
     size_t blen;
     errno_t ret;
     uint32_t terminator;
 
-    sss_packet_get_body(cctx->creq->in, &body, &blen);
+    prctx = talloc_get_type(cctx->protocol_ctx, struct cli_protocol);
+
+    sss_packet_get_body(prctx->creq->in, &body, &blen);
     if (blen >= sizeof(uint32_t)) {
         SAFEALIGN_COPY_UINT32(&terminator,
                               body + blen - sizeof(uint32_t),
@@ -945,7 +983,7 @@ static errno_t pam_forwarder_parse_data(struct cli_ctx *cctx, struct pam_data *p
         }
     }
 
-    switch (cctx->cli_protocol_version->version) {
+    switch (prctx->cli_protocol_version->version) {
         case 1:
             ret = pam_parse_in_data(pd, body, blen);
             break;
@@ -957,7 +995,7 @@ static errno_t pam_forwarder_parse_data(struct cli_ctx *cctx, struct pam_data *p
             break;
         default:
             DEBUG(SSSDBG_CRIT_FAILURE, "Illegal protocol version [%d].\n",
-                      cctx->cli_protocol_version->version);
+                      prctx->cli_protocol_version->version);
             ret = EINVAL;
     }
     if (ret != EOK) {
@@ -1091,6 +1129,7 @@ static int pam_forwarder(struct cli_ctx *cctx, int pam_cmd)
     struct pam_ctx *pctx =
             talloc_get_type(cctx->rctx->pvt_ctx, struct pam_ctx);
     struct tevent_req *req;
+    char *name = NULL;
 
     preq = talloc_zero(cctx, struct pam_auth_req);
     if (!preq) {
@@ -1142,8 +1181,16 @@ static int pam_forwarder(struct cli_ctx *cctx, int pam_cmd)
                 goto done;
             }
 
+            name = sss_resp_create_fqname(preq, pctx->rctx, preq->domain,
+                                          preq->pd->name_is_upn,
+                                          preq->pd->user);
+            if (name == NULL) {
+                return ENOMEM;
+            }
+
             ncret = sss_ncache_check_user(pctx->rctx->ncache,
-                                          preq->domain, pd->user);
+                                          preq->domain, name);
+            talloc_free(name);
             if (ncret == EEXIST) {
                 /* User found in the negative cache */
                 ret = ENOENT;
@@ -1155,8 +1202,16 @@ static int pam_forwarder(struct cli_ctx *cctx, int pam_cmd)
                  dom = get_next_domain(dom, 0)) {
                 if (dom->fqnames) continue;
 
+                name = sss_resp_create_fqname(preq, pctx->rctx, dom,
+                                              preq->pd->name_is_upn,
+                                              preq->pd->user);
+                if (name == NULL) {
+                    return ENOMEM;
+                }
+
                 ncret = sss_ncache_check_user(pctx->rctx->ncache,
-                                              dom, pd->user);
+                                              dom, name);
+                talloc_free(name);
                 if (ncret == ENOENT) {
                     /* User not found in the negative cache
                      * Proceed with PAM actions
@@ -1198,6 +1253,8 @@ static int pam_forwarder(struct cli_ctx *cctx, int pam_cmd)
     ret = pam_check_user_search(preq);
     if (ret == EOK) {
         pam_dom_forwarder(preq);
+    } else if (ret == ENOENT) {
+        ret = pam_cmd_assume_upn(preq);
     }
 
 done:
@@ -1395,6 +1452,8 @@ static void pam_forwarder_cb(struct tevent_req *req)
     ret = pam_check_user_search(preq);
     if (ret == EOK) {
         pam_dom_forwarder(preq);
+    } else if  (ret == ENOENT) {
+        ret = pam_cmd_assume_upn(preq);
     }
 
 done:
@@ -1415,6 +1474,7 @@ static int pam_check_user_search(struct pam_auth_req *preq)
     static const char *user_attrs[] = SYSDB_PW_ATTRS;
     struct ldb_message *msg;
     struct ldb_result *res;
+    const char *sysdb_name;
 
     while (dom) {
        /* if it is a domainless search, skip domains that require fully
@@ -1436,17 +1496,11 @@ static int pam_check_user_search(struct pam_auth_req *preq)
         preq->domain = dom;
 
         talloc_free(name);
-        name = sss_get_cased_name(preq, preq->pd->user,
-                                  dom->case_sensitive);
-        if (!name) {
-            return ENOMEM;
-        }
 
-        name = sss_reverse_replace_space(preq, name,
-                                         pctx->rctx->override_space);
+        name = sss_resp_create_fqname(preq, pctx->rctx, dom,
+                                      preq->pd->name_is_upn,
+                                      preq->pd->user);
         if (name == NULL) {
-            DEBUG(SSSDBG_CRIT_FAILURE,
-                  "sss_reverse_replace_space failed\n");
             return ENOMEM;
         }
 
@@ -1469,8 +1523,7 @@ static int pam_check_user_search(struct pam_auth_req *preq)
             /* Entry is still valid, get it from the sysdb */
         }
 
-        DEBUG(SSSDBG_CONF_SETTINGS,
-              "Requesting info for [%s@%s]\n", name, dom->name);
+        DEBUG(SSSDBG_CONF_SETTINGS, "Requesting info for [%s]\n", name);
 
         if (dom->sysdb == NULL) {
             DEBUG(SSSDBG_FATAL_FAILURE,
@@ -1481,6 +1534,25 @@ static int pam_check_user_search(struct pam_auth_req *preq)
 
         if (preq->pd->name_is_upn) {
             ret = sysdb_search_user_by_upn(preq, dom, name, user_attrs, &msg);
+            if (ret == EOK) {
+                /* Since sysdb_search_user_by_upn() searches the whole cache we
+                * have to set the domain so that it matches the result. */
+                sysdb_name = ldb_msg_find_attr_as_string(msg,
+                                                         SYSDB_NAME, NULL);
+                if (sysdb_name == NULL) {
+                    DEBUG(SSSDBG_CRIT_FAILURE, "Cached entry has no name.\n");
+                    return EINVAL;
+                }
+                preq->domain = find_domain_by_object_name(
+                                                        get_domains_head(dom),
+                                                        sysdb_name);
+                if (preq->domain == NULL) {
+                    DEBUG(SSSDBG_CRIT_FAILURE,
+                          "Cannot find matching domain for [%s].\n",
+                          sysdb_name);
+                    return EINVAL;
+                }
+            }
         } else {
             ret = sysdb_getpwnam_with_views(preq, dom, name, &res);
             if (res->count > 1) {
@@ -1506,7 +1578,8 @@ static int pam_check_user_search(struct pam_auth_req *preq)
         if (ret == ENOENT) {
             if (preq->check_provider == false) {
                 /* set negative cache only if not result of cache check */
-                ret = sss_ncache_set_user(pctx->rctx->ncache, false, dom, name);
+                ret = sss_ncache_set_user(pctx->rctx->ncache,
+                                          false, dom, preq->pd->user);
                 if (ret != EOK) {
                     /* Should not be fatal, just slower next time */
                     DEBUG(SSSDBG_MINOR_FAILURE,
@@ -1678,6 +1751,8 @@ static void pam_check_user_dp_callback(uint16_t err_maj, uint32_t err_min,
         }
 
         pam_dom_forwarder(preq);
+    } else if (ret == ENOENT) {
+        ret = pam_cmd_assume_upn(preq);
     }
 
     ret = pam_check_user_done(preq, ret);
@@ -1829,7 +1904,8 @@ static void pam_dom_forwarder(struct pam_auth_req *preq)
         }
 
         /* pam_check_user_search() calls pd_set_primary_name() is the search
-         * was successful, so pd->user contains the canonical name as well */
+         * was successful, so pd->user contains the canonical sysdb name
+         * as well */
         if (strcmp(cert_user, preq->pd->user) == 0) {
 
             preq->pd->pam_status = PAM_SUCCESS;

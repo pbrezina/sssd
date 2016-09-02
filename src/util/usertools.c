@@ -365,30 +365,6 @@ int sss_parse_name(TALLOC_CTX *memctx,
     return EOK;
 }
 
-int sss_parse_name_const(TALLOC_CTX *memctx,
-                         struct sss_names_ctx *snctx, const char *orig,
-                         const char **_domain, const char **_name)
-{
-    char *domain;
-    char *name;
-    int ret;
-
-    ret = sss_parse_name(memctx, snctx, orig,
-                         (_domain == NULL) ? NULL : &domain,
-                         (_name == NULL) ? NULL : &name);
-    if (ret == EOK) {
-        if (_domain != NULL) {
-            *_domain = domain;
-        }
-
-        if (_name != NULL) {
-            *_name = name;
-        }
-    }
-
-    return ret;
-}
-
 static struct sss_domain_info * match_any_domain_or_subdomain_name(
                                                 struct sss_domain_info *dom,
                                                 const char *dmatch)
@@ -641,41 +617,6 @@ sss_fqname(char *str, size_t size, struct sss_names_ctx *nctx,
                               name, domain->name, calc_flat_name (domain), NULL);
 }
 
-char *
-sss_get_domain_name(TALLOC_CTX *mem_ctx,
-                    const char *orig_name,
-                    struct sss_domain_info *dom)
-{
-    char *user_name;
-    char *domain = NULL;
-    int ret;
-
-    /* check if the name already contains domain part */
-    if (dom->names != NULL) {
-        ret = sss_parse_name(mem_ctx, dom->names, orig_name, &domain, NULL);
-        if (ret == ERR_REGEX_NOMATCH) {
-            DEBUG(SSSDBG_TRACE_FUNC,
-                  "sss_parse_name could not parse domain from [%s]. "
-                  "Assuming it is not FQDN.\n", orig_name);
-        } else if (ret != EOK) {
-            DEBUG(SSSDBG_TRACE_FUNC,
-                  "sss_parse_name failed [%d]: %s\n", ret, sss_strerror(ret));
-            return NULL;
-        }
-    }
-
-    if (IS_SUBDOMAIN(dom) && dom->fqnames && domain == NULL) {
-        /* we always use the fully qualified name for subdomain users */
-        user_name = sss_tc_fqname(mem_ctx, dom->names, dom, orig_name);
-    } else {
-        user_name = talloc_strdup(mem_ctx, orig_name);
-    }
-
-    talloc_free(domain);
-
-    return user_name;
-}
-
 errno_t sss_user_by_name_or_uid(const char *input, uid_t *_uid, gid_t *_gid)
 {
     uid_t uid;
@@ -715,4 +656,159 @@ errno_t sss_user_by_name_or_uid(const char *input, uid_t *_uid, gid_t *_gid)
         *_gid = pwd->pw_gid;
     }
     return EOK;
+}
+
+/* Accepts fqname in the format shortname@domname only. */
+errno_t sss_parse_internal_fqname(TALLOC_CTX *mem_ctx,
+                                  const char *fqname,
+                                  char **_shortname,
+                                  char **_dom_name)
+{
+    errno_t ret;
+    char *separator;
+    char *shortname = NULL;
+    char *dom_name = NULL;
+    size_t shortname_len;
+    TALLOC_CTX *tmp_ctx;
+
+    if (fqname == NULL) {
+        return EINVAL;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    separator = strrchr(fqname, '@');
+    if (separator == NULL || *(separator + 1) == '\0' || separator == fqname) {
+        /*The name does not contain name or domain component. */
+        ret = ERR_WRONG_NAME_FORMAT;
+        goto done;
+    }
+
+    if (_dom_name != NULL) {
+        dom_name = talloc_strdup(tmp_ctx, separator + 1);
+        if (dom_name == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+
+        *_dom_name = talloc_steal(mem_ctx, dom_name);
+    }
+
+    if (_shortname != NULL) {
+        shortname_len = strlen(fqname) - strlen(separator);
+        shortname = talloc_strndup(tmp_ctx, fqname, shortname_len);
+        if (shortname == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+
+        *_shortname = talloc_steal(mem_ctx, shortname);
+    }
+
+    ret = EOK;
+done:
+    talloc_free(tmp_ctx);
+    return ret;
+}
+
+/* Creates internal fqname in format shortname@domname.
+ * The domain portion is lowercased. */
+char *sss_create_internal_fqname(TALLOC_CTX *mem_ctx,
+                                 const char *shortname,
+                                 const char *dom_name)
+{
+    char *lc_dom_name;
+    char *fqname = NULL;
+
+    if (shortname == NULL || dom_name == NULL) {
+        /* Avoid allocating null@null */
+        return NULL;
+    }
+
+    lc_dom_name = sss_tc_utf8_str_tolower(mem_ctx, dom_name);
+    if (lc_dom_name == NULL) {
+        goto done;
+    }
+
+    fqname = talloc_asprintf(mem_ctx, "%s@%s", shortname, lc_dom_name);
+    talloc_free(lc_dom_name);
+done:
+    return fqname;
+}
+
+/* Creates a list of internal fqnames in format shortname@domname.
+ * The domain portion is lowercased. */
+char **sss_create_internal_fqname_list(TALLOC_CTX *mem_ctx,
+                                       const char * const *shortname_list,
+                                       const char *dom_name)
+{
+    char **fqname_list = NULL;
+    size_t c;
+
+    if (shortname_list == NULL || dom_name == NULL) {
+        /* Avoid allocating null@null */
+        return NULL;
+    }
+
+    for (c = 0; shortname_list[c] != NULL; c++);
+    fqname_list = talloc_zero_array(mem_ctx, char *, c+1);
+    if (fqname_list == NULL) {
+        talloc_free(fqname_list);
+        return NULL;
+    }
+
+    for (size_t i = 0; shortname_list[i] != NULL; i++) {
+        fqname_list[i] = sss_create_internal_fqname(fqname_list,
+                                                    shortname_list[i],
+                                                    dom_name);
+        if (fqname_list == NULL) {
+            talloc_free(fqname_list);
+            return NULL;
+        }
+    }
+
+    return fqname_list;
+}
+
+char *sss_output_name(TALLOC_CTX *mem_ctx,
+                      const char *name,
+                      bool case_sensitive,
+                      const char replace_space)
+{
+    TALLOC_CTX *tmp_ctx = NULL;
+    errno_t ret;
+    char *shortname;
+    char *outname = NULL;
+
+    tmp_ctx = talloc_new(NULL);
+    if (!tmp_ctx) return NULL;
+
+    ret = sss_parse_internal_fqname(tmp_ctx, name, &shortname, NULL);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "sss_parse_internal_fqname failed\n");
+        goto done;
+    }
+
+    outname = sss_get_cased_name(tmp_ctx, shortname, case_sensitive);
+    if (outname == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "sss_get_cased_name failed, skipping\n");
+        ret = EIO;
+        goto done;
+    }
+
+    outname = sss_replace_space(tmp_ctx, outname, replace_space);
+    if (outname == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "sss_replace_space failed\n");
+        ret = EIO;
+        goto done;
+    }
+
+    outname = talloc_steal(mem_ctx, outname);
+done:
+    talloc_free(tmp_ctx);
+    return outname;
 }

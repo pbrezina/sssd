@@ -205,7 +205,6 @@ static int entry_has_objectclass(struct ldb_message *entry,
         return LDB_ERR_OPERATIONS_ERROR;
     }
 
-    /* see if this is a user */
     for (i = 0; i < el->num_values; i++) {
         val = &(el->values[i]);
         if (strncasecmp(objectclass, (char *)val->data, val->length) == 0) {
@@ -2873,6 +2872,11 @@ static int memberof_mod(struct ldb_module *module, struct ldb_request *req)
     struct ldb_context *ldb = ldb_module_get_ctx(module);
     struct ldb_request *search;
     int ret;
+
+    if (getenv("SSSD_UPGRADE_DB")) {
+        /* do not do anything during upgrade */
+        return ldb_next_request(module, req);
+    }
 
     if (ldb_dn_is_special(req->op.mod.message->dn)) {
         /* do not manipulate our control entries */

@@ -27,6 +27,12 @@ struct err_string {
 struct err_string error_to_str[] = {
     { "Invalid Error" },        /* ERR_INVALID */
     { "Internal Error" },       /* ERR_INTERNAL */
+    { "SSSD is running" },  /* ERR_SSSD_RUNNING */
+    { "SSSD is not running" },  /* ERR_SSSD_NOT_RUNNING */
+    { "SSSD is offline" },       /* ERR_OFFLINE */
+    { "Terminated" },       /* ERR_TERMINATED */
+    { "Invalid data type" },       /* ERR_INVALID_DATA_TYPE */
+    { "DP target is not configured" }, /* ERR_MISSING_DP_TARGET */
     { "Account Unknown" },      /* ERR_ACCOUNT_UNKNOWN */
     { "Invalid credential type" },  /* ERR_INVALID_CRED_TYPE */
     { "No credentials available" }, /* ERR_NO_CREDS */
@@ -85,6 +91,13 @@ struct err_string error_to_str[] = {
     { "Account is locked" }, /* ERR_ACCOUNT_LOCKED */
     { "AD renewal child failed" }, /* ERR_RENEWAL_CHILD */
     { "SBUS request already handled" }, /* ERR_SBUS_REQUEST_HANDLED */
+    { "Sysdb version is too old" },  /* ERR_SYSDB_VERSION_TOO_OLD */
+    { "Sysdb version is too new" },  /* ERR_SYSDB_VERSION_TOO_NEW */
+    { "Domain has to timestamp cache" }, /* ERR_NO_TS */
+    { "No timestamp cache record" }, /* ERR_TS_CACHE_MISS */
+    { "Dereference threshold reached" }, /* ERR_DEREF_THRESHOLD */
+    { "The user is not handled by SSSD" }, /* ERR_NON_SSSD_USER */
+    { "The internal name format cannot be parsed" }, /* ERR_WRONG_NAME_FORMAT */
     { "ERR_LAST" } /* ERR_LAST */
 };
 

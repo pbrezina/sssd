@@ -46,8 +46,9 @@ SSSD_RESPONDER_OBJ = \
     ../../../src/responder/common/responder_get_domains.c \
     ../../../src/responder/common/responder_utils.c \
     ../../../src/responder/common/responder_cache_req.c \
+    ../../../src/responder/common/data_provider/rdp_message.c \
+    ../../../src/responder/common/data_provider/rdp_client.c \
     ../../../src/monitor/monitor_iface_generated.c \
-    ../../../src/providers/data_provider_iface_generated.c \
     ../../../src/providers/data_provider_req.c
 
 dist_noinst_DATA = \
@@ -130,6 +131,8 @@ responder_common_tests_SOURCES =\
     test_responder_common.c \
     ../../../src/responder/common/negcache_files.c \
     ../../../src/responder/common/negcache.c \
+    ../../../src/responder/common/data_provider/rdp_message.c \
+    ../../../src/responder/common/data_provider/rdp_client.c \
     ../../../src/responder/common/responder_common.c \
     ../../../src/responder/common/responder_packet.c \
     ../../../src/responder/common/responder_cmd.c \
@@ -141,6 +144,7 @@ responder_common_tests_LDADD = \
     $(CMOCKA_LIBS) \
     $(SSSD_LIBS) \
     $(SELINUX_LIBS) \
+    $(SYSTEMD_DAEMON_LIBS) \
     $(abs_top_builddir)/libsss_util.la \
     $(abs_top_builddir)/libsss_debug.la \
     $(abs_top_builddir)/libsss_test_common.la \
@@ -158,6 +162,7 @@ negcache_tests_LDADD = \
     $(CMOCKA_LIBS) \
     $(SSSD_LIBS) \
     $(SELINUX_LIBS) \
+    $(SYSTEMD_DAEMON_LIBS) \
     $(abs_top_builddir)/libsss_util.la \
     $(abs_top_builddir)/libsss_debug.la \
     $(abs_top_builddir)/libsss_test_common.la \

@@ -29,6 +29,8 @@ struct sbus_request;
 #include <dbus/dbus.h>
 #include <sys/types.h>
 #include "util/util.h"
+#include "sbus/sssd_dbus_errors.h"
+#include "sbus/sssd_dbus_utils.h"
 
 /* Older platforms (such as RHEL-6) might not have these error constants
  * defined */
@@ -56,10 +58,18 @@ struct sbus_request;
 
 /**
  * Note: internal functions do not rely on the value of this constant to
- * simplify implementation. If this connstant change, some functions in
+ * simplify implementation. If this constant change, some functions in
  * sssd_dbus_interface.c needs to be amended.
  */
 #define SBUS_SUBTREE_SUFFIX "/*"
+
+/**
+ * It is not possible to send NULL over D-Bus. We can only test if it
+ * is empty or not.
+ */
+#define SBUS_IS_STRING_EMPTY(str) ((str) == NULL || (str)[0] == '\0')
+#define SBUS_SET_STRING(str) (SBUS_IS_STRING_EMPTY(str) ? NULL : (str))
+
 
 typedef int (*sbus_msg_handler_fn)(struct sbus_request *dbus_req,
                                    void *handler_data);
@@ -180,6 +190,15 @@ int sbus_conn_register_iface(struct sbus_connection *conn,
                              struct sbus_vtable *iface_vtable,
                              const char *object_path,
                              void *handler_data);
+
+struct sbus_iface_map {
+    const char *path;
+    struct sbus_vtable *vtable;
+};
+
+errno_t sbus_conn_register_iface_map(struct sbus_connection *conn,
+                                     struct sbus_iface_map *map,
+                                     void *pvt);
 
 void
 sbus_conn_register_nodes(struct sbus_connection *conn,
@@ -340,6 +359,11 @@ int sbus_request_return_and_finish(struct sbus_request *dbus_req,
 int sbus_request_fail_and_finish(struct sbus_request *dbus_req,
                                  const DBusError *error);
 
+void sbus_request_reply_error(struct sbus_request *sbus_req,
+                              const char *error_name,
+                              const char *fmt,
+                              ...) SSS_ATTRIBUTE_PRINTF(3, 4);
+
 /*
  * Construct a new DBusError instance which can be consumed by functions such
  * as @sbus_request_fail_and_finish().
@@ -351,9 +375,9 @@ int sbus_request_fail_and_finish(struct sbus_request *dbus_req,
  * is duplicated using the returned DBusError instance as a talloc parent.
  */
 DBusError *sbus_error_new(TALLOC_CTX *mem_ctx,
-                          const char *dbus_err_name,
+                          const char *dbus_error_name,
                           const char *fmt,
-                          ...) SSS_ATTRIBUTE_PRINTF(3,4);
+                          ...) SSS_ATTRIBUTE_PRINTF(3, 4);
 
 /*
  * Parse a DBus method call request.

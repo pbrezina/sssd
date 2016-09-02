@@ -29,63 +29,73 @@
 struct sss_tool_ctx {
     struct confdb_ctx *confdb;
 
+    errno_t init_err;
     char *default_domain;
     struct sss_domain_info *domains;
 };
 
-struct sss_tool_ctx *sss_tool_init(TALLOC_CTX *mem_ctx,
-                                   int *argc, const char **argv);
+errno_t sss_tool_init(TALLOC_CTX *mem_ctx,
+                      int *argc, const char **argv,
+                      struct sss_tool_ctx **_tool_ctx);
 
 struct sss_cmdline;
 
-typedef int
+typedef errno_t
 (*sss_route_fn)(struct sss_cmdline *cmdline,
                 struct sss_tool_ctx *tool_ctx,
                 void *pvt);
 
+#define SSS_TOOL_COMMAND(cmd, msg, err, fn) {cmd, _(msg), err, fn}
+#define SSS_TOOL_COMMAND_NOMSG(cmd, err, fn) {cmd, NULL, err, fn}
+#define SSS_TOOL_DELIMITER(message) {"", _(message), 0, NULL}
+#define SSS_TOOL_LAST {NULL, NULL, 0, NULL}
+
 struct sss_route_cmd {
     const char *command;
+    const char *description;
+    errno_t handles_init_err;
     sss_route_fn fn;
 };
 
-int sss_tool_usage(const char *tool_name,
-                   struct sss_route_cmd *commands);
+void sss_tool_usage(const char *tool_name,
+                    struct sss_route_cmd *commands);
 
-int sss_tool_route(int argc, const char **argv,
-                   struct sss_tool_ctx *tool_ctx,
-                   struct sss_route_cmd *commands,
-                   void *pvt);
+errno_t sss_tool_route(int argc, const char **argv,
+                       struct sss_tool_ctx *tool_ctx,
+                       struct sss_route_cmd *commands,
+                       void *pvt);
 
-typedef int (*sss_popt_fn)(poptContext pc, char option, void *pvt);
+typedef errno_t (*sss_popt_fn)(poptContext pc, char option, void *pvt);
 
 enum sss_tool_opt {
     SSS_TOOL_OPT_REQUIRED,
     SSS_TOOL_OPT_OPTIONAL
 };
 
-int sss_tool_popt_ex(struct sss_cmdline *cmdline,
-                     struct poptOption *options,
-                     enum sss_tool_opt require_option,
-                     sss_popt_fn popt_fn,
-                     void *popt_fn_pvt,
-                     const char *free_opt_name,
-                     const char *free_opt_help,
-                     const char **_free_opt);
+errno_t sss_tool_popt_ex(struct sss_cmdline *cmdline,
+                         struct poptOption *options,
+                         enum sss_tool_opt require_option,
+                         sss_popt_fn popt_fn,
+                         void *popt_fn_pvt,
+                         const char *fopt_name,
+                         const char *fopt_help,
+                         const char **_fopt,
+                         bool *_opt_set);
 
-int sss_tool_popt(struct sss_cmdline *cmdline,
-                  struct poptOption *options,
-                  enum sss_tool_opt require_option,
-                  sss_popt_fn popt_fn,
-                  void *popt_fn_pvt);
+errno_t sss_tool_popt(struct sss_cmdline *cmdline,
+                      struct poptOption *options,
+                      enum sss_tool_opt require_option,
+                      sss_popt_fn popt_fn,
+                      void *popt_fn_pvt);
 
 int sss_tool_main(int argc, const char **argv,
                   struct sss_route_cmd *commands,
                   void *pvt);
 
-int sss_tool_parse_name(TALLOC_CTX *mem_ctx,
-                        struct sss_tool_ctx *tool_ctx,
-                        const char *input,
-                        const char **_username,
-                        struct sss_domain_info **_domain);
+errno_t sss_tool_parse_name(TALLOC_CTX *mem_ctx,
+                            struct sss_tool_ctx *tool_ctx,
+                            const char *input,
+                            const char **_username,
+                            struct sss_domain_info **_domain);
 
 #endif /* SRC_TOOLS_COMMON_SSS_TOOLS_H_ */

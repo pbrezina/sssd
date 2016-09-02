@@ -22,11 +22,8 @@
 #ifndef IFP_DOMAINS_H_
 #define IFP_DOMAINS_H_
 
-#include "responder/ifp/ifp_iface_generated.h"
+#include "responder/ifp/ifp_iface.h"
 #include "responder/ifp/ifp_private.h"
-
-#define IFP_PATH_DOMAINS IFP_PATH "/Domains"
-#define IFP_PATH_DOMAINS_TREE IFP_PATH_DOMAINS SBUS_SUBTREE_SUFFIX
 
 /* org.freedesktop.sssd.infopipe */
 
@@ -96,5 +93,19 @@ void ifp_dom_get_subdomain(struct sbus_request *dbus_req,
 void ifp_dom_get_parent_domain(struct sbus_request *dbus_req,
                               void *data,
                               const char **_out);
+
+int ifp_domains_domain_is_online(struct sbus_request *sbus_req,
+                                 void *data);
+
+int ifp_domains_domain_list_services(struct sbus_request *sbus_req,
+                                     void *data);
+
+int ifp_domains_domain_active_server(struct sbus_request *sbus_req,
+                                     void *data,
+                                     const char *service);
+
+int ifp_domains_domain_list_servers(struct sbus_request *sbus_req,
+                                    void *data,
+                                    const char *service);
 
 #endif /* IFP_DOMAINS_H_ */

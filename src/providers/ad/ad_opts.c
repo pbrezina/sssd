@@ -28,6 +28,7 @@
 
 struct dp_option ad_basic_opts[] = {
     { "ad_domain", DP_OPT_STRING, NULL_STRING, NULL_STRING },
+    { "ad_enabled_domains", DP_OPT_STRING, NULL_STRING, NULL_STRING },
     { "ad_server", DP_OPT_STRING, NULL_STRING, NULL_STRING },
     { "ad_backup_server", DP_OPT_STRING, NULL_STRING, NULL_STRING },
     { "ad_hostname", DP_OPT_STRING, NULL_STRING, NULL_STRING },
@@ -218,6 +219,7 @@ struct sdap_attr_map ad_2008r2_user_map[] = {
     { "ldap_user_ssh_public_key", NULL, SYSDB_SSH_PUBKEY, NULL },
     { "ldap_user_auth_type", NULL, SYSDB_AUTH_TYPE, NULL },
     { "ldap_user_certificate", "userCertificate;binary", SYSDB_USER_CERT, NULL },
+    { "ldap_user_email", "mail", SYSDB_USER_EMAIL, NULL },
     SDAP_ATTR_MAP_TERMINATOR
 };
 

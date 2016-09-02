@@ -26,7 +26,7 @@
 #include <sys/socket.h>
 #include <talloc.h>
 #include <tevent.h>
-#include "providers/dp_backend.h"
+#include "providers/backend.h"
 #include "providers/ldap/sdap.h"
 #include "providers/ldap/sdap_id_op.h"
 #include "providers/fail_over.h"
@@ -142,7 +142,7 @@ struct tevent_req *sdap_get_initgr_send(TALLOC_CTX *memctx,
                                         struct sdap_id_ctx *id_ctx,
                                         struct sdap_id_conn_ctx *conn,
                                         const char *name,
-                                        int name_type,
+                                        int filter_type,
                                         const char *extra_value,
                                         const char **grp_attrs);
 int sdap_get_initgr_recv(struct tevent_req *req);
@@ -310,6 +310,7 @@ errno_t
 sdap_save_all_names(const char *name,
                     struct sysdb_attrs *ldap_attrs,
                     struct sss_domain_info *dom,
+                    enum sysdb_member_type entry_type,
                     struct sysdb_attrs *attrs);
 
 struct tevent_req *
