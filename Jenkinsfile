@@ -85,6 +85,9 @@ class CI {
    * Send commit status to Github for sssd-ci context.
    */
   public static def Notify(ctx, status, message) {
+    ctx.echo "Notify"
+    return
+
     ctx.githubNotify status: status,
       context: this.GHContext,
       description: message,
@@ -95,6 +98,9 @@ class CI {
    * Send commit status to Github for specific build (e.g. sssd-ci/fedora28).
    */
   public static def NotifyBuild(ctx, status, message) {
+    ctx.echo "Notify"
+    return
+
     ctx.githubNotify status: status,
       context: String.format('%s/%s', this.GHContext, ctx.env.TEST_SYSTEM),
       description: message,
@@ -105,6 +111,12 @@ class CI {
         ctx.env.BUILD_ID,
         ctx.env.TEST_SYSTEM
       )
+  }
+
+  public static def Checkout(ctx) {
+    ctx.dir('sssd') {
+        ctx.git branch: "${ctx.params.REPO_BRANCH}", url: "${ctx.params.REPO_URL}"
+    }
   }
 
   public static def Rebase(ctx) {
@@ -149,6 +161,7 @@ class CI {
   public static def RunTests(ctx) {
     ctx.echo "Running on ${ctx.env.NODE_NAME}"
     this.NotifyBuild(ctx, 'PENDING', 'Build is in progress.')
+    this.Checkout(ctx)
     this.Rebase(ctx)
 
     ctx.echo String.format(
