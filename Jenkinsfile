@@ -226,56 +226,7 @@ pipeline {
   stages {
     stage('Prepare') {
       steps {
-        CI_Notify('PENDING', 'Running tests.')
-      }
-    }
-    stage('Run Tests') {
-      parallel {
-        stage('Test on Fedora 28') {
-          agent {label "sssd-ci"}
-          environment { TEST_SYSTEM = "fedora28" }
-          steps { CI_RunTests() }
-          post {
-            always { CI_Post() }
-            aborted { CI_Aborted() }
-          }
-        }
-        stage('Test on Fedora 29') {
-          agent {label "sssd-ci"}
-          environment { TEST_SYSTEM = "fedora29" }
-          steps { CI_RunTests() }
-          post {
-            always { CI_Post() }
-            aborted { CI_Aborted() }
-          }
-        }
-        stage('Test on Fedora 30') {
-          agent {label "sssd-ci"}
-          environment { TEST_SYSTEM = "fedora30" }
-          steps { CI_RunTests() }
-          post {
-            always { CI_Post() }
-            aborted { CI_Aborted() }
-          }
-        }
-        stage('Test on Fedora Rawhide') {
-          agent {label "sssd-ci"}
-          environment { TEST_SYSTEM = "fedora-rawhide" }
-          steps { CI_RunTests() }
-          post {
-            always { CI_Post() }
-            aborted { CI_Aborted() }
-          }
-        }
-        stage('Test on Debian 10') {
-          agent {label "sssd-ci"}
-          environment { TEST_SYSTEM = "debian10" }
-          steps { CI_RunTests() }
-          post {
-            always { CI_Post() }
-            aborted { CI_Aborted() }
-          }
-        }
+        echo 'I AM HERE'
       }
     }
   }
