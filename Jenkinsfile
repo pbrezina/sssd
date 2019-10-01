@@ -1,15 +1,6 @@
 import hudson.AbortException
 import org.jenkinsci.plugins.workflow.steps.FlowInterruptedException
 
-/* Tests will be run on these systems. */
-def systems = [
-  'fedora28',
-  'fedora29',
-  'fedora30',
-  'fedora-rawhide',
-  'debian10',
-]
-
 /* Send notifications to Github.
  * If it is an on-demand run then no notifications are sent.
  */
@@ -245,6 +236,12 @@ class OnDemandTest extends Test {
   }
 }
 
+/* System list is read from parameters:
+ * SYSTEMS for on_demand run
+ * SYSTEMS_branch for pull request runs (i.e. SYSTEMS_master, SYSTEMS_sssd-1-16)
+ */
+def systems = []
+def base_branch = env.CHANGE_TARGET ? env.CHANGE_TARGET : env.BRANCH_NAME
 def on_demand = params.ON_DEMAND ? true : false
 def notification = new Notification(
   this, 'sssd-ci',
@@ -278,8 +275,17 @@ try {
       }
     }
   }
-  
+
   stage('Prepare systems') {
+    if (on_demand) {
+        systems = params.SYSTEMS.split()
+    } else {
+      if (!params.get("SYSTEMS_${base_branch}")) {
+        error "Branch ${base_branch} is not supported."
+      }
+      systems = params.get("SYSTEMS_${base_branch}").split()
+    }
+
     /* Notify that all systems are pending. */
     for (system in systems) {
       notification.notify('PENDING', 'Awaiting executor', system)
