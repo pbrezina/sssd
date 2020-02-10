@@ -260,6 +260,8 @@ def InitializeDataTypes():
                     DBusType="issssssuayuayiu", RequireTalloc=True)
     DataType.Create("pam_response", "struct pam_data *",
                     DBusType="uua(uay)", RequireTalloc=True)
+    DataType.Create("domain_state", "enum sss_domain_state",
+                    DBusType="u", RequireTalloc=False)
     DataType.Create("ifp_extra", "hash_table_t *",
                     DBusType="a{sas}", RequireTalloc=True)
 

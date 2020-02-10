@@ -28,4 +28,7 @@ errno_t
 nss_register_backend_iface(struct sbus_connection *conn,
                            struct nss_ctx *nss_ctx);
 
+errno_t
+nss_register_monitor_iface(struct nss_ctx *nss_ctx);
+
 #endif /* _NSS_IFACE_H_ */

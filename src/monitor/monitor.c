@@ -701,13 +701,13 @@ static int service_signal_rotate(struct mt_svc *svc)
 }
 static int service_signal_clear_memcache(struct mt_svc *svc)
 {
-    return service_signal(svc, sbus_call_service_clearMemcache_send,
-                          sbus_call_service_clearMemcache_recv);
+    return service_signal(svc, sbus_call_nss_memcache_Clear_send,
+                          sbus_call_nss_memcache_Clear_recv);
 }
 static int service_signal_clear_enum_cache(struct mt_svc *svc)
 {
-    return service_signal(svc, sbus_call_service_clearEnumCache_send,
-                          sbus_call_service_clearEnumCache_recv);
+    return service_signal(svc, sbus_call_resp_enumcache_Clear_send,
+                          sbus_call_resp_enumcache_Clear_recv);
 }
 static int service_signal_sysbus_reconnect(struct mt_svc *svc)
 {

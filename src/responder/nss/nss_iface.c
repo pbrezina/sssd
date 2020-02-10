@@ -21,6 +21,7 @@
 #include "responder/nss/nss_private.h"
 #include "responder/nss/nss_iface.h"
 #include "sss_iface/sss_iface_async.h"
+#include "util/sss_ptr_hash.h"
 
 static void
 nss_update_initgr_memcache(struct nss_ctx *nctx,
@@ -213,6 +214,87 @@ nss_memorycache_invalidate_group_by_id(TALLOC_CTX *mem_ctx,
     return EOK;
 }
 
+static errno_t
+nss_clear_netgroup_hash_table(TALLOC_CTX *mem_ctx,
+                              struct sbus_request *sbus_req,
+                              struct nss_ctx *nss_ctx)
+{
+    DEBUG(SSSDBG_TRACE_FUNC, "Invalidating netgroup hash table\n");
+
+    sss_ptr_hash_delete_all(nss_ctx->netgrent, false);
+
+    return EOK;
+}
+
+static errno_t
+nss_clear_memcache(TALLOC_CTX *mem_ctx,
+                   struct sbus_request *sbus_req,
+                   struct nss_ctx *nctx)
+{
+    int memcache_timeout;
+    errno_t ret;
+
+    ret = unlink(SSS_NSS_MCACHE_DIR"/"CLEAR_MC_FLAG);
+    if (ret != 0) {
+        ret = errno;
+        if (ret == ENOENT) {
+            DEBUG(SSSDBG_TRACE_FUNC,
+                  "CLEAR_MC_FLAG not found. Nothing to do.\n");
+            return ret;
+        } else {
+            DEBUG(SSSDBG_CRIT_FAILURE, "Failed to unlink file: %s.\n",
+                  strerror(ret));
+            return ret;
+        }
+    }
+
+    /* CLEAR_MC_FLAG removed successfully. Clearing memory caches. */
+
+    ret = confdb_get_int(nctx->rctx->cdb,
+                         CONFDB_NSS_CONF_ENTRY,
+                         CONFDB_MEMCACHE_TIMEOUT,
+                         300, &memcache_timeout);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Unable to get memory cache entry timeout.\n");
+        return ret;
+    }
+
+    /* TODO: read cache sizes from configuration */
+    DEBUG(SSSDBG_TRACE_FUNC, "Clearing memory caches.\n");
+    ret = sss_mmap_cache_reinit(nctx, nctx->mc_uid, nctx->mc_gid,
+                                SSS_MC_CACHE_ELEMENTS,
+                                (time_t) memcache_timeout,
+                                &nctx->pwd_mc_ctx);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "passwd mmap cache invalidation failed\n");
+        return ret;
+    }
+
+    ret = sss_mmap_cache_reinit(nctx, nctx->mc_uid, nctx->mc_gid,
+                                SSS_MC_CACHE_ELEMENTS,
+                                (time_t) memcache_timeout,
+                                &nctx->grp_mc_ctx);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "group mmap cache invalidation failed\n");
+        return ret;
+    }
+
+    ret = sss_mmap_cache_reinit(nctx, nctx->mc_uid, nctx->mc_gid,
+                                SSS_MC_CACHE_ELEMENTS,
+                                (time_t)memcache_timeout,
+                                &nctx->initgr_mc_ctx);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "initgroups mmap cache invalidation failed\n");
+        return ret;
+    }
+
+    return EOK;
+}
+
 errno_t
 nss_register_backend_iface(struct sbus_connection *conn,
                            struct nss_ctx *nss_ctx)
@@ -223,9 +305,6 @@ nss_register_backend_iface(struct sbus_connection *conn,
         sssd_nss_MemoryCache,
         SBUS_METHODS(
             SBUS_SYNC(METHOD, sssd_nss_MemoryCache, UpdateInitgroups, nss_memorycache_update_initgroups, nss_ctx),
-            SBUS_SYNC(METHOD, sssd_nss_MemoryCache, InvalidateAllUsers, nss_memorycache_invalidate_users, nss_ctx),
-            SBUS_SYNC(METHOD, sssd_nss_MemoryCache, InvalidateAllGroups, nss_memorycache_invalidate_groups, nss_ctx),
-            SBUS_SYNC(METHOD, sssd_nss_MemoryCache, InvalidateAllInitgroups, nss_memorycache_invalidate_initgroups, nss_ctx),
             SBUS_SYNC(METHOD, sssd_nss_MemoryCache, InvalidateGroupById, nss_memorycache_invalidate_group_by_id, nss_ctx)
         ),
         SBUS_SIGNALS(SBUS_NO_SIGNALS),
@@ -236,6 +315,59 @@ nss_register_backend_iface(struct sbus_connection *conn,
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to register service interface"
               "[%d]: %s\n", ret, sss_strerror(ret));
+    }
+
+    return ret;
+}
+
+errno_t
+nss_register_monitor_iface(struct nss_ctx *nss_ctx)
+{
+    errno_t ret;
+
+    SBUS_INTERFACE(iface_enum_cache,
+        sssd_Responder_EnumCache,
+        SBUS_METHODS(
+            SBUS_SYNC(METHOD, sssd_Responder_EnumCache, Clear, nss_clear_netgroup_hash_table, nss_ctx)
+        ),
+        SBUS_SIGNALS(SBUS_NO_SIGNALS),
+        SBUS_PROPERTIES(SBUS_NO_PROPERTIES)
+    );
+
+    SBUS_INTERFACE(iface_mem_cache,
+        sssd_nss_MemoryCache,
+        SBUS_METHODS(
+            SBUS_SYNC(METHOD, sssd_nss_MemoryCache, Clear, nss_clear_memcache, nss_ctx)
+        ),
+        SBUS_SIGNALS(SBUS_NO_SIGNALS),
+        SBUS_PROPERTIES(SBUS_NO_PROPERTIES)
+    );
+
+    struct sbus_path paths[] = {
+        { SSS_BUS_PATH, &iface_enum_cache },
+        { SSS_BUS_PATH, &iface_mem_cache },
+        {NULL, NULL}
+    };
+
+    ret = sbus_connection_add_path_map(nss_ctx->rctx->mon_conn, paths);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to add paths [%d]: %s\n",
+              ret, sss_strerror(ret));
+    }
+
+    struct sbus_listener listeners[] = SBUS_LISTENERS(
+        SBUS_LISTEN_SYNC(sssd_nss_MemoryCache, InvalidateAllUsers, NULL,
+                         nss_memorycache_invalidate_users, nss_ctx),
+        SBUS_LISTEN_SYNC(sssd_nss_MemoryCache, InvalidateAllGroups, NULL,
+                         nss_memorycache_invalidate_groups, nss_ctx),
+        SBUS_LISTEN_SYNC(sssd_nss_MemoryCache, InvalidateAllInitgroups, NULL,
+                         nss_memorycache_invalidate_initgroups, nss_ctx)
+    );
+
+    ret = sbus_router_listen_map(nss_ctx->rctx->mon_conn, listeners);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to add signal listeners [%d]: %s\n",
+              ret, sss_strerror(ret));
     }
 
     return ret;

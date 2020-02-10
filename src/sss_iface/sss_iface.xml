@@ -19,8 +19,6 @@
         <method name="goOffline" />
         <method name="resetOffline" />
         <method name="rotateLogs" />
-        <method name="clearMemcache" />
-        <method name="clearEnumCache" />
         <method name="sysbusReconnect" />
     </interface>
 
@@ -147,20 +145,24 @@
 
     <interface name="sssd.Responder.Domain">
         <annotation name="codegen.Name" value="resp_domain" />
-        <annotation name="codegen.SyncCaller" value="false" />
-        <method name="SetActive">
-            <arg name="name" type="s" direction="in" key="1" />
-        </method>
-        <method name="SetInconsistent">
-            <arg name="name" type="s" direction="in" key="1" />
-        </method>
+        <annotation name="codegen.SyncCaller" value="False" />
+        <signal name="StateChanged">
+            <arg name="domain" type="s" direction="in" />
+            <arg name="state" type="domain_state" direction="in" />
+        </signal>
     </interface>
 
     <interface name="sssd.Responder.NegativeCache">
         <annotation name="codegen.Name" value="resp_negcache" />
         <annotation name="codegen.SyncCaller" value="false" />
-        <method name="ResetUsers" key="True" />
-        <method name="ResetGroups" key="True" />
+        <signal name="ResetUsers" />
+        <signal name="ResetGroups" />
+    </interface>
+
+    <interface name="sssd.Responder.EnumCache">
+        <annotation name="codegen.Name" value="resp_enumcache" />
+        <annotation name="codegen.SyncCaller" value="false" />
+        <method name="Clear" />
     </interface>
 
     <interface name="sssd.nss.MemoryCache">
@@ -171,11 +173,12 @@
             <arg name="domain" type="s" direction="in" />
             <arg name="groups" type="au" direction="in" />
         </method>
-        <method name="InvalidateAllUsers" key="True" />
-        <method name="InvalidateAllGroups" key="True" />
-        <method name="InvalidateAllInitgroups" key="True" />
+        <signal name="InvalidateAllUsers" />
+        <signal name="InvalidateAllGroups" />
+        <signal name="InvalidateAllInitgroups" />
         <method name="InvalidateGroupById" key="True">
             <arg name="gid" type="u" direction="in" key="1" />
         </method>
+        <method name="Clear" />
     </interface>
 </node>

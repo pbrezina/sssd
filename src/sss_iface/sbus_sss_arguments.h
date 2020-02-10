@@ -150,6 +150,22 @@ _sbus_sss_invoker_write_s
    (DBusMessageIter *iter,
     struct _sbus_sss_invoker_args_s *args);
 
+struct _sbus_sss_invoker_args_sdomain_state {
+    const char * arg0;
+    enum sss_domain_state arg1;
+};
+
+errno_t
+_sbus_sss_invoker_read_sdomain_state
+   (TALLOC_CTX *mem_ctx,
+    DBusMessageIter *iter,
+    struct _sbus_sss_invoker_args_sdomain_state *args);
+
+errno_t
+_sbus_sss_invoker_write_sdomain_state
+   (DBusMessageIter *iter,
+    struct _sbus_sss_invoker_args_sdomain_state *args);
+
 struct _sbus_sss_invoker_args_sqq {
     const char * arg0;
     uint16_t arg1;

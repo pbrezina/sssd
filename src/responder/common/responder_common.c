@@ -751,13 +751,6 @@ sss_dp_init(struct resp_ctx *rctx,
         goto done;
     }
 
-    ret = sss_resp_register_sbus_iface(be_conn->conn, rctx);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_FATAL_FAILURE, "Cannot register generic responder "
-              "interface [%d]: %s\n", ret, sss_strerror(ret));
-        goto done;
-    }
-
     sbus_reconnect_enable(be_conn->conn, max_retries, sss_dp_on_reconnect,
                           be_conn);
 

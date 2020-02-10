@@ -279,6 +279,45 @@ errno_t _sbus_sss_invoker_write_s
     return EOK;
 }
 
+errno_t _sbus_sss_invoker_read_sdomain_state
+   (TALLOC_CTX *mem_ctx,
+    DBusMessageIter *iter,
+    struct _sbus_sss_invoker_args_sdomain_state *args)
+{
+    errno_t ret;
+
+    ret = sbus_iterator_read_s(mem_ctx, iter, &args->arg0);
+    if (ret != EOK) {
+        return ret;
+    }
+
+    ret = sbus_iterator_read_domain_state(iter, &args->arg1);
+    if (ret != EOK) {
+        return ret;
+    }
+
+    return EOK;
+}
+
+errno_t _sbus_sss_invoker_write_sdomain_state
+   (DBusMessageIter *iter,
+    struct _sbus_sss_invoker_args_sdomain_state *args)
+{
+    errno_t ret;
+
+    ret = sbus_iterator_write_s(iter, args->arg0);
+    if (ret != EOK) {
+        return ret;
+    }
+
+    ret = sbus_iterator_write_domain_state(iter, args->arg1);
+    if (ret != EOK) {
+        return ret;
+    }
+
+    return EOK;
+}
+
 errno_t _sbus_sss_invoker_read_sqq
    (TALLOC_CTX *mem_ctx,
     DBusMessageIter *iter,

@@ -201,30 +201,15 @@ _sbus_sss_args_sssd_ProxyChild_Client_Register = {
     }
 };
 
-const struct sbus_method_arguments
-_sbus_sss_args_sssd_Responder_Domain_SetActive = {
-    .input = (const struct sbus_argument[]){
-        {.type = "s", .name = "name"},
-        {NULL}
-    },
-    .output = (const struct sbus_argument[]){
-        {NULL}
-    }
+const struct sbus_argument
+_sbus_sss_args_sssd_Responder_Domain_StateChanged[] = {
+    {.type = "s", .name = "domain"},
+    {.type = "u", .name = "state"},
+    {NULL}
 };
 
 const struct sbus_method_arguments
-_sbus_sss_args_sssd_Responder_Domain_SetInconsistent = {
-    .input = (const struct sbus_argument[]){
-        {.type = "s", .name = "name"},
-        {NULL}
-    },
-    .output = (const struct sbus_argument[]){
-        {NULL}
-    }
-};
-
-const struct sbus_method_arguments
-_sbus_sss_args_sssd_Responder_NegativeCache_ResetGroups = {
+_sbus_sss_args_sssd_Responder_EnumCache_Clear = {
     .input = (const struct sbus_argument[]){
         {NULL}
     },
@@ -233,14 +218,14 @@ _sbus_sss_args_sssd_Responder_NegativeCache_ResetGroups = {
     }
 };
 
-const struct sbus_method_arguments
-_sbus_sss_args_sssd_Responder_NegativeCache_ResetUsers = {
-    .input = (const struct sbus_argument[]){
-        {NULL}
-    },
-    .output = (const struct sbus_argument[]){
-        {NULL}
-    }
+const struct sbus_argument
+_sbus_sss_args_sssd_Responder_NegativeCache_ResetGroups[] = {
+    {NULL}
+};
+
+const struct sbus_argument
+_sbus_sss_args_sssd_Responder_NegativeCache_ResetUsers[] = {
+    {NULL}
 };
 
 const struct sbus_method_arguments
@@ -346,27 +331,7 @@ _sbus_sss_args_sssd_monitor_RegisterService = {
 };
 
 const struct sbus_method_arguments
-_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllGroups = {
-    .input = (const struct sbus_argument[]){
-        {NULL}
-    },
-    .output = (const struct sbus_argument[]){
-        {NULL}
-    }
-};
-
-const struct sbus_method_arguments
-_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllInitgroups = {
-    .input = (const struct sbus_argument[]){
-        {NULL}
-    },
-    .output = (const struct sbus_argument[]){
-        {NULL}
-    }
-};
-
-const struct sbus_method_arguments
-_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllUsers = {
+_sbus_sss_args_sssd_nss_MemoryCache_Clear = {
     .input = (const struct sbus_argument[]){
         {NULL}
     },
@@ -399,24 +364,19 @@ _sbus_sss_args_sssd_nss_MemoryCache_UpdateInitgroups = {
     }
 };
 
-const struct sbus_method_arguments
-_sbus_sss_args_sssd_service_clearEnumCache = {
-    .input = (const struct sbus_argument[]){
-        {NULL}
-    },
-    .output = (const struct sbus_argument[]){
-        {NULL}
-    }
+const struct sbus_argument
+_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllGroups[] = {
+    {NULL}
 };
 
-const struct sbus_method_arguments
-_sbus_sss_args_sssd_service_clearMemcache = {
-    .input = (const struct sbus_argument[]){
-        {NULL}
-    },
-    .output = (const struct sbus_argument[]){
-        {NULL}
-    }
+const struct sbus_argument
+_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllInitgroups[] = {
+    {NULL}
+};
+
+const struct sbus_argument
+_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllUsers[] = {
+    {NULL}
 };
 
 const struct sbus_method_arguments

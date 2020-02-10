@@ -72,18 +72,17 @@ autofs_register_service_iface(struct autofs_ctx *autofs_ctx,
 {
     errno_t ret;
 
-    SBUS_INTERFACE(iface_svc,
-        sssd_service,
+    SBUS_INTERFACE(iface_enum_cache,
+        sssd_Responder_EnumCache,
         SBUS_METHODS(
-            SBUS_SYNC(METHOD, sssd_service, resInit, monitor_common_res_init, NULL),
-            SBUS_SYNC(METHOD, sssd_service, rotateLogs, responder_logrotate, rctx),
-            SBUS_SYNC(METHOD, sssd_service, clearEnumCache, autofs_clean_hash_table, autofs_ctx)
+            SBUS_SYNC(METHOD, sssd_Responder_EnumCache, Clear, autofs_clean_hash_table, autofs_ctx)
         ),
         SBUS_SIGNALS(SBUS_NO_SIGNALS),
         SBUS_PROPERTIES(SBUS_NO_PROPERTIES)
     );
 
-    ret = sbus_connection_add_path(rctx->mon_conn, SSS_BUS_PATH, &iface_svc);
+
+    ret = sbus_connection_add_path(rctx->mon_conn, SSS_BUS_PATH, &iface_enum_cache);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to register service interface"
               "[%d]: %s\n", ret, sss_strerror(ret));
@@ -156,6 +155,11 @@ autofs_process_init(TALLOC_CTX *mem_ctx,
                                    &rctx->last_request_time, &rctx->mon_conn);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "fatal error setting up message bus\n");
+        goto fail;
+    }
+
+    ret = sss_resp_register_service_iface(rctx);
+    if (ret != EOK) {
         goto fail;
     }
 

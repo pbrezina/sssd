@@ -40,4 +40,10 @@ errno_t sbus_iterator_read_pam_response(TALLOC_CTX *mem_ctx,
 errno_t sbus_iterator_write_pam_response(DBusMessageIter *iterator,
                                          struct pam_data *pd);
 
+errno_t sbus_iterator_read_domain_state(DBusMessageIter *iterator,
+                                        enum sss_domain_state *_state);
+
+errno_t sbus_iterator_write_domain_state(DBusMessageIter *iterator,
+                                         enum sss_domain_state state);
+
 #endif /* _SBUS_ITERATOR_READERS_H_ */

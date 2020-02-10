@@ -420,3 +420,37 @@ done:
 
     return ret;
 }
+
+/**
+ * D-Bus signature: u
+ */
+errno_t sbus_iterator_read_domain_state(DBusMessageIter *iterator,
+                                        enum sss_domain_state *_state)
+{
+    errno_t ret;
+
+    ret = sbus_iterator_read_u(iterator, _state);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to read domain state [%d]: %s\n",
+              ret, sss_strerror(ret));
+    }
+
+    return ret;
+}
+
+/**
+ * D-Bus signature: u
+ */
+errno_t sbus_iterator_write_domain_state(DBusMessageIter *iterator,
+                                         enum sss_domain_state state)
+{
+    errno_t ret;
+
+    ret = sbus_iterator_write_u(iterator, state);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to write domain state [%d]: %s\n",
+              ret, sss_strerror(ret));
+    }
+
+    return ret;
+}

@@ -49,87 +49,6 @@
 #define DEFAULT_PWFIELD "*"
 #define DEFAULT_NSS_FD_LIMIT 8192
 
-static errno_t
-nss_clear_memcache(TALLOC_CTX *mem_ctx,
-                   struct sbus_request *sbus_req,
-                   struct nss_ctx *nctx)
-{
-    int memcache_timeout;
-    errno_t ret;
-
-    ret = unlink(SSS_NSS_MCACHE_DIR"/"CLEAR_MC_FLAG);
-    if (ret != 0) {
-        ret = errno;
-        if (ret == ENOENT) {
-            DEBUG(SSSDBG_TRACE_FUNC,
-                  "CLEAR_MC_FLAG not found. Nothing to do.\n");
-            return ret;
-        } else {
-            DEBUG(SSSDBG_CRIT_FAILURE, "Failed to unlink file: %s.\n",
-                  strerror(ret));
-            return ret;
-        }
-    }
-
-    /* CLEAR_MC_FLAG removed successfully. Clearing memory caches. */
-
-    ret = confdb_get_int(nctx->rctx->cdb,
-                         CONFDB_NSS_CONF_ENTRY,
-                         CONFDB_MEMCACHE_TIMEOUT,
-                         300, &memcache_timeout);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_FATAL_FAILURE,
-              "Unable to get memory cache entry timeout.\n");
-        return ret;
-    }
-
-    /* TODO: read cache sizes from configuration */
-    DEBUG(SSSDBG_TRACE_FUNC, "Clearing memory caches.\n");
-    ret = sss_mmap_cache_reinit(nctx, nctx->mc_uid, nctx->mc_gid,
-                                SSS_MC_CACHE_ELEMENTS,
-                                (time_t) memcache_timeout,
-                                &nctx->pwd_mc_ctx);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "passwd mmap cache invalidation failed\n");
-        return ret;
-    }
-
-    ret = sss_mmap_cache_reinit(nctx, nctx->mc_uid, nctx->mc_gid,
-                                SSS_MC_CACHE_ELEMENTS,
-                                (time_t) memcache_timeout,
-                                &nctx->grp_mc_ctx);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "group mmap cache invalidation failed\n");
-        return ret;
-    }
-
-    ret = sss_mmap_cache_reinit(nctx, nctx->mc_uid, nctx->mc_gid,
-                                SSS_MC_CACHE_ELEMENTS,
-                                (time_t)memcache_timeout,
-                                &nctx->initgr_mc_ctx);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "initgroups mmap cache invalidation failed\n");
-        return ret;
-    }
-
-    return EOK;
-}
-
-static errno_t
-nss_clear_netgroup_hash_table(TALLOC_CTX *mem_ctx,
-                              struct sbus_request *sbus_req,
-                              struct nss_ctx *nss_ctx)
-{
-    DEBUG(SSSDBG_TRACE_FUNC, "Invalidating netgroup hash table\n");
-
-    sss_ptr_hash_delete_all(nss_ctx->netgrent, false);
-
-    return EOK;
-}
-
 static int nss_get_config(struct nss_ctx *nctx,
                           struct confdb_ctx *cdb)
 {
@@ -268,33 +187,6 @@ static int setup_memcaches(struct nss_ctx *nctx)
     }
 
     return EOK;
-}
-
-static errno_t
-nss_register_service_iface(struct nss_ctx *nss_ctx,
-                           struct resp_ctx *rctx)
-{
-    errno_t ret;
-
-    SBUS_INTERFACE(iface_svc,
-        sssd_service,
-        SBUS_METHODS(
-            SBUS_SYNC(METHOD, sssd_service, resInit, monitor_common_res_init, NULL),
-            SBUS_SYNC(METHOD, sssd_service, rotateLogs, responder_logrotate, rctx),
-            SBUS_SYNC(METHOD, sssd_service, clearEnumCache, nss_clear_netgroup_hash_table, nss_ctx),
-            SBUS_SYNC(METHOD, sssd_service, clearMemcache, nss_clear_memcache, nss_ctx)
-        ),
-        SBUS_SIGNALS(SBUS_NO_SIGNALS),
-        SBUS_PROPERTIES(SBUS_NO_PROPERTIES)
-    );
-
-    ret = sbus_connection_add_path(rctx->mon_conn, SSS_BUS_PATH, &iface_svc);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to register service interface"
-              "[%d]: %s\n", ret, sss_strerror(ret));
-    }
-
-    return ret;
 }
 
 static int sssd_supplementary_group(struct nss_ctx *nss_ctx)
@@ -501,7 +393,12 @@ int nss_process_init(TALLOC_CTX *mem_ctx,
         goto fail;
     }
 
-    ret = nss_register_service_iface(nctx, rctx);
+    ret = sss_resp_register_service_iface(rctx);
+    if (ret != EOK) {
+        goto fail;
+    }
+
+    ret = nss_register_monitor_iface(nctx);
     if (ret != EOK) {
         goto fail;
     }

@@ -20,16 +20,34 @@
 #include "responder/common/negcache.h"
 #include "responder/common/responder.h"
 
-static void set_domain_state_by_name(struct resp_ctx *rctx,
-                                     const char *domain_name,
-                                     enum sss_domain_state state)
+static errno_t
+sss_resp_reset_ncache_users(TALLOC_CTX *mem_ctx,
+                            struct sbus_request *sbus_req,
+                            struct resp_ctx *rctx)
+{
+    sss_ncache_reset_users(rctx->ncache);
+
+    return EOK;
+}
+
+static errno_t
+sss_resp_reset_ncache_groups(TALLOC_CTX *mem_ctx,
+                             struct sbus_request *sbus_req,
+                             struct resp_ctx *rctx)
+{
+    sss_ncache_reset_groups(rctx->ncache);
+
+    return EOK;
+}
+
+static errno_t
+sss_responder_domain_state_changed(TALLOC_CTX *mem_ctx,
+                                   struct sbus_request *sbus_req,
+                                   struct resp_ctx *rctx,
+                                   const char *domain_name,
+                                   enum sss_domain_state state)
 {
     struct sss_domain_info *dom;
-
-    if (domain_name == NULL) {
-        DEBUG(SSSDBG_MINOR_FAILURE, "BUG: NULL domain name\n");
-        return;
-    }
 
     DEBUG(SSSDBG_TRACE_LIBS, "Setting state of domain %s\n", domain_name);
 
@@ -45,93 +63,8 @@ static void set_domain_state_by_name(struct resp_ctx *rctx,
     if (dom != NULL) {
         sss_domain_set_state(dom, state);
     }
-}
-
-static errno_t
-sss_resp_domain_active(TALLOC_CTX *mem_ctx,
-                       struct sbus_request *sbus_req,
-                       struct resp_ctx *rctx,
-                       const char *domain_name)
-{
-    DEBUG(SSSDBG_TRACE_LIBS, "Enabling domain %s\n", domain_name);
-
-    set_domain_state_by_name(rctx, domain_name, DOM_ACTIVE);
 
     return EOK;
-}
-
-static errno_t
-sss_resp_domain_inconsistent(TALLOC_CTX *mem_ctx,
-                             struct sbus_request *sbus_req,
-                             struct resp_ctx *rctx,
-                             const char *domain_name)
-{
-    DEBUG(SSSDBG_TRACE_LIBS, "Disabling domain %s\n", domain_name);
-
-    set_domain_state_by_name(rctx, domain_name, DOM_INCONSISTENT);
-
-    return EOK;
-}
-
-static errno_t
-sss_resp_reset_ncache_users(TALLOC_CTX *mem_ctx,
-                            struct sbus_request *sbus_req,
-                            struct resp_ctx *rctx)
-{
-    sss_ncache_reset_users(rctx->ncache);
-
-    return EOK;
-}
-
-static errno_t
-sss_resp_reset_ncache_groups(TALLOC_CTX *mem_ctx,
-                            struct sbus_request *sbus_req,
-                            struct resp_ctx *rctx)
-{
-    sss_ncache_reset_groups(rctx->ncache);
-
-    return EOK;
-}
-
-errno_t
-sss_resp_register_sbus_iface(struct sbus_connection *conn,
-                             struct resp_ctx *rctx)
-{
-    errno_t ret;
-
-    SBUS_INTERFACE(iface_resp_domain,
-        sssd_Responder_Domain,
-        SBUS_METHODS(
-            SBUS_SYNC(METHOD, sssd_Responder_Domain, SetActive, sss_resp_domain_active, rctx),
-            SBUS_SYNC(METHOD, sssd_Responder_Domain, SetInconsistent, sss_resp_domain_inconsistent, rctx)
-        ),
-        SBUS_SIGNALS(SBUS_NO_SIGNALS),
-        SBUS_PROPERTIES(SBUS_NO_PROPERTIES)
-    );
-
-    SBUS_INTERFACE(iface_resp_negcache,
-        sssd_Responder_NegativeCache,
-        SBUS_METHODS(
-            SBUS_SYNC(METHOD, sssd_Responder_NegativeCache, ResetUsers, sss_resp_reset_ncache_users, rctx),
-            SBUS_SYNC(METHOD, sssd_Responder_NegativeCache, ResetGroups, sss_resp_reset_ncache_groups, rctx)
-        ),
-        SBUS_SIGNALS(SBUS_NO_SIGNALS),
-        SBUS_PROPERTIES(SBUS_NO_PROPERTIES)
-    );
-
-    struct sbus_path paths[] = {
-        {SSS_BUS_PATH, &iface_resp_domain},
-        {SSS_BUS_PATH, &iface_resp_negcache},
-        {NULL, NULL}
-    };
-
-    ret = sbus_connection_add_path_map(conn, paths);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to add paths [%d]: %s\n",
-              ret, sss_strerror(ret));
-    }
-
-    return ret;
 }
 
 errno_t
@@ -153,6 +86,21 @@ sss_resp_register_service_iface(struct resp_ctx *rctx)
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to register service interface"
               "[%d]: %s\n", ret, sss_strerror(ret));
+    }
+
+    struct sbus_listener listeners[] = SBUS_LISTENERS(
+        SBUS_LISTEN_SYNC(sssd_Responder_Domain, StateChanged, NULL,
+                         sss_responder_domain_state_changed, rctx),
+        SBUS_LISTEN_SYNC(sssd_Responder_NegativeCache, ResetUsers, NULL,
+                         sss_resp_reset_ncache_users, rctx),
+        SBUS_LISTEN_SYNC(sssd_Responder_NegativeCache, ResetGroups, NULL,
+                         sss_resp_reset_ncache_groups, rctx)
+    );
+
+    ret = sbus_router_listen_map(rctx->mon_conn, listeners);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to add signal listeners [%d]: %s\n",
+              ret, sss_strerror(ret));
     }
 
     return ret;

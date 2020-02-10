@@ -27,6 +27,7 @@
 #include "util/inotify.h"
 #include "util/util.h"
 #include "providers/data_provider/dp_iface.h"
+#include "sss_iface/sss_iface_async.h"
 
 /* When changing this constant, make sure to also adjust the files integration
  * test for reallocation branch

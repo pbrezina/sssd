@@ -415,47 +415,55 @@
         (methods), (signals), (properties)); \
 })
 
-/* Method: sssd.Responder.Domain.SetActive */
-#define SBUS_METHOD_SYNC_sssd_Responder_Domain_SetActive(handler, data) ({ \
-    SBUS_CHECK_SYNC((handler), (data), const char *); \
-    sbus_method_sync("SetActive", \
-        &_sbus_sss_args_sssd_Responder_Domain_SetActive, \
+/* Signal: sssd.Responder.Domain.StateChanged */
+#define SBUS_SIGNAL_EMITS_sssd_Responder_Domain_StateChanged() ({ \
+    sbus_signal("StateChanged", \
+        _sbus_sss_args_sssd_Responder_Domain_StateChanged, \
+        NULL); \
+})
+
+#define SBUS_SIGNAL_SYNC_sssd_Responder_Domain_StateChanged(path, handler, data) ({ \
+    SBUS_CHECK_SYNC((handler), (data), const char *, enum sss_domain_state); \
+    sbus_listener_sync("sssd.Responder.Domain", "StateChanged", (path), \
+        _sbus_sss_invoke_in_sdomain_state_out__send, \
         NULL, \
-        _sbus_sss_invoke_in_s_out__send, \
-        _sbus_sss_key_s_0, \
         (handler), (data)); \
 })
 
-#define SBUS_METHOD_ASYNC_sssd_Responder_Domain_SetActive(handler_send, handler_recv, data) ({ \
-    SBUS_CHECK_SEND((handler_send), (data), const char *); \
+#define SBUS_SIGNAL_ASYNC_sssd_Responder_Domain_StateChanged(path, handler_send, handler_recv, data) ({ \
+    SBUS_CHECK_SEND((handler_send), (data), const char *, enum sss_domain_state); \
     SBUS_CHECK_RECV((handler_recv)); \
-    sbus_method_async("SetActive", \
-        &_sbus_sss_args_sssd_Responder_Domain_SetActive, \
+    sbus_listener_async("sssd.Responder.Domain", "StateChanged", (path), \
+        _sbus_sss_invoke_in_sdomain_state_out__send, \
         NULL, \
-        _sbus_sss_invoke_in_s_out__send, \
-        _sbus_sss_key_s_0, \
         (handler_send), (handler_recv), (data)); \
 })
 
-/* Method: sssd.Responder.Domain.SetInconsistent */
-#define SBUS_METHOD_SYNC_sssd_Responder_Domain_SetInconsistent(handler, data) ({ \
-    SBUS_CHECK_SYNC((handler), (data), const char *); \
-    sbus_method_sync("SetInconsistent", \
-        &_sbus_sss_args_sssd_Responder_Domain_SetInconsistent, \
+/* Interface: sssd.Responder.EnumCache */
+#define SBUS_IFACE_sssd_Responder_EnumCache(methods, signals, properties) ({ \
+    sbus_interface("sssd.Responder.EnumCache", NULL, \
+        (methods), (signals), (properties)); \
+})
+
+/* Method: sssd.Responder.EnumCache.Clear */
+#define SBUS_METHOD_SYNC_sssd_Responder_EnumCache_Clear(handler, data) ({ \
+    SBUS_CHECK_SYNC((handler), (data)); \
+    sbus_method_sync("Clear", \
+        &_sbus_sss_args_sssd_Responder_EnumCache_Clear, \
         NULL, \
-        _sbus_sss_invoke_in_s_out__send, \
-        _sbus_sss_key_s_0, \
+        _sbus_sss_invoke_in__out__send, \
+        NULL, \
         (handler), (data)); \
 })
 
-#define SBUS_METHOD_ASYNC_sssd_Responder_Domain_SetInconsistent(handler_send, handler_recv, data) ({ \
-    SBUS_CHECK_SEND((handler_send), (data), const char *); \
+#define SBUS_METHOD_ASYNC_sssd_Responder_EnumCache_Clear(handler_send, handler_recv, data) ({ \
+    SBUS_CHECK_SEND((handler_send), (data)); \
     SBUS_CHECK_RECV((handler_recv)); \
-    sbus_method_async("SetInconsistent", \
-        &_sbus_sss_args_sssd_Responder_Domain_SetInconsistent, \
+    sbus_method_async("Clear", \
+        &_sbus_sss_args_sssd_Responder_EnumCache_Clear, \
         NULL, \
-        _sbus_sss_invoke_in_s_out__send, \
-        _sbus_sss_key_s_0, \
+        _sbus_sss_invoke_in__out__send, \
+        NULL, \
         (handler_send), (handler_recv), (data)); \
 })
 
@@ -465,47 +473,51 @@
         (methods), (signals), (properties)); \
 })
 
-/* Method: sssd.Responder.NegativeCache.ResetGroups */
-#define SBUS_METHOD_SYNC_sssd_Responder_NegativeCache_ResetGroups(handler, data) ({ \
+/* Signal: sssd.Responder.NegativeCache.ResetGroups */
+#define SBUS_SIGNAL_EMITS_sssd_Responder_NegativeCache_ResetGroups() ({ \
+    sbus_signal("ResetGroups", \
+        _sbus_sss_args_sssd_Responder_NegativeCache_ResetGroups, \
+        NULL); \
+})
+
+#define SBUS_SIGNAL_SYNC_sssd_Responder_NegativeCache_ResetGroups(path, handler, data) ({ \
     SBUS_CHECK_SYNC((handler), (data)); \
-    sbus_method_sync("ResetGroups", \
-        &_sbus_sss_args_sssd_Responder_NegativeCache_ResetGroups, \
-        NULL, \
+    sbus_listener_sync("sssd.Responder.NegativeCache", "ResetGroups", (path), \
         _sbus_sss_invoke_in__out__send, \
-        _sbus_sss_key_, \
+        NULL, \
         (handler), (data)); \
 })
 
-#define SBUS_METHOD_ASYNC_sssd_Responder_NegativeCache_ResetGroups(handler_send, handler_recv, data) ({ \
+#define SBUS_SIGNAL_ASYNC_sssd_Responder_NegativeCache_ResetGroups(path, handler_send, handler_recv, data) ({ \
     SBUS_CHECK_SEND((handler_send), (data)); \
     SBUS_CHECK_RECV((handler_recv)); \
-    sbus_method_async("ResetGroups", \
-        &_sbus_sss_args_sssd_Responder_NegativeCache_ResetGroups, \
-        NULL, \
+    sbus_listener_async("sssd.Responder.NegativeCache", "ResetGroups", (path), \
         _sbus_sss_invoke_in__out__send, \
-        _sbus_sss_key_, \
+        NULL, \
         (handler_send), (handler_recv), (data)); \
 })
 
-/* Method: sssd.Responder.NegativeCache.ResetUsers */
-#define SBUS_METHOD_SYNC_sssd_Responder_NegativeCache_ResetUsers(handler, data) ({ \
+/* Signal: sssd.Responder.NegativeCache.ResetUsers */
+#define SBUS_SIGNAL_EMITS_sssd_Responder_NegativeCache_ResetUsers() ({ \
+    sbus_signal("ResetUsers", \
+        _sbus_sss_args_sssd_Responder_NegativeCache_ResetUsers, \
+        NULL); \
+})
+
+#define SBUS_SIGNAL_SYNC_sssd_Responder_NegativeCache_ResetUsers(path, handler, data) ({ \
     SBUS_CHECK_SYNC((handler), (data)); \
-    sbus_method_sync("ResetUsers", \
-        &_sbus_sss_args_sssd_Responder_NegativeCache_ResetUsers, \
-        NULL, \
+    sbus_listener_sync("sssd.Responder.NegativeCache", "ResetUsers", (path), \
         _sbus_sss_invoke_in__out__send, \
-        _sbus_sss_key_, \
+        NULL, \
         (handler), (data)); \
 })
 
-#define SBUS_METHOD_ASYNC_sssd_Responder_NegativeCache_ResetUsers(handler_send, handler_recv, data) ({ \
+#define SBUS_SIGNAL_ASYNC_sssd_Responder_NegativeCache_ResetUsers(path, handler_send, handler_recv, data) ({ \
     SBUS_CHECK_SEND((handler_send), (data)); \
     SBUS_CHECK_RECV((handler_recv)); \
-    sbus_method_async("ResetUsers", \
-        &_sbus_sss_args_sssd_Responder_NegativeCache_ResetUsers, \
-        NULL, \
+    sbus_listener_async("sssd.Responder.NegativeCache", "ResetUsers", (path), \
         _sbus_sss_invoke_in__out__send, \
-        _sbus_sss_key_, \
+        NULL, \
         (handler_send), (handler_recv), (data)); \
 })
 
@@ -681,69 +693,25 @@
         (methods), (signals), (properties)); \
 })
 
-/* Method: sssd.nss.MemoryCache.InvalidateAllGroups */
-#define SBUS_METHOD_SYNC_sssd_nss_MemoryCache_InvalidateAllGroups(handler, data) ({ \
+/* Method: sssd.nss.MemoryCache.Clear */
+#define SBUS_METHOD_SYNC_sssd_nss_MemoryCache_Clear(handler, data) ({ \
     SBUS_CHECK_SYNC((handler), (data)); \
-    sbus_method_sync("InvalidateAllGroups", \
-        &_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllGroups, \
+    sbus_method_sync("Clear", \
+        &_sbus_sss_args_sssd_nss_MemoryCache_Clear, \
         NULL, \
         _sbus_sss_invoke_in__out__send, \
-        _sbus_sss_key_, \
+        NULL, \
         (handler), (data)); \
 })
 
-#define SBUS_METHOD_ASYNC_sssd_nss_MemoryCache_InvalidateAllGroups(handler_send, handler_recv, data) ({ \
+#define SBUS_METHOD_ASYNC_sssd_nss_MemoryCache_Clear(handler_send, handler_recv, data) ({ \
     SBUS_CHECK_SEND((handler_send), (data)); \
     SBUS_CHECK_RECV((handler_recv)); \
-    sbus_method_async("InvalidateAllGroups", \
-        &_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllGroups, \
+    sbus_method_async("Clear", \
+        &_sbus_sss_args_sssd_nss_MemoryCache_Clear, \
         NULL, \
         _sbus_sss_invoke_in__out__send, \
-        _sbus_sss_key_, \
-        (handler_send), (handler_recv), (data)); \
-})
-
-/* Method: sssd.nss.MemoryCache.InvalidateAllInitgroups */
-#define SBUS_METHOD_SYNC_sssd_nss_MemoryCache_InvalidateAllInitgroups(handler, data) ({ \
-    SBUS_CHECK_SYNC((handler), (data)); \
-    sbus_method_sync("InvalidateAllInitgroups", \
-        &_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllInitgroups, \
         NULL, \
-        _sbus_sss_invoke_in__out__send, \
-        _sbus_sss_key_, \
-        (handler), (data)); \
-})
-
-#define SBUS_METHOD_ASYNC_sssd_nss_MemoryCache_InvalidateAllInitgroups(handler_send, handler_recv, data) ({ \
-    SBUS_CHECK_SEND((handler_send), (data)); \
-    SBUS_CHECK_RECV((handler_recv)); \
-    sbus_method_async("InvalidateAllInitgroups", \
-        &_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllInitgroups, \
-        NULL, \
-        _sbus_sss_invoke_in__out__send, \
-        _sbus_sss_key_, \
-        (handler_send), (handler_recv), (data)); \
-})
-
-/* Method: sssd.nss.MemoryCache.InvalidateAllUsers */
-#define SBUS_METHOD_SYNC_sssd_nss_MemoryCache_InvalidateAllUsers(handler, data) ({ \
-    SBUS_CHECK_SYNC((handler), (data)); \
-    sbus_method_sync("InvalidateAllUsers", \
-        &_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllUsers, \
-        NULL, \
-        _sbus_sss_invoke_in__out__send, \
-        _sbus_sss_key_, \
-        (handler), (data)); \
-})
-
-#define SBUS_METHOD_ASYNC_sssd_nss_MemoryCache_InvalidateAllUsers(handler_send, handler_recv, data) ({ \
-    SBUS_CHECK_SEND((handler_send), (data)); \
-    SBUS_CHECK_RECV((handler_recv)); \
-    sbus_method_async("InvalidateAllUsers", \
-        &_sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllUsers, \
-        NULL, \
-        _sbus_sss_invoke_in__out__send, \
-        _sbus_sss_key_, \
         (handler_send), (handler_recv), (data)); \
 })
 
@@ -791,54 +759,82 @@
         (handler_send), (handler_recv), (data)); \
 })
 
+/* Signal: sssd.nss.MemoryCache.InvalidateAllGroups */
+#define SBUS_SIGNAL_EMITS_sssd_nss_MemoryCache_InvalidateAllGroups() ({ \
+    sbus_signal("InvalidateAllGroups", \
+        _sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllGroups, \
+        NULL); \
+})
+
+#define SBUS_SIGNAL_SYNC_sssd_nss_MemoryCache_InvalidateAllGroups(path, handler, data) ({ \
+    SBUS_CHECK_SYNC((handler), (data)); \
+    sbus_listener_sync("sssd.nss.MemoryCache", "InvalidateAllGroups", (path), \
+        _sbus_sss_invoke_in__out__send, \
+        NULL, \
+        (handler), (data)); \
+})
+
+#define SBUS_SIGNAL_ASYNC_sssd_nss_MemoryCache_InvalidateAllGroups(path, handler_send, handler_recv, data) ({ \
+    SBUS_CHECK_SEND((handler_send), (data)); \
+    SBUS_CHECK_RECV((handler_recv)); \
+    sbus_listener_async("sssd.nss.MemoryCache", "InvalidateAllGroups", (path), \
+        _sbus_sss_invoke_in__out__send, \
+        NULL, \
+        (handler_send), (handler_recv), (data)); \
+})
+
+/* Signal: sssd.nss.MemoryCache.InvalidateAllInitgroups */
+#define SBUS_SIGNAL_EMITS_sssd_nss_MemoryCache_InvalidateAllInitgroups() ({ \
+    sbus_signal("InvalidateAllInitgroups", \
+        _sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllInitgroups, \
+        NULL); \
+})
+
+#define SBUS_SIGNAL_SYNC_sssd_nss_MemoryCache_InvalidateAllInitgroups(path, handler, data) ({ \
+    SBUS_CHECK_SYNC((handler), (data)); \
+    sbus_listener_sync("sssd.nss.MemoryCache", "InvalidateAllInitgroups", (path), \
+        _sbus_sss_invoke_in__out__send, \
+        NULL, \
+        (handler), (data)); \
+})
+
+#define SBUS_SIGNAL_ASYNC_sssd_nss_MemoryCache_InvalidateAllInitgroups(path, handler_send, handler_recv, data) ({ \
+    SBUS_CHECK_SEND((handler_send), (data)); \
+    SBUS_CHECK_RECV((handler_recv)); \
+    sbus_listener_async("sssd.nss.MemoryCache", "InvalidateAllInitgroups", (path), \
+        _sbus_sss_invoke_in__out__send, \
+        NULL, \
+        (handler_send), (handler_recv), (data)); \
+})
+
+/* Signal: sssd.nss.MemoryCache.InvalidateAllUsers */
+#define SBUS_SIGNAL_EMITS_sssd_nss_MemoryCache_InvalidateAllUsers() ({ \
+    sbus_signal("InvalidateAllUsers", \
+        _sbus_sss_args_sssd_nss_MemoryCache_InvalidateAllUsers, \
+        NULL); \
+})
+
+#define SBUS_SIGNAL_SYNC_sssd_nss_MemoryCache_InvalidateAllUsers(path, handler, data) ({ \
+    SBUS_CHECK_SYNC((handler), (data)); \
+    sbus_listener_sync("sssd.nss.MemoryCache", "InvalidateAllUsers", (path), \
+        _sbus_sss_invoke_in__out__send, \
+        NULL, \
+        (handler), (data)); \
+})
+
+#define SBUS_SIGNAL_ASYNC_sssd_nss_MemoryCache_InvalidateAllUsers(path, handler_send, handler_recv, data) ({ \
+    SBUS_CHECK_SEND((handler_send), (data)); \
+    SBUS_CHECK_RECV((handler_recv)); \
+    sbus_listener_async("sssd.nss.MemoryCache", "InvalidateAllUsers", (path), \
+        _sbus_sss_invoke_in__out__send, \
+        NULL, \
+        (handler_send), (handler_recv), (data)); \
+})
+
 /* Interface: sssd.service */
 #define SBUS_IFACE_sssd_service(methods, signals, properties) ({ \
     sbus_interface("sssd.service", NULL, \
         (methods), (signals), (properties)); \
-})
-
-/* Method: sssd.service.clearEnumCache */
-#define SBUS_METHOD_SYNC_sssd_service_clearEnumCache(handler, data) ({ \
-    SBUS_CHECK_SYNC((handler), (data)); \
-    sbus_method_sync("clearEnumCache", \
-        &_sbus_sss_args_sssd_service_clearEnumCache, \
-        NULL, \
-        _sbus_sss_invoke_in__out__send, \
-        NULL, \
-        (handler), (data)); \
-})
-
-#define SBUS_METHOD_ASYNC_sssd_service_clearEnumCache(handler_send, handler_recv, data) ({ \
-    SBUS_CHECK_SEND((handler_send), (data)); \
-    SBUS_CHECK_RECV((handler_recv)); \
-    sbus_method_async("clearEnumCache", \
-        &_sbus_sss_args_sssd_service_clearEnumCache, \
-        NULL, \
-        _sbus_sss_invoke_in__out__send, \
-        NULL, \
-        (handler_send), (handler_recv), (data)); \
-})
-
-/* Method: sssd.service.clearMemcache */
-#define SBUS_METHOD_SYNC_sssd_service_clearMemcache(handler, data) ({ \
-    SBUS_CHECK_SYNC((handler), (data)); \
-    sbus_method_sync("clearMemcache", \
-        &_sbus_sss_args_sssd_service_clearMemcache, \
-        NULL, \
-        _sbus_sss_invoke_in__out__send, \
-        NULL, \
-        (handler), (data)); \
-})
-
-#define SBUS_METHOD_ASYNC_sssd_service_clearMemcache(handler_send, handler_recv, data) ({ \
-    SBUS_CHECK_SEND((handler_send), (data)); \
-    SBUS_CHECK_RECV((handler_recv)); \
-    sbus_method_async("clearMemcache", \
-        &_sbus_sss_args_sssd_service_clearMemcache, \
-        NULL, \
-        _sbus_sss_invoke_in__out__send, \
-        NULL, \
-        (handler_send), (handler_recv), (data)); \
 })
 
 /* Method: sssd.service.goOffline */
