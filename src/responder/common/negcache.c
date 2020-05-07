@@ -1269,6 +1269,11 @@ errno_t sss_ncache_prepopulate(struct sss_nc_ctx *ncache,
                 continue;
             }
 
+            ret = sss_ncache_check_user(ncache, dom, fqname);
+            if (ret == EEXIST) {
+                dom->explicit_user_ncache_root = true;
+            }
+
             ret = sss_ncache_set_user(ncache, true, dom, fqname);
             if (ret != EOK) {
                 DEBUG(SSSDBG_MINOR_FAILURE,

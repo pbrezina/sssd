@@ -191,7 +191,7 @@ nss_get_pwent(TALLOC_CTX *mem_ctx,
     gid = nss_get_gid(domain, msg);
     uid = sss_view_ldb_msg_find_attr_as_uint64(domain, msg, SYSDB_UIDNUM, 0);
 
-    if (name == NULL || uid == 0 || gid == 0) {
+    if (name == NULL || uid == 0 || (gid == 0 && !is_files_provider(domain))) {
         DEBUG(SSSDBG_OP_FAILURE,
               "Incomplete user object for %s[%u]! Skipping\n",
               name ? name : "<NULL>", uid);

@@ -422,6 +422,9 @@ struct sss_domain_info {
     /* Do not use the _output_fqnames property directly in new code, but rather
      * use sss_domain_info_{get,set}_output_fqnames(). */
     bool output_fqnames;
+
+    /* True if root is explicitly configured in filter_users. */
+    bool explicit_user_ncache_root;
 };
 
 /**

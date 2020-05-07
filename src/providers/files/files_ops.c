@@ -290,8 +290,7 @@ static errno_t save_file_user(struct files_id_ctx *id_ctx,
     struct sysdb_attrs *attrs = NULL;
 
     if (strcmp(pw->pw_name, "root") == 0
-            || pw->pw_uid == 0
-            || pw->pw_gid == 0) {
+            || pw->pw_uid == 0) {
         DEBUG(SSSDBG_TRACE_FUNC, "Skipping %s\n", pw->pw_name);
         return EOK;
     }

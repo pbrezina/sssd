@@ -113,6 +113,51 @@ nss_get_group_ghosts(struct sss_domain_info *domain,
 }
 
 static errno_t
+nss_filter_users_in_group(struct nss_ctx *nss_ctx,
+                          struct sss_domain_info *domain,
+                          const char *member_name)
+{
+    TALLOC_CTX *tmp_ctx;
+    char *shortname;
+    errno_t ret;
+
+    if (!nss_ctx->filter_users_in_groups) {
+        return EOK;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    /* Shortcut if it is clearly not root so we don't have to parse every name. */
+    if (is_files_provider(domain) && strncmp(member_name, "root", 4) == 0) {
+        ret = sss_parse_internal_fqname(tmp_ctx, member_name, &shortname, NULL);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "sss_parse_internal_fqname failed\n");
+            goto done;
+        }
+
+        if (shortname != NULL && strcmp(shortname, "root") == 0) {
+            if (!domain->explicit_user_ncache_root) {
+                ret = EOK;
+                goto done;
+            } else {
+                ret = EEXIST;
+                goto done;
+            }
+        }
+    }
+
+    ret = sss_ncache_check_user(nss_ctx->rctx->ncache, domain,
+                                member_name);
+
+done:
+    talloc_free(tmp_ctx);
+    return ret;
+}
+
+static errno_t
 nss_protocol_fill_members(struct sss_packet *packet,
                           struct nss_ctx *nss_ctx,
                           struct sss_domain_info *domain,
@@ -153,14 +198,11 @@ nss_protocol_fill_members(struct sss_packet *packet,
         for (j = 0; j < el->num_values; j++) {
             member_name = (const char *)el->values[j].data;
 
-            if (nss_ctx->filter_users_in_groups) {
-                ret = sss_ncache_check_user(rctx->ncache, domain, member_name);
-                if (ret == EEXIST) {
-                    DEBUG(SSSDBG_TRACE_FUNC,
-                          "Group [%s] member [%s] filtered out! "
-                          "(negative cache)\n", group_name, member_name);
-                    continue;
-                }
+            ret = nss_filter_users_in_group(nss_ctx, domain, member_name);
+            if (ret == EEXIST) {
+                DEBUG(SSSDBG_TRACE_FUNC, "Group [%s] member [%s] filtered out! "
+                      "(negative cache)\n", group_name, member_name);
+                continue;
             }
 
             ret = sized_domain_name(tmp_ctx, rctx, member_name, &name);
