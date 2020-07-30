@@ -335,9 +335,9 @@ static errno_t ad_get_client_site_next_dc(struct tevent_req *req)
                                     state->be_res->resolv,
                                     state->be_res->family_order,
                                     state->host_db,
-                                    state->ad_use_ldaps ? "ldaps" : "ldap",
+                                    "cldap",
                                     state->dc.host,
-                                    state->ad_use_ldaps ? 636 : state->dc.port,
+                                    state->dc.port,
                                     false);
     if (subreq == NULL) {
         ret = ENOMEM;
