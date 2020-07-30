@@ -116,6 +116,7 @@ struct sss_ldap_init_state {
     LDAP *ldap;
     int sd;
     const char *uri;
+    bool use_udp;
 };
 
 static int sss_ldap_init_state_destructor(void *data)
@@ -159,11 +160,13 @@ struct tevent_req *sss_ldap_init_send(TALLOC_CTX *mem_ctx,
     state->ldap = NULL;
     state->sd = -1;
     state->uri = uri;
+    state->use_udp = strncmp(uri, "cldap", 5) == 0 ? true : false;
 
 #ifdef HAVE_LDAP_INIT_FD
     struct tevent_req *subreq;
 
-    subreq = sssd_async_socket_init_send(state, ev, addr, addr_len, timeout);
+    subreq = sssd_async_socket_init_send(state, ev, state->use_udp, addr,
+                                         addr_len, timeout);
     if (subreq == NULL) {
         ret = ENOMEM;
         DEBUG(SSSDBG_CRIT_FAILURE, "sssd_async_socket_init_send failed.\n");
@@ -251,7 +254,9 @@ static void sss_ldap_init_sys_connect_done(struct tevent_req *subreq)
 
     /* Initialize LDAP handler */
 
-    lret = ldap_init_fd(state->sd, LDAP_PROTO_TCP, state->uri, &state->ldap);
+    lret = ldap_init_fd(state->sd,
+                        state->use_udp ? LDAP_PROTO_UDP : LDAP_PROTO_TCP,
+                        state->uri, &state->ldap);
     if (lret != LDAP_SUCCESS) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "ldap_init_fd failed: %s. [%d][%s]\n",

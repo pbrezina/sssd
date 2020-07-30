@@ -271,6 +271,7 @@ static void sssd_async_socket_init_done(struct tevent_req *subreq);
 
 struct tevent_req *sssd_async_socket_init_send(TALLOC_CTX *mem_ctx,
                                                struct tevent_context *ev,
+                                               bool use_udp,
                                                struct sockaddr_storage *addr,
                                                socklen_t addr_len, int timeout)
 {
@@ -289,7 +290,7 @@ struct tevent_req *sssd_async_socket_init_send(TALLOC_CTX *mem_ctx,
     talloc_set_destructor((TALLOC_CTX *)state,
                           sssd_async_socket_state_destructor);
 
-    state->sd = socket(addr->ss_family, SOCK_STREAM, 0);
+    state->sd = socket(addr->ss_family, use_udp ? SOCK_DGRAM : SOCK_STREAM, 0);
     if (state->sd == -1) {
         ret = errno;
         DEBUG(SSSDBG_CRIT_FAILURE,
