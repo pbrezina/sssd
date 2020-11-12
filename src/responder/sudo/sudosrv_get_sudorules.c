@@ -153,8 +153,8 @@ static errno_t sudosrv_format_runas(struct resp_ctx *rctx,
             continue;
         }
 
-        ret = sss_output_fqname(tmp_ctx, dom, value,
-                                rctx->override_space, &fqname);
+        ret = sss_output_fqname(tmp_ctx, dom, value, rctx->override_space,
+                                dom->case_preserve, &fqname);
         if (ret != EOK) {
             DEBUG(SSSDBG_CRIT_FAILURE, "Unable to convert %s to output fqname "
                   "[%d]: %s\n", value, ret, sss_strerror(ret));

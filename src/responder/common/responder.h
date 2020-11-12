@@ -415,6 +415,7 @@ int sized_output_name(TALLOC_CTX *mem_ctx,
                       struct resp_ctx *rctx,
                       const char *orig_name,
                       struct sss_domain_info *name_dom,
+                      bool case_preserve,
                       struct sized_string **_name);
 
 /* Format orig_name into a sized_string in output format as prescribed

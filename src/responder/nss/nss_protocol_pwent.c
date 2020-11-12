@@ -207,7 +207,8 @@ nss_get_pwent(TALLOC_CTX *mem_ctx,
     }
 
     /* Convert to sized strings. */
-    ret = sized_output_name(mem_ctx, nss_ctx->rctx, name, domain, _name);
+    ret = sized_output_name(mem_ctx, nss_ctx->rctx, name, domain,
+                            domain->case_preserve, _name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "sized_output_name failed, skipping [%d]: %s\n",

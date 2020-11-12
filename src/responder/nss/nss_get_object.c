@@ -109,7 +109,8 @@ memcache_delete_entry(struct nss_ctx *nss_ctx,
         }
 
         if (name != NULL) {
-            ret = sized_output_name(NULL, rctx, name, dom, &sized_name);
+            ret = sized_output_name(NULL, rctx, name, dom, dom->case_preserve,
+                                    &sized_name);
             if (ret != EOK) {
                 DEBUG(SSSDBG_OP_FAILURE,
                       "Unable to create sized name [%d]: %s\n",

@@ -379,7 +379,8 @@ nss_get_ad_name(TALLOC_CTX *mem_ctx,
         return EINVAL;
     }
 
-    ret = sized_output_name(mem_ctx, rctx, name, result->domain, _sz_name);
+    ret = sized_output_name(mem_ctx, rctx, name, result->domain,
+                            result->domain->case_preserve, _sz_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_OP_FAILURE,
               "Unable to create sized name [%d]: %s\n",

@@ -545,6 +545,7 @@ static errno_t invalidate_cache(struct nss_cmd_ctx *cmd_ctx,
     }
     ret = sss_output_fqname(cmd_ctx, result->domain, name,
                             cmd_ctx->nss_ctx->rctx->override_space,
+                            result->domain->case_preserve,
                             &output_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_OP_FAILURE, "sss_output_fqname failed.\n");

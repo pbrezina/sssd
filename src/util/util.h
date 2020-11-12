@@ -317,6 +317,7 @@ int sss_output_fqname(TALLOC_CTX *mem_ctx,
                       struct sss_domain_info *domain,
                       const char *name,
                       char override_space,
+                      bool case_preserve,
                       char **_output_name);
 
 const char *sss_get_name_from_msg(struct sss_domain_info *domain,

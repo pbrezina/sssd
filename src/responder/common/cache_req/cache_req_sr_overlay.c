@@ -162,6 +162,7 @@ static errno_t cache_req_sr_overlay_match_users(
             name = sss_get_name_from_msg(result->domain, msg);
             ret = sss_output_fqname(tmp_ctx, result->domain, name,
                                     rctx->override_space,
+                                    result->domain->case_preserve,
                                     &output_name);
             if (ret != EOK) {
                 CACHE_REQ_DEBUG(SSSDBG_CRIT_FAILURE, cr,

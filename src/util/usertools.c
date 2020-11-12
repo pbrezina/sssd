@@ -819,6 +819,7 @@ int sss_output_fqname(TALLOC_CTX *mem_ctx,
                       struct sss_domain_info *domain,
                       const char *name,
                       char override_space,
+                      bool case_preserve,
                       char **_output_name)
 {
     TALLOC_CTX *tmp_ctx = NULL;
@@ -831,8 +832,7 @@ int sss_output_fqname(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    output_name = sss_output_name(tmp_ctx, name, domain->case_preserve,
-                                  override_space);
+    output_name = sss_output_name(tmp_ctx, name, case_preserve, override_space);
     if (output_name == NULL) {
         ret = EIO;
         goto done;

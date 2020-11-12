@@ -1888,6 +1888,7 @@ int sized_output_name(TALLOC_CTX *mem_ctx,
                       struct resp_ctx *rctx,
                       const char *orig_name,
                       struct sss_domain_info *name_dom,
+                      bool case_preserve,
                       struct sized_string **_name)
 {
     TALLOC_CTX *tmp_ctx = NULL;
@@ -1906,8 +1907,8 @@ int sized_output_name(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = sss_output_fqname(name, name_dom, orig_name,
-                            rctx->override_space, &name_str);
+    ret = sss_output_fqname(name, name_dom, orig_name, rctx->override_space,
+                            case_preserve, &name_str);
     if (ret != EOK) {
         goto done;
     }
@@ -1953,8 +1954,8 @@ int sized_domain_name(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = sized_output_name(mem_ctx, rctx, member_name,
-                            member_dom, _name);
+    ret = sized_output_name(mem_ctx, rctx, member_name, member_dom,
+                            member_dom->case_preserve, _name);
 done:
     talloc_free(tmp_ctx);
     return ret;

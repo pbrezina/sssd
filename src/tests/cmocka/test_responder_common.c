@@ -281,7 +281,8 @@ void test_sss_output_fqname(void **state)
     struct sized_string *res = NULL;
 
     ret = sized_output_name(parse_inp_ctx, parse_inp_ctx->rctx, "dummy",
-                            parse_inp_ctx->tctx->dom, &res);
+                            parse_inp_ctx->tctx->dom,
+                            parse_inp_ctx->tctx->dom->case_preserve, &res);
     assert_int_equal(ret, EOK);
     assert_non_null(res);
     assert_string_equal("dummy", res->str);

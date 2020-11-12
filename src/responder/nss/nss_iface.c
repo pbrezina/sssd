@@ -56,7 +56,8 @@ nss_update_initgr_memcache(struct nss_ctx *nctx,
         return;
     }
 
-    ret = sized_output_name(tmp_ctx, nctx->rctx, fq_name, dom, &delete_name);
+    ret = sized_output_name(tmp_ctx, nctx->rctx, fq_name, dom,
+                            dom->case_preserve, &delete_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_OP_FAILURE,
               "sized_output_name failed for '%s': %d [%s]\n",

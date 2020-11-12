@@ -225,8 +225,8 @@ static void dp_req_initgr_pp_sr_overlay(struct data_provider *provider,
 
     /* Format output username */
     name = sss_get_name_from_msg(ctx->domain_info, res->msgs[0]);
-    ret = sss_output_fqname(tmp_ctx, ctx->domain_info, name,
-                            be->override_space, &output_name);
+    ret = sss_output_fqname(tmp_ctx, ctx->domain_info, name, be->override_space,
+                            ctx->domain_info->case_preserve, &output_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "Failed formatting output username from \"%s\": %s\n",
@@ -303,6 +303,7 @@ static void dp_req_initgr_pp_sr_overlay(struct data_provider *provider,
             }
             ret = sss_output_fqname(tmp_ctx, ctx->domain_info,
                                     name, be->override_space,
+                                    ctx->domain_info->case_preserve,
                                     &output_name);
             if (ret != EOK) {
                 DEBUG(SSSDBG_CRIT_FAILURE,

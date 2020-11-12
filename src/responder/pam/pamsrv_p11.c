@@ -1221,7 +1221,9 @@ errno_t add_pam_cert_response(struct pam_data *pd, struct sss_domain_info *dom,
 
                 if (user_dom != NULL) {
                     ret = sss_output_fqname(short_name, user_dom,
-                                            sysdb_username, false, &nss_name);
+                                            sysdb_username, false,
+                                            user_dom->case_preserve,
+                                            &nss_name);
                     if (ret != EOK) {
                         nss_name = NULL;
                     }
