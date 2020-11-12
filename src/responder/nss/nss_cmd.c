@@ -988,13 +988,13 @@ static errno_t nss_cmd_getpwuid(struct cli_ctx *cli_ctx)
 static errno_t nss_cmd_getpwnam_ex(struct cli_ctx *cli_ctx)
 {
     return nss_getby_name(cli_ctx, true, CACHE_REQ_USER_BY_NAME, NULL,
-                          SSS_MC_PASSWD, nss_protocol_fill_pwent);
+                          SSS_MC_PASSWD, nss_protocol_fill_pwent_ex);
 }
 
 static errno_t nss_cmd_getpwuid_ex(struct cli_ctx *cli_ctx)
 {
     return nss_getby_id(cli_ctx, true, CACHE_REQ_USER_BY_ID, NULL,
-                        SSS_MC_PASSWD, nss_protocol_fill_pwent);
+                        SSS_MC_PASSWD, nss_protocol_fill_pwent_ex);
 }
 
 static errno_t nss_cmd_setpwent(struct cli_ctx *cli_ctx)
@@ -1043,13 +1043,13 @@ static errno_t nss_cmd_getgrgid(struct cli_ctx *cli_ctx)
 static errno_t nss_cmd_getgrnam_ex(struct cli_ctx *cli_ctx)
 {
     return nss_getby_name(cli_ctx, true, CACHE_REQ_GROUP_BY_NAME, NULL,
-                          SSS_MC_GROUP, nss_protocol_fill_grent);
+                          SSS_MC_GROUP, nss_protocol_fill_grent_ex);
 }
 
 static errno_t nss_cmd_getgrgid_ex(struct cli_ctx *cli_ctx)
 {
     return nss_getby_id(cli_ctx, true, CACHE_REQ_GROUP_BY_ID, NULL,
-                        SSS_MC_GROUP, nss_protocol_fill_grent);
+                        SSS_MC_GROUP, nss_protocol_fill_grent_ex);
 }
 
 

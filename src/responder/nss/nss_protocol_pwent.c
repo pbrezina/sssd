@@ -166,6 +166,7 @@ nss_get_pwent(TALLOC_CTX *mem_ctx,
               struct nss_ctx *nss_ctx,
               struct sss_domain_info *domain,
               struct ldb_message *msg,
+              bool case_preserve,
               uint32_t *_uid,
               uint32_t *_gid,
               struct sized_string **_name,
@@ -208,7 +209,7 @@ nss_get_pwent(TALLOC_CTX *mem_ctx,
 
     /* Convert to sized strings. */
     ret = sized_output_name(mem_ctx, nss_ctx->rctx, name, domain,
-                            domain->case_preserve, _name);
+                            case_preserve, _name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "sized_output_name failed, skipping [%d]: %s\n",
@@ -226,11 +227,12 @@ nss_get_pwent(TALLOC_CTX *mem_ctx,
     return EOK;
 }
 
-errno_t
-nss_protocol_fill_pwent(struct nss_ctx *nss_ctx,
-                        struct nss_cmd_ctx *cmd_ctx,
-                        struct sss_packet *packet,
-                        struct cache_req_result *result)
+static errno_t
+nss_protocol_fill_pwent_internal(struct nss_ctx *nss_ctx,
+                                 struct nss_cmd_ctx *cmd_ctx,
+                                 struct sss_packet *packet,
+                                 struct cache_req_result *result,
+                                 bool case_preserve)
 {
     TALLOC_CTX *tmp_ctx;
     struct ldb_message *msg;
@@ -269,8 +271,9 @@ nss_protocol_fill_pwent(struct nss_ctx *nss_ctx,
         /* Password field content. */
         to_sized_string(&pwfield, nss_get_pwfield(nss_ctx, result->domain));
 
-        ret = nss_get_pwent(tmp_ctx, nss_ctx, result->domain, msg, &uid, &gid,
-                            &name, &gecos, &homedir, &shell);
+        ret = nss_get_pwent(tmp_ctx, nss_ctx, result->domain, msg,
+                            case_preserve, &uid, &gid, &name,
+                            &gecos, &homedir, &shell);
         if (ret != EOK) {
             continue;
         }
@@ -328,4 +331,24 @@ done:
     SAFEALIGN_SETMEM_UINT32(body + sizeof(uint32_t), 0, NULL); /* reserved */
 
     return EOK;
+}
+
+errno_t
+nss_protocol_fill_pwent(struct nss_ctx *nss_ctx,
+                        struct nss_cmd_ctx *cmd_ctx,
+                        struct sss_packet *packet,
+                        struct cache_req_result *result)
+{
+    return nss_protocol_fill_pwent_internal(nss_ctx, cmd_ctx, packet, result,
+                                            result->domain->case_preserve);
+}
+
+errno_t
+nss_protocol_fill_pwent_ex(struct nss_ctx *nss_ctx,
+                           struct nss_cmd_ctx *cmd_ctx,
+                           struct sss_packet *packet,
+                           struct cache_req_result *result)
+{
+    return nss_protocol_fill_pwent_internal(nss_ctx, cmd_ctx, packet, result,
+                                            true);
 }

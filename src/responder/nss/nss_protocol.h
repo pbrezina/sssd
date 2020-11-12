@@ -136,10 +136,22 @@ nss_protocol_fill_pwent(struct nss_ctx *nss_ctx,
                         struct cache_req_result *result);
 
 errno_t
+nss_protocol_fill_pwent_ex(struct nss_ctx *nss_ctx,
+                           struct nss_cmd_ctx *cmd_ctx,
+                           struct sss_packet *packet,
+                           struct cache_req_result *result);
+
+errno_t
 nss_protocol_fill_grent(struct nss_ctx *nss_ctx,
                         struct nss_cmd_ctx *cmd_ctx,
                         struct sss_packet *packet,
                         struct cache_req_result *result);
+
+errno_t
+nss_protocol_fill_grent_ex(struct nss_ctx *nss_ctx,
+                           struct nss_cmd_ctx *cmd_ctx,
+                           struct sss_packet *packet,
+                           struct cache_req_result *result);
 
 errno_t
 nss_protocol_fill_initgr(struct nss_ctx *nss_ctx,
