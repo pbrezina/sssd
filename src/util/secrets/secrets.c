@@ -886,6 +886,71 @@ static char *local_dn_to_path(TALLOC_CTX *mem_ctx,
     return path;
 }
 
+/* Unfiltered request for names */
+errno_t sss_sec_list_cc_names(struct sss_sec_ctx *sec,
+							  char ***_names,
+							  size_t *_names_count)
+{
+
+	TALLOC_CTX *tmp_ctx;
+    struct ldb_result *res;
+    struct ldb_dn *dn;
+    const struct ldb_val *name_val;
+    static const char *attrs[] = { "distinguishedName", NULL };
+	char **names;
+    int ret;
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    dn = ldb_dn_new(tmp_ctx, sec->ldb, "cn=persistent,cn=kcm");
+
+    ret = ldb_search(sec->ldb, tmp_ctx, &res, dn, LDB_SCOPE_SUBTREE,
+           attrs, "%s", "(type=container)");
+    if (ret != EOK) {
+        DEBUG(SSSDBG_TRACE_LIBS,
+              "ldb_search returned [%d]: %s\n", ret, ldb_strerror(ret));
+        ret = EIO;
+		goto done;
+    }
+
+    if (res->count == 0) {
+        DEBUG(SSSDBG_TRACE_LIBS, "No names found\n");
+        ret = EOK;
+        goto done;
+    }
+
+	names = talloc_array(tmp_ctx, char *, res->count);
+    if (names == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+	for (unsigned i = 0; i < res->count; i++) {
+        name_val = ldb_dn_get_component_val(res->msgs[i]->dn, 1);
+
+		names[i] = talloc_strndup(tmp_ctx, (const char *) name_val->data, name_val->length);
+		if (names[i] == NULL) {
+            DEBUG(SSSDBG_TRACE_LIBS, "Could not strdup key\n");
+			ret = ENOMEM;
+			goto done;
+		}
+	}
+
+	*_names = names;
+	*_names_count = res->count;
+
+	return EOK;
+
+done:
+    return ret;
+
+}
+
+
 errno_t sss_sec_list(TALLOC_CTX *mem_ctx,
                      struct sss_sec_req *req,
                      char ***_keys,

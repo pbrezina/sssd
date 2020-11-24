@@ -26,6 +26,7 @@
 #include "responder/kcm/kcm.h"
 #include "responder/kcm/kcmsrv_ccache.h"
 #include "responder/kcm/kcmsrv_pvt.h"
+#include "responder/kcm/kcm_renew.h"
 #include "responder/common/responder.h"
 #include "providers/krb5/krb5_common.h"
 #include "util/util.h"
@@ -87,12 +88,37 @@ static errno_t kcm_get_ccdb_be(struct kcm_ctx *kctx)
 }
 
 static int kcm_get_krb5_config(struct kcm_ctx *kctx,
-                               struct krb5_ctx *krb5_ctx)
+                               struct krb5_ctx *krb5_ctx,
+                               time_t *_renew_intv)
 {
     errno_t ret;
     char *rtime = NULL;
     char *lifetime_str = NULL;
     bool validate = false;
+    char *renew_intv_str = NULL;
+    krb5_deltat renew_interval_delta;
+    krb5_error_code kerr;
+
+    ret = confdb_get_string(kctx->rctx->cdb,
+                            kctx->rctx,
+                            kctx->rctx->confdb_service_path,
+                            CONFDB_KCM_KRB5_RENEW_INTERVAL,
+                            0, &renew_intv_str);
+    if (ret != 0) {
+        DEBUG(SSSDBG_FUNC_DATA, "Cannot get renew interval\n");
+        goto done;
+    }
+
+    if (renew_intv_str != 0) {
+        kerr = krb5_string_to_deltat(renew_intv_str, &renew_interval_delta);
+        if (kerr != 0) {
+            DEBUG(SSSDBG_FATAL_FAILURE, "krb5_string_to_deltat failed\n");
+            ret = ENOMEM;
+            goto done;
+        }
+
+        *_renew_intv = renew_interval_delta;
+    }
 
     /* Lifetime */
     ret = confdb_get_string(kctx->rctx->cdb,
@@ -166,7 +192,8 @@ done:
 }
 
 static int kcm_get_config(struct kcm_ctx *kctx,
-                          struct krb5_ctx **_krb5_ctx)
+                          struct krb5_ctx **_krb5_ctx,
+                          time_t *renew_intv)
 {
     int ret;
     char *sock_name;
@@ -287,7 +314,7 @@ static int kcm_get_config(struct kcm_ctx *kctx,
     }
 
     /* Override with config options */
-    kcm_get_krb5_config(kctx, krb5_ctx);
+    kcm_get_krb5_config(kctx, krb5_ctx, renew_intv);
 
     *_krb5_ctx = krb5_ctx;
     ret = EOK;
@@ -347,6 +374,7 @@ static int kcm_process_init(TALLOC_CTX *mem_ctx,
     struct resp_ctx *rctx;
     struct kcm_ctx *kctx;
     struct krb5_ctx *krb5_ctx;
+    time_t renew_intv = 0;
     int ret;
 
     rctx = talloc_zero(mem_ctx, struct resp_ctx);
@@ -373,7 +401,7 @@ static int kcm_process_init(TALLOC_CTX *mem_ctx,
     kctx->rctx = rctx;
     kctx->rctx->pvt_ctx = kctx;
 
-    ret = kcm_get_config(kctx, &krb5_ctx);
+    ret = kcm_get_config(kctx, &krb5_ctx, &renew_intv);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "fatal error getting KCM config\n");
         goto fail;
@@ -396,6 +424,23 @@ static int kcm_process_init(TALLOC_CTX *mem_ctx,
 
     ret = activate_unix_sockets(rctx, kcm_connection_setup);
     if (ret != EOK) goto fail;
+
+    if (renew_intv > 0) {
+        ret = kcm_renewal_init(rctx, krb5_ctx, ev, kctx->kcm_data->db, renew_intv);
+        if (ret != 0) {
+            DEBUG(SSSDBG_FATAL_FAILURE,
+                  "fatal error initializing KCM renewals\n");
+            goto fail;
+        }
+
+        ret = kcm_ccdb_renew_init(rctx, krb5_ctx, ev, kctx->kcm_data->db);
+        if (ret != 0) {
+            DEBUG(SSSDBG_FATAL_FAILURE,
+                  "fatal error initializing KCM ccdb renewals\n");
+            goto fail;
+        }
+        DEBUG(SSSDBG_TRACE_FUNC, "JS-Renewal complete\n");
+    }
 
     DEBUG(SSSDBG_TRACE_FUNC, "KCM Initialization complete\n");
 

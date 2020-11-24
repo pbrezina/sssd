@@ -198,4 +198,8 @@ krb5_error_code sss_krb5_unmarshal_princ(TALLOC_CTX *mem_ctx,
 
 krb5_error_code sss_krb5_init_context(krb5_context *context);
 
+krb5_error_code sss_krb5_unmarshal_creds(TALLOC_CTX *mem_ctx,
+                                         struct sss_iobuf *iobuf,
+                                         krb5_creds **_creds);
+
 #endif /* __SSS_KRB5_H__ */
