@@ -293,6 +293,27 @@ struct sss_iobuf *kcm_cred_get_creds(struct kcm_cred *crd)
     return crd ? crd->cred_blob : NULL;
 }
 
+errno_t kcm_ccdb_renew_init(TALLOC_CTX *mem_ctx,
+                            struct krb5_ctx *kctx,
+                            struct tevent_context *ev,
+                            struct kcm_ccdb *ccdb)
+{
+    errno_t ret;
+
+    if (kctx == NULL || ev == NULL || ccdb == NULL) {
+        ret = EINVAL;
+        return ret;
+    }
+
+    ret = ccdb->ops->renew_init(kctx, ev, ccdb);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Failure to execute ccdb renewal init\n");
+        return ret;
+    }
+
+    return EOK;
+}
+
 struct kcm_ccdb *kcm_ccdb_init(TALLOC_CTX *mem_ctx,
                                struct tevent_context *ev,
                                struct confdb_ctx *cdb,

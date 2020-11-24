@@ -26,6 +26,7 @@
 #include "config.h"
 
 #include "util/util.h"
+#include "util/strtonum.h"
 #include "util/crypto/sss_crypto.h"
 #include "util/secrets/sec_pvt.h"
 #include "util/secrets/secrets.h"
@@ -935,6 +936,63 @@ static char *local_dn_to_path(TALLOC_CTX *mem_ctx,
           "Secrets path for [%s] is [%s]\n",
           ldb_dn_get_linearized(dn), path);
     return path;
+}
+
+/* Unfiltered request for names */
+errno_t sss_sec_list_cc_uids(struct sss_sec_ctx *sec,
+							  uid_t **_uid_list,
+							  size_t *_uid_list_count)
+{
+
+    TALLOC_CTX *tmp_ctx;
+    struct ldb_result *res;
+    struct ldb_dn *dn;
+    const struct ldb_val *name_val;
+    static const char *attrs[] = { "distinguishedName", NULL };
+    uid_t *uid_list;
+    int ret;
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    dn = ldb_dn_new(tmp_ctx, sec->ldb, "cn=persistent,cn=kcm");
+
+    ret = ldb_search(sec->ldb, tmp_ctx, &res, dn, LDB_SCOPE_SUBTREE,
+           attrs, "%s", "(type=container)");
+    if (ret != EOK) {
+        DEBUG(SSSDBG_TRACE_LIBS,
+              "ldb_search returned [%d]: %s\n", ret, ldb_strerror(ret));
+        return EIO;
+    }
+
+    if (res->count == 0) {
+        DEBUG(SSSDBG_TRACE_LIBS, "No uids found\n");
+        return EOK;
+    }
+
+	uid_list = talloc_array(tmp_ctx, uint32_t, res->count);
+    if (uid_list == NULL) {
+        return ENOMEM;
+    }
+
+	for (unsigned i = 0; i < res->count; i++) {
+        name_val = ldb_dn_get_component_val(res->msgs[i]->dn, 1);
+
+        uid_list[i] = strtouint32((const char *)name_val->data, NULL, 10);
+        ret = errno;
+        if (ret != EOK) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "Invalid UID\n");
+            return ENOMEM;
+        }
+        DEBUG(SSSDBG_TRACE_INTERNAL, "uid: [%u]\n", uid_list[i]);
+    }
+
+    *_uid_list = uid_list;
+    *_uid_list_count = res->count;
+
+    return EOK;
 }
 
 errno_t sss_sec_list(TALLOC_CTX *mem_ctx,

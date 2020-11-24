@@ -26,6 +26,7 @@
 #include "responder/kcm/kcm.h"
 #include "responder/kcm/kcmsrv_ccache.h"
 #include "responder/kcm/kcmsrv_pvt.h"
+#include "responder/kcm/kcm_renew.h"
 #include "responder/common/responder.h"
 #include "providers/krb5/krb5_common.h"
 #include "util/util.h"
@@ -211,6 +212,7 @@ static int kcm_process_init(TALLOC_CTX *mem_ctx,
 {
     struct resp_ctx *rctx;
     struct kcm_ctx *kctx;
+    time_t renew_intv = 0;
     int ret;
 
     rctx = talloc_zero(mem_ctx, struct resp_ctx);
@@ -255,10 +257,26 @@ static int kcm_process_init(TALLOC_CTX *mem_ctx,
         goto fail;
     }
 
-    ret = kcm_get_renewal_config(kctx, &krb5_ctx);
+    ret = kcm_get_renewal_config(kctx, &krb5_ctx, &renew_intv);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "fatal error getting KCM renewal config\n");
         goto fail;
+    }
+
+    if (renew_intv > 0) {
+        ret = kcm_renewal_init(rctx, krb5_ctx, ev, kctx->kcm_data->db, renew_intv);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_FATAL_FAILURE,
+                  "fatal error initializing KCM renewals\n");
+            goto fail;
+        }
+
+        ret = kcm_ccdb_renew_init(rctx, krb5_ctx, ev, kctx->kcm_data->db);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_FATAL_FAILURE,
+                  "fatal error initializing KCM ccdb renewals\n");
+            goto fail;
+        }
     }
 
     /* Set up file descriptor limits */

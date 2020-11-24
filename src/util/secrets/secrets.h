@@ -87,6 +87,10 @@ errno_t sss_sec_new_req(TALLOC_CTX *mem_ctx,
 
 errno_t sss_sec_delete(struct sss_sec_req *req);
 
+errno_t sss_sec_list_cc_uids(struct sss_sec_ctx *sec_ctx,
+                             uid_t **_keys,
+                             size_t *num_keys);
+
 errno_t sss_sec_list(TALLOC_CTX *mem_ctx,
                      struct sss_sec_req *req,
                      char ***_keys,

@@ -141,7 +141,7 @@ done:
     return ret;
 }
 
-static errno_t bin_to_krb_data(TALLOC_CTX *mem_ctx,
+errno_t bin_to_krb_data(TALLOC_CTX *mem_ctx,
                                struct sss_iobuf *buf,
                                krb5_data *out)
 {

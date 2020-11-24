@@ -771,6 +771,7 @@ dist_noinst_HEADERS = \
     src/responder/secrets/secsrv_local.h \
     src/responder/secrets/secsrv_proxy.h \
     src/responder/kcm/kcm.h \
+    src/responder/kcm/kcm_renew.h \
     src/responder/kcm/kcmsrv_pvt.h \
     src/responder/kcm/kcmsrv_ccache.h \
     src/responder/kcm/kcmsrv_ccache_pvt.h \
@@ -1835,6 +1836,7 @@ endif
 if BUILD_KCM
 sssd_kcm_SOURCES = \
     src/responder/kcm/kcm.c \
+    src/responder/kcm/kcm_renew.c \
     src/responder/kcm/kcmsrv_cmd.c \
     src/responder/kcm/kcmsrv_ccache.c \
     src/responder/kcm/kcmsrv_ccache_binary.c \

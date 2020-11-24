@@ -27,8 +27,11 @@
 #include "util/util.h"
 #include "util/secrets/secrets.h"
 #include "util/crypto/sss_crypto.h"
+#include "util/sss_krb5.h"
 #include "responder/kcm/kcmsrv_ccache_pvt.h"
 #include "responder/kcm/kcmsrv_ccache_be.h"
+#include "responder/kcm/kcm_renew.h"
+#include "providers/krb5/krb5_ccache.h"
 
 #define KCM_SECDB_URL        "/kcm/persistent"
 #define KCM_SECDB_BASE_FMT    KCM_SECDB_URL"/%"SPRIuid"/"
@@ -574,6 +577,212 @@ static errno_t ccdb_secdb_init(struct kcm_ccdb *db,
 
     DEBUG(SSSDBG_TRACE_INTERNAL, "secdb initialized\n");
     db->db_handle = secdb;
+    return EOK;
+}
+
+static errno_t renew_check_creds(struct krb5_ctx *krb5_ctx,
+                                 struct ccdb_secdb_state *state,
+                                 struct sss_sec_ctx *sctx,
+                                 struct cli_creds *cli,
+                                 char *key)
+{
+    errno_t ret;
+    char *secdb_key;
+    uuid_t uuid;
+    struct kcm_ccache *cc;
+    struct kcm_cred *cred;
+    struct tgt_times tgtt;
+    char *client_name;
+    krb5_context krb_context;
+    krb5_data *cred_data;
+    krb5_creds *extracted_creds;
+    krb5_error_code kerr;
+    time_t now;
+
+    ret = sec_key_get_uuid(key, uuid);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "Malformed key, cannot get UUID\n");
+        goto immediate;
+    }
+
+    /* Get ccache by UUID */
+    ret = key_by_uuid(state, sctx, cli, uuid, &secdb_key);
+    if (ret == ENOENT) {
+        ret = EOK;
+        goto immediate;
+    } else if (ret != EOK) {
+        goto immediate;
+    }
+
+    ret = secdb_get_cc(state, sctx, secdb_key, cli, &cc);
+    if (ret != EOK) {
+        goto immediate;
+    }
+    /* Extract credentials */
+    if (cc == NULL) {
+        ret = EOK;
+        goto immediate;
+    }
+
+    DEBUG(SSSDBG_TRACE_INTERNAL,
+          "Checking ccache [%s] for creds to renew\n", cc->name);
+    for (cred = kcm_cc_get_cred(cc); cred != NULL; cred = kcm_cc_next_cred(cred)) {
+        kerr = krb5_init_context(&krb_context);
+        if (kerr != 0) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "Failed to init context\n");
+            goto immediate;
+        }
+
+        cred_data = talloc_zero(state, struct _krb5_data);
+        if (cred_data == NULL) {
+            return ENOMEM;
+        }
+        ret = get_krb5_data_from_cred(state, cred->cred_blob, cred_data);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "Failed to convert to krb5_data\n");
+            goto immediate;
+        }
+
+        kerr = krb5_unmarshal_credentials(krb_context, cred_data,
+                                          &extracted_creds);
+        if (kerr != 0) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "Failed to unmarshal creds\n");
+            goto immediate;
+        }
+
+        kerr = krb5_unparse_name(krb_context, extracted_creds->client,
+                                 &client_name);
+        if (kerr != 0) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "Failed unparsing name\n");
+            goto immediate;
+        }
+
+        DEBUG(SSSDBG_TRACE_INTERNAL, "Found credentials for [%s]\n",
+                                     client_name);
+        memset(&tgtt, 0, sizeof(tgtt));
+        tgtt.authtime = extracted_creds->times.authtime;
+        tgtt.starttime = extracted_creds->times.starttime;
+        tgtt.endtime = extracted_creds->times.endtime;
+        tgtt.renew_till = extracted_creds->times.renew_till;
+
+        now = time(NULL);
+        if (tgtt.renew_till >= tgtt.endtime && tgtt.renew_till >= now
+            && tgtt.endtime >= now) {
+            ret = kcm_add_tgt_to_renew_table(krb5_ctx, cc->name,
+                                             cc->owner.uid, cc->owner.gid,
+                                             &tgtt, client_name);
+        } else {
+            DEBUG(SSSDBG_TRACE_INTERNAL, "Time not applicable\n");
+        }
+
+        talloc_zfree(cred_data);
+    }
+
+    ret = EOK;
+
+immediate:
+    if (krb_context != NULL) {
+        krb5_free_context(krb_context);
+    }
+    if (kerr != 0) {
+        return EIO;
+    }
+
+    return ret;
+}
+
+static errno_t renew_check_ccaches(struct krb5_ctx *krb5_ctx,
+                                   struct tevent_context *ev,
+                                   struct sss_sec_ctx *sctx,
+                                   uid_t *uids,
+                                   size_t uid_count)
+{
+    struct cli_creds *cli_cred;
+    char **keys;
+    size_t nkeys;
+    struct ccdb_secdb_state *state = NULL;
+    struct sss_sec_req *sreq;
+    struct passwd *pwd;
+    errno_t ret;
+
+	cli_cred = talloc_zero(ev, struct cli_creds);
+    if (cli_cred == NULL) {
+        return ENOMEM;
+    }
+
+    /* Get UUID list for name */
+    for (int i = 0; i < uid_count; i++) {
+        pwd = getpwuid(uids[i]);
+        if (pwd == NULL) {
+            talloc_zfree(cli_cred);
+            DEBUG(SSSDBG_OP_FAILURE, "Failed to get pwd entry for [%d]\n",
+                                     uids[i]);
+            /* Not fatal */
+            return EOK;
+        }
+
+        cli_cred->ucred.uid = pwd->pw_uid;
+        cli_cred->ucred.gid = pwd->pw_gid;
+
+        ret = secdb_container_url_req(state, sctx, cli_cred, &sreq);
+        if (ret != EOK) {
+            talloc_zfree(cli_cred);
+            return EINVAL;
+        }
+
+        ret = sss_sec_list(state, sreq, &keys, &nkeys);
+        if (ret == ENOENT) {
+            nkeys = 0;
+        } else if (ret != EOK) {
+            talloc_zfree(cli_cred);
+            return EINVAL;
+        }
+        DEBUG(SSSDBG_TRACE_INTERNAL, "Found [%zu] ccaches under uid [%u]\n",
+                                     nkeys, uids[i]);
+
+        /* Examine credentials and add renewal-ready tgts to renewal table */
+        for (size_t j = 0; j < nkeys; j++) {
+            ret = renew_check_creds(krb5_ctx, state, sctx, cli_cred, keys[j]);
+            if (ret != EOK && ret != ENOENT) {
+                talloc_zfree(cli_cred);
+                DEBUG(SSSDBG_OP_FAILURE, "Failed to check credentials\n");
+                return EINVAL;
+            }
+        }
+    }
+
+    return EOK;
+}
+
+static errno_t ccdb_secdb_renew_init(struct krb5_ctx *krb5_ctx,
+                                     struct tevent_context *ev,
+                                     struct kcm_ccdb *db)
+{
+    struct ccdb_secdb *secdb = talloc_get_type(db->db_handle, struct ccdb_secdb);
+    uid_t *uid_list;
+    size_t uid_list_count;
+    errno_t ret;
+
+    uid_list_count = 0;
+
+    /* Search for ccache uids */
+    ret = sss_sec_list_cc_uids(secdb->sctx, &uid_list, &uid_list_count);
+    if (ret != EOK && ret != ENOENT) {
+        DEBUG(SSSDBG_OP_FAILURE, "Error retrieving ccache uid list\n");
+        return ret;
+    }
+    DEBUG(SSSDBG_TRACE_INTERNAL, "Found [%lu] ccache uids\n", uid_list_count);
+
+    if (uid_list_count > 0) {
+        ret = renew_check_ccaches(krb5_ctx, ev, secdb->sctx,
+                                  uid_list, uid_list_count);
+        if (ret != EOK && ret != ENOENT) {
+            DEBUG(SSSDBG_OP_FAILURE, "Error checking ccaches in secdb\n");
+            return ret;
+        }
+    }
+
     return EOK;
 }
 
@@ -1467,6 +1676,8 @@ static errno_t ccdb_secdb_delete_recv(struct tevent_req *req)
 
 const struct kcm_ccdb_ops ccdb_secdb_ops = {
     .init = ccdb_secdb_init,
+
+    .renew_init = ccdb_secdb_renew_init,
 
     .nextid_send = ccdb_secdb_nextid_send,
     .nextid_recv = ccdb_secdb_nextid_recv,

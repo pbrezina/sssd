@@ -34,6 +34,11 @@ typedef errno_t
                 struct confdb_ctx *cdb,
                 const char *confdb_service_path);
 
+typedef errno_t
+(*ccdb_renew_init_fn)(struct krb5_ctx *kctx,
+                      struct tevent_context *ev,
+                      struct kcm_ccdb *cdb);
+
 typedef struct tevent_req *
 (*ccdb_nextid_send_fn)(TALLOC_CTX *mem_ctx,
                        struct tevent_context *ev,
@@ -163,6 +168,8 @@ typedef errno_t
  */
 struct kcm_ccdb_ops {
     ccdb_init_fn init;
+
+    ccdb_renew_init_fn renew_init;
 
     ccdb_nextid_send_fn nextid_send;
     ccdb_nextid_recv_fn nextid_recv;
