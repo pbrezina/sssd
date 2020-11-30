@@ -44,6 +44,20 @@ struct renew_tgt_ctx {
     struct tevent_timer *te;
 };
 
+struct kcm_renew_tgt_ctx {
+    struct tevent_context *ev;
+    struct krb5child_req *kr;
+
+    struct krb5_ctx *krb5_ctx;
+    struct auth_data *auth_data;
+    struct renew_data *renew_data;
+    hash_table_t *table;
+    const char *key;
+
+    uint8_t *buf;
+    ssize_t len;
+};
+
 struct renew_data {
     const char *ccname;
     uid_t uid;
@@ -389,16 +403,170 @@ done:
     return ret;
 }
 
+static errno_t kcm_child_req_setup(TALLOC_CTX *mem_ctx,
+                                   struct auth_data *auth_data,
+                                   struct krb5_ctx *krb5_ctx,
+                                   struct krb5child_req **_req)
+{
+    struct krb5child_req *krreq;
+    const char *kcm_ccname = NULL;
+    errno_t ret;
+
+    DEBUG(SSSDBG_TRACE_INTERNAL, "Setup for renewal of [%s] " \
+                                 "for principal name [%s]\n",
+                                 auth_data->key,
+                                 auth_data->renew_data->ccname);
+
+    krreq = talloc_zero(mem_ctx, struct krb5child_req);
+    if (krreq == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "krreq talloc_zero failed\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    krreq->krb5_ctx = krb5_ctx;
+    if (krreq->krb5_ctx == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to create allocate krb5_ctx\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    /* Set uid and gid */
+    krreq->uid = auth_data->renew_data->uid;
+    krreq->gid = auth_data->renew_data->gid;
+
+    kcm_ccname = talloc_asprintf(mem_ctx, "KCM:%s",
+                                 auth_data->renew_data->ccname);
+    if (kcm_ccname == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to strdup ccname\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    krreq->upn = talloc_strdup(mem_ctx, auth_data->key);
+    if (krreq->upn == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to strdup upn");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    krreq->ccname = kcm_ccname;
+    if (krreq->ccname == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to strdup ccname");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+   /* Set PAM Data */
+    krreq->pd = create_pam_data(krreq);
+    if (krreq->pd == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "create_pam_data failed\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    krreq->pd->cmd = SSS_CMD_RENEW;
+    krreq->pd->user = talloc_strdup(mem_ctx, auth_data->key);
+    if (krreq->pd->user == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "talloc_strdup key failed\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    /* Set authtok values */
+    sss_authtok_set_empty(krreq->pd->newauthtok);
+
+    ret = sss_authtok_set_ccfile(krreq->pd->authtok, kcm_ccname, 0);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "Failed setting authtok ccname\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    krreq->old_ccname = kcm_ccname;
+    if (krreq->old_ccname == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to strdup ccname");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    *_req = krreq;
+    return EOK;
+fail:
+    talloc_zfree(krreq);
+    return ret;
+}
+
 static void kcm_renew_tgt(struct tevent_context *ev, struct tevent_timer *te,
                       struct timeval current_time, void *private_data)
 {
     struct auth_data *auth_data = talloc_get_type(private_data,
                                                   struct auth_data);
     struct tevent_req *req;
+    struct kcm_renew_tgt_ctx *ctx = NULL;
+    errno_t ret;
+
+    ctx = talloc_zero(auth_data, struct kcm_renew_tgt_ctx);
+    if (ctx == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "ctx talloc_zero failed\n");
+        return;
+    }
+
+    ret = kcm_child_req_setup(auth_data, auth_data,
+                              auth_data->krb5_ctx, &ctx->kr);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "Cannot setup krchild request\n");
+        talloc_free(auth_data);
+        return;
+    }
+
+    req = handle_child_send(ctx, ev, ctx->kr);
+    if (req == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "Cannot create child request\n");
+        talloc_free(auth_data);
+        return;
+    }
+
+    tevent_req_set_callback(req, kcm_renew_tgt_done, ctx);
+
+    return;
 }
 
 static void kcm_renew_tgt_done(struct tevent_req *req)
 {
+    struct kcm_renew_tgt_ctx *ctx = tevent_req_callback_data(req,
+                                    struct kcm_renew_tgt_ctx);
+    int ret;
+    struct krb5_child_response *res;
+
+    ret = handle_child_recv(req, ctx, &ctx->buf, &ctx->len);
+    talloc_free(req);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "handle_child_recv failure\n");
+        goto done;
+    }
+    ret = parse_krb5_child_response(ctx, ctx->buf, ctx->len, ctx->kr->pd,
+                                    0, &res);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, "Krb5 child returned an error! Please " \
+                                 "inspect the krb5_child.log file\n");
+        goto done;
+    }
+    if (res->msg_status != EOK) {
+        DEBUG(SSSDBG_TRACE_FUNC, "Renewal failed - krb5_child [%d]\n",
+                                 res->msg_status);
+        goto done;
+    }
+
+    DEBUG(SSSDBG_TRACE_FUNC, "Successfully renewed [%s]\n", res->ccname);
+done:
+    talloc_zfree(ctx);
+    return;
 }
 
 errno_t kcm_renew_all_tgts(struct renew_tgt_ctx *renew_tgt_ctx)
@@ -462,7 +630,6 @@ errno_t kcm_renew_all_tgts(struct renew_tgt_ctx *renew_tgt_ctx)
 
     return EOK;
 }
-
 
 static void kcm_renew_tgt_timer_handler(struct tevent_context *ev,
                                         struct tevent_timer *te,
