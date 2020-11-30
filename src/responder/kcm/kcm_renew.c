@@ -61,6 +61,8 @@ struct auth_data {
     const char *key;
 };
 
+static void kcm_renew_tgt_done(struct tevent_req *req);
+
 static int kcm_get_auth_provider_options(struct kcm_ctx *kctx,
                                          struct krb5_ctx *krb5_ctx,
                                          time_t *_renew_intv)
@@ -387,6 +389,81 @@ done:
     return ret;
 }
 
+static void kcm_renew_tgt(struct tevent_context *ev, struct tevent_timer *te,
+                      struct timeval current_time, void *private_data)
+{
+    struct auth_data *auth_data = talloc_get_type(private_data,
+                                                  struct auth_data);
+    struct tevent_req *req;
+}
+
+static void kcm_renew_tgt_done(struct tevent_req *req)
+{
+}
+
+errno_t kcm_renew_all_tgts(struct renew_tgt_ctx *renew_tgt_ctx)
+{
+    hash_key_t *keys;
+    unsigned long count;
+    int ret;
+    size_t i;
+    time_t now;
+    struct auth_data *auth_data;
+    struct renew_data *renew_data;
+    struct tevent_timer *te;
+
+    ret = hash_keys(renew_tgt_ctx->tgt_table, &count, &keys);
+    if (ret != HASH_SUCCESS) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Failed retrieving hash keys.\n");
+        return EIO;
+    }
+
+    DEBUG(SSSDBG_TRACE_INTERNAL, "Found [%lu] renewal entries.\n", count);
+
+    now = time(NULL);
+
+    for (i = 0; i < count; i++) {
+        renew_data = sss_ptr_hash_lookup(renew_tgt_ctx->tgt_table, keys[i].c_str,
+                                         struct renew_data);
+        DEBUG(SSSDBG_TRACE_INTERNAL, "Checking [%s] for renewal at [%.24s].\n",
+              renew_data->ccname, ctime(&renew_data->start_renew_at));
+        if (renew_data->renew_till < now) {
+            DEBUG(SSSDBG_TRACE_INTERNAL, "Renew time exceeded, removing [%s].\n",
+                                         renew_data->ccname);
+            talloc_free(renew_data);
+        } else if (renew_data->start_renew_at <= now) {
+            auth_data = talloc_zero(renew_tgt_ctx, struct auth_data);
+            if (auth_data == NULL) {
+                DEBUG(SSSDBG_CRIT_FAILURE, "talloc_zero failed.\n");
+            } else {
+                auth_data->krb5_ctx = renew_tgt_ctx->krb5_ctx;
+                auth_data->table = renew_tgt_ctx->tgt_table;
+                auth_data->renew_data = renew_data;
+                auth_data->key = talloc_strdup(auth_data, keys[i].c_str);
+                if (auth_data->key == NULL) {
+                    DEBUG(SSSDBG_CRIT_FAILURE, "talloc_strdup failed.\n");
+                } else {
+                    te = tevent_add_timer(renew_tgt_ctx->ev,
+                                          auth_data, tevent_timeval_current(),
+                                          kcm_renew_tgt, auth_data);
+                    if (te == NULL) {
+                        DEBUG(SSSDBG_CRIT_FAILURE, "tevent_add_timer failed.\n");
+                    }
+                }
+            }
+
+            if (auth_data == NULL || te == NULL) {
+                DEBUG(SSSDBG_CRIT_FAILURE,
+                      "Failed to renew TGT in [%s].\n", renew_data->ccname);
+                talloc_free(renew_data);
+            }
+        }
+    }
+
+    return EOK;
+}
+
+
 static void kcm_renew_tgt_timer_handler(struct tevent_context *ev,
                                         struct tevent_timer *te,
                                         struct timeval current_time,
@@ -405,6 +482,14 @@ static void kcm_renew_tgt_timer_handler(struct tevent_context *ev,
                               ev, renew_tgt_ctx->db);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Failed to add KCM tickets to table.\n");
+        talloc_zfree(renew_tgt_ctx);
+        return;
+    }
+
+    ret = kcm_renew_all_tgts(renew_tgt_ctx);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Failed to attempt renewal of KCM ticket"
+                                   " table.\n");
         talloc_zfree(renew_tgt_ctx);
         return;
     }
