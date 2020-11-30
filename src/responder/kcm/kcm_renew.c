@@ -58,16 +58,217 @@ struct auth_data {
 
 static void kcm_renew_tgt_done(struct tevent_req *req);
 
+struct kcm_renew_tgt_ctx {
+    struct tevent_context *ev;
+    struct krb5child_req *kr;
+
+    struct krb5_ctx *krb5_ctx;
+    struct auth_data *auth_data;
+    struct renew_data *renew_data;
+    hash_table_t *table;
+    hash_key_t key;
+
+    uint8_t *buf;
+    ssize_t len;
+};
+
+static errno_t kcm_child_req_setup(TALLOC_CTX *mem_ctx,
+                                   struct auth_data *auth_data,
+                                   struct krb5_ctx *krb5_ctx,
+                                   struct krb5child_req **_req)
+{
+	int name;
+	int cacheid;
+    char *residual;
+    uid_t uid;
+    struct passwd *pwd;
+    struct krb5child_req *krreq;
+    const char *kcm_ccname = NULL;
+    errno_t ret;
+
+    krreq = talloc_zero(mem_ctx, struct krb5child_req);
+    if (krreq == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "krreq talloc_zero failed\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    krreq->krb5_ctx = krb5_ctx;
+    if (krreq->krb5_ctx == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to create allocate krb5_ctx\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    /* Set uid and gid */
+	residual = strchr(auth_data->renew_data->ccname, ':');
+	if (residual == NULL) {
+        uid = atoi(auth_data->renew_data->ccname);
+	} else {
+		ret = sscanf(auth_data->renew_data->ccname, "%d:%d", &name, &cacheid);
+        if (ret < 1) {
+            DEBUG(SSSDBG_FATAL_FAILURE, "Cannot extract name from ccname [%s]\n",
+                  auth_data->renew_data->ccname);
+            ret = ENOMEM;
+            goto fail;
+        }
+        uid = name;
+	}
+
+    pwd = getpwuid(uid);
+    if (pwd == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Cannot get info on uid [%d]\n", uid);
+        ret = ENOMEM;
+        goto fail;
+    }
+    krreq->uid = pwd->pw_uid;
+    krreq->gid = pwd->pw_gid;
+
+    kcm_ccname = talloc_asprintf(mem_ctx, "KCM:%s", auth_data->renew_data->ccname);
+    if (kcm_ccname == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to strdup ccname\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    krreq->upn = talloc_strdup(mem_ctx, auth_data->key.str);
+    if (krreq->upn == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to strdup upn");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    krreq->ccname = kcm_ccname;
+    if (krreq->ccname == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to strdup ccname");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+   /* Set PAM Data */
+    krreq->pd = create_pam_data(krreq);
+    if (krreq->pd == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "create_pam_data failed\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    krreq->pd->cmd = SSS_CMD_RENEW;
+    krreq->pd->user = talloc_strdup(mem_ctx, auth_data->key.str);
+    if (krreq->pd->user == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "talloc_strdup key failed\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    /* Set authtok values */
+    sss_authtok_set_empty(krreq->pd->newauthtok);
+
+    ret = sss_authtok_set_ccfile(krreq->pd->authtok, kcm_ccname, 0);
+    if (ret != 0) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "Failed setting authtok ccname\n");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    /* FIXME: Handle old ccname correctly? */
+    krreq->old_ccname = kcm_ccname;
+    if (krreq->old_ccname == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Failed to strdup ccname");
+        ret = ENOMEM;
+        goto fail;
+    }
+
+    *_req = krreq;
+    return EOK;
+fail:
+    if (ret != EOK) {
+        talloc_zfree(krreq);
+    }
+    return ret;
+}
+
 static void kcm_renew_tgt(struct tevent_context *ev, struct tevent_timer *te,
                       struct timeval current_time, void *private_data)
 {
     struct auth_data *auth_data = talloc_get_type(private_data,
                                                   struct auth_data);
     struct tevent_req *req;
+    struct kcm_renew_tgt_ctx *ctx = NULL;
+    errno_t ret;
+
+    DEBUG(SSSDBG_TRACE_LIBS, "Krb5 child setup for renewal of [%s] " \
+                             "for principal name [%s]\n",
+                             auth_data->key.str,
+                             auth_data->renew_data->ccname);
+
+    ctx = talloc_zero(auth_data, struct kcm_renew_tgt_ctx);
+    if (ctx == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "ctx talloc_zero failed\n");
+        return;
+    }
+
+    ret = kcm_child_req_setup(auth_data, auth_data, auth_data->krb5_ctx, &ctx->kr);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "Cannot setup krchild request\n");
+        talloc_free(auth_data);
+        return;
+    }
+
+    req = handle_child_send(ctx, ev, ctx->kr);
+    if (req == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "Cannot create child request\n");
+        talloc_free(auth_data);
+        return;
+    }
+
+    tevent_req_set_callback(req, kcm_renew_tgt_done, ctx);
+
+    return;
 }
 
 static void kcm_renew_tgt_done(struct tevent_req *req)
 {
+    struct kcm_renew_tgt_ctx *ctx = tevent_req_callback_data(req,
+                                    struct kcm_renew_tgt_ctx);
+    int ret;
+    struct krb5_child_response *res;
+
+    ret = handle_child_recv(req, ctx, &ctx->buf, &ctx->len);
+    talloc_free(req);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "handle_child_recv failure\n");
+        goto done;
+    }
+    ret = parse_krb5_child_response(ctx, ctx->buf, ctx->len, ctx->kr->pd,
+            0, &res);
+    if (ret != 0) {
+        DEBUG(SSSDBG_OP_FAILURE, "Krb5 child returned an error! Please " \
+                                 "inspect the krb5_child.log file\n");
+        goto done;
+    }
+    if (res->msg_status != EOK) {
+        DEBUG(SSSDBG_TRACE_ALL, "Renewal failed - krb5_child [%d]\n", res->msg_status);
+        goto done;
+    }
+
+    DEBUG(SSSDBG_TRACE_ALL, "Successful renewed [%s]\n", res->ccname);
+    ret = EOK;
+done:
+    if (ret != EOK || res->msg_status != EOK) {
+        tevent_req_error(req, res->msg_status);
+    } else {
+        tevent_req_done(req);
+    }
+
+    talloc_zfree(ctx);
+    return;
 }
 
 static errno_t kcm_renew_all_tgts(struct renew_tgt_ctx *renew_tgt_ctx)
