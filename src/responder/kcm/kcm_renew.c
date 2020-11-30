@@ -56,6 +56,87 @@ struct auth_data {
     hash_key_t key;
 };
 
+static void kcm_renew_tgt_done(struct tevent_req *req);
+
+static void kcm_renew_tgt(struct tevent_context *ev, struct tevent_timer *te,
+                      struct timeval current_time, void *private_data)
+{
+    struct auth_data *auth_data = talloc_get_type(private_data,
+                                                  struct auth_data);
+    struct tevent_req *req;
+}
+
+static void kcm_renew_tgt_done(struct tevent_req *req)
+{
+}
+
+static errno_t kcm_renew_all_tgts(struct renew_tgt_ctx *renew_tgt_ctx)
+{
+    int ret;
+    hash_entry_t *entries;
+    unsigned long count;
+    size_t c;
+    time_t now;
+    struct auth_data *auth_data;
+    struct renew_data *renew_data;
+    struct tevent_timer *te = NULL;
+
+    ret = hash_entries(renew_tgt_ctx->tgt_table, &count, &entries);
+    if (ret != HASH_SUCCESS) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "hash_entries failed.\n");
+        return ENOMEM;
+    }
+    DEBUG(SSSDBG_TRACE_ALL,
+          "JS-Found [%lu] entries.\n", count);
+
+    now = time(NULL);
+
+    for (c = 0; c < count; c++) {
+        renew_data = talloc_get_type(entries[c].value.ptr, struct renew_data);
+        DEBUG(SSSDBG_TRACE_ALL,
+              "JS-Checking [%s] for renewal at [%.24s].\n", renew_data->ccname,
+                  ctime(&renew_data->start_renew_at));
+        if (renew_data->start_renew_at < now) {
+            auth_data = talloc_zero(renew_tgt_ctx, struct auth_data);
+            if (auth_data == NULL) {
+                DEBUG(SSSDBG_CRIT_FAILURE, "talloc_zero failed.\n");
+            } else {
+                auth_data->krb5_ctx = renew_tgt_ctx->krb5_ctx;
+                auth_data->table = renew_tgt_ctx->tgt_table;
+                auth_data->renew_data = renew_data;
+                auth_data->key.type = entries[c].key.type;
+                auth_data->key.str = talloc_strdup(auth_data,
+                                                   entries[c].key.str);
+                if (auth_data->key.str == NULL) {
+                    DEBUG(SSSDBG_CRIT_FAILURE, "talloc_strdup failed.\n");
+                } else {
+                    te = tevent_add_timer(renew_tgt_ctx->ev,
+                                          auth_data, tevent_timeval_current(),
+                                          kcm_renew_tgt, auth_data);
+                    if (te == NULL) {
+                        DEBUG(SSSDBG_CRIT_FAILURE,
+                              "tevent_add_timer failed.\n");
+                    }
+                }
+            }
+
+            if (auth_data == NULL || te == NULL) {
+                DEBUG(SSSDBG_CRIT_FAILURE,
+                      "JS-Failed to renew TGT in [%s].\n", renew_data->ccname);
+                ret = hash_delete(renew_tgt_ctx->tgt_table, &entries[c].key);
+                if (ret != HASH_SUCCESS) {
+                    DEBUG(SSSDBG_CRIT_FAILURE, "hash_delete failed.\n");
+                }
+            }
+        }
+    }
+
+    talloc_free(entries);
+
+    return EOK;
+}
+
+
 static void kcm_renew_tgt_timer_handler(struct tevent_context *ev,
                                         struct tevent_timer *te,
                                         struct timeval current_time,
@@ -79,6 +160,8 @@ static void kcm_renew_tgt_timer_handler(struct tevent_context *ev,
         talloc_zfree(renew_tgt_ctx);
         return;
     }
+
+    ret = kcm_renew_all_tgts(renew_tgt_ctx);
 
     next = tevent_timeval_current_ofs(renew_tgt_ctx->timer_interval, 0);
     renew_tgt_ctx->te = tevent_add_timer(ev, renew_tgt_ctx,
