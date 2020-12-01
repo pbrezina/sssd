@@ -1822,6 +1822,8 @@ sssd_kcm_SOURCES = \
     src/responder/kcm/kcmsrv_ccache_secdb.c \
     src/responder/kcm/kcmsrv_ops.c \
     src/responder/kcm/kcmsrv_op_queue.c \
+    src/providers/krb5/krb5_opts.c \
+    src/providers/data_provider_opts.c \
     src/util/sss_sockets.c \
     src/util/sss_krb5.c \
     src/util/sss_iobuf.c \
