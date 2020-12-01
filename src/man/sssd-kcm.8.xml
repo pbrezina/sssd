@@ -162,6 +162,42 @@ systemctl restart sssd-kcm.service
         </para>
     </refsect1>
 
+    <refsect1 id='renewals'>
+        <title>RENEWALS</title>
+        <para>
+            The sssd-kcm service can be configured to attempt TGT
+            renewal for renewable TGTs stored in the KCM ccache.
+            Renewals are only attempted when half of the ticket
+            lifetime has been reached. KCM Renewals are configured
+            when the following option is set in the [kcm] section:
+            <programlisting>
+krb5_renew_interval
+            </programlisting>
+        </para>
+        <para>
+            If [kcm] section renewal options are absent, SSSD will
+            fallback to using the krb5_* options listed below from
+            the *first* auth_provider=krb5 domain, if available.
+        </para>
+        <para>
+            The following krb5 options can be configured in the
+            [kcm] section to control renewal behavior, these
+            options are described in detail in the
+            <citerefentry>
+                <refentrytitle>sssd-krb5</refentrytitle>
+                <manvolnum>5</manvolnum>
+            </citerefentry> manual page.
+            <programlisting>
+    krb5_renew_interval
+    krb5_renew_lifetime
+    krb5_lifetime
+    krb5_validate
+    krb5_canonicalize
+    krb5_auth_timeout
+            </programlisting>
+        </para>
+    </refsect1>
+
     <refsect1 id='options'>
         <title>CONFIGURATION OPTIONS</title>
         <para>
@@ -246,6 +282,19 @@ systemctl restart sssd-kcm.service
                     </para>
                     <para>
                         Default: 65536
+                    </para>
+                </listitem>
+            </varlistentry>
+            <varlistentry>
+                <term>krb5_renew_interval (integer)</term>
+                <listitem>
+                    <para>
+                        The time in seconds between TGT renewal attempts for
+                        all KCM-stored renewable tickets. Renewals only trigger
+                        when about half of their ticket lifetime is exceeded.
+                    </para>
+                    <para>
+                        Default: 0 (Automatic renewal is disabled)
                     </para>
                 </listitem>
             </varlistentry>
