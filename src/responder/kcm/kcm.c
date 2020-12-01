@@ -27,6 +27,7 @@
 #include "responder/kcm/kcmsrv_ccache.h"
 #include "responder/kcm/kcmsrv_pvt.h"
 #include "responder/common/responder.h"
+#include "providers/krb5/krb5_common.h"
 #include "util/util.h"
 #include "util/sss_krb5.h"
 
@@ -251,6 +252,12 @@ static int kcm_process_init(TALLOC_CTX *mem_ctx,
         DEBUG(SSSDBG_FATAL_FAILURE,
               "fatal error initializing responder data\n");
         ret = EIO;
+        goto fail;
+    }
+
+    ret = kcm_get_renewal_config(kctx, &krb5_ctx);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "fatal error getting KCM renewal config\n");
         goto fail;
     }
 
