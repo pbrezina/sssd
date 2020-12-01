@@ -138,15 +138,20 @@ static errno_t create_send_buffer(struct krb5child_req *kr,
             break;
     }
 
-    switch (kr->dom->type) {
-    case DOM_TYPE_POSIX:
-        posix_domain = 1;
-        break;
-    case DOM_TYPE_APPLICATION:
-        posix_domain = 0;
-        break;
-    default:
-        return EINVAL;
+    /* Renewals from KCM do not initialize kr->dom  */
+    if (kr->pd->cmd == SSS_CMD_RENEW) {
+            posix_domain = 1;
+    } else {
+        switch (kr->dom->type) {
+        case DOM_TYPE_POSIX:
+            posix_domain = 1;
+            break;
+        case DOM_TYPE_APPLICATION:
+            posix_domain = 0;
+            break;
+        default:
+            return EINVAL;
+        }
     }
 
     if (kr->pd->cmd == SSS_CMD_RENEW || kr->pd->cmd == SSS_PAM_CHAUTHTOK_PRELIM
