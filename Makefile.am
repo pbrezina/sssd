@@ -330,9 +330,13 @@ if BUILD_KCM
 non_interactive_cmocka_based_tests += \
 	test_kcm_marshalling \
 	test_kcm_queue \
-	test_kcm_renewals \
-        $(NULL)
+    $(NULL)
 endif   # BUILD_KCM
+
+if BUILD_KCM_RENEWAL
+non_interactive_cmocka_based_tests += test_kcm_renewals
+endif # BUILD_KCM_RENEWAL
+
 
 if BUILD_SAMBA
 non_interactive_cmocka_based_tests += \
@@ -1837,7 +1841,6 @@ endif
 if BUILD_KCM
 sssd_kcm_SOURCES = \
     src/responder/kcm/kcm.c \
-    src/responder/kcm/kcm_renew.c \
     src/responder/kcm/kcmsrv_cmd.c \
     src/responder/kcm/kcmsrv_ccache.c \
     src/responder/kcm/kcmsrv_ccache_binary.c \
@@ -1847,9 +1850,6 @@ sssd_kcm_SOURCES = \
     src/responder/kcm/kcmsrv_ccache_secdb.c \
     src/responder/kcm/kcmsrv_ops.c \
     src/responder/kcm/kcmsrv_op_queue.c \
-    src/providers/krb5/krb5_opts.c \
-    src/providers/krb5/krb5_child_handler.c \
-    src/providers/data_provider_opts.c \
     src/util/sss_sockets.c \
     src/util/sss_krb5.c \
     src/util/sss_iobuf.c \
@@ -1867,7 +1867,6 @@ sssd_kcm_LDADD = \
     $(KRB5_LIBS) \
     $(JANSSON_LIBS) \
     $(SSSD_LIBS) \
-    $(CARES_LIBS) \
     $(UUID_LIBS) \
     $(SYSTEMD_DAEMON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
@@ -1883,6 +1882,18 @@ sssd_kcm_SOURCES += \
     $(NULL)
 sssd_kcm_LDADD += \
     $(CURL_LIBS) \
+    $(NULL)
+endif
+
+if BUILD_KCM_RENEWAL
+sssd_kcm_SOURCES += \
+    src/responder/kcm/kcm_renew.c \
+    src/providers/krb5/krb5_opts.c \
+    src/providers/krb5/krb5_child_handler.c \
+    src/providers/data_provider_opts.c \
+    $(NULL)
+sssd_kcm_LDADD += \
+    $(CARES_LIBS) \
     $(NULL)
 endif
 
@@ -4001,6 +4012,7 @@ test_kcm_queue_LDADD = \
     libsss_sbus.la \
     $(NULL)
 
+if BUILD_KCM_RENEWAL
 test_kcm_renewals_SOURCES = \
 	$(TEST_MOCK_RESP_OBJ) \
 	src/tests/cmocka/test_kcm_renewals.c \
@@ -4014,6 +4026,7 @@ test_kcm_renewals_SOURCES = \
 	src/util/secrets/secrets.c \
 	src/util/secrets/config.c \
 	src/providers/krb5/krb5_child_handler.c \
+	src/providers/krb5/krb5_opts.c \
 	src/providers/data_provider_opts.c \
 	$(NULL)
 test_kcm_renewals_CFLAGS = \
@@ -4034,6 +4047,7 @@ test_kcm_renewals_LDADD = \
 	libsss_iface.la \
 	libsss_sbus.la \
 	$(NULL)
+endif # BUILD_KCM_RENEWAL
 
 endif # BUILD_KCM
 

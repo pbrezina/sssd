@@ -580,6 +580,7 @@ static errno_t ccdb_secdb_init(struct kcm_ccdb *db,
     return EOK;
 }
 
+#ifdef HAVE_KCM_RENEWAL
 static errno_t renew_check_creds(struct krb5_ctx *krb5_ctx,
                                  struct ccdb_secdb_state *state,
                                  struct sss_sec_ctx *sctx,
@@ -785,7 +786,7 @@ static errno_t ccdb_secdb_renew_init(struct krb5_ctx *krb5_ctx,
 
     return EOK;
 }
-
+#endif /* HAVE_KCM_RENEWAL */
 struct ccdb_secdb_nextid_state {
     unsigned int nextid;
 };
@@ -1677,8 +1678,9 @@ static errno_t ccdb_secdb_delete_recv(struct tevent_req *req)
 const struct kcm_ccdb_ops ccdb_secdb_ops = {
     .init = ccdb_secdb_init,
 
+#ifdef HAVE_KCM_RENEWAL
     .renew_init = ccdb_secdb_renew_init,
-
+#endif
     .nextid_send = ccdb_secdb_nextid_send,
     .nextid_recv = ccdb_secdb_nextid_recv,
 

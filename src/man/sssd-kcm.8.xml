@@ -162,7 +162,7 @@ systemctl restart sssd-kcm.service
         </para>
     </refsect1>
 
-    <refsect1 id='renewals'>
+    <refsect1 id='renewals' condition="enable_kcm_renewal">
         <title>RENEWALS</title>
         <para>
             The sssd-kcm service can be configured to attempt TGT
@@ -285,7 +285,7 @@ systemctl restart sssd-kcm.service
                     </para>
                 </listitem>
             </varlistentry>
-            <varlistentry>
+            <varlistentry condition="enable_kcm_renewal">
                 <term>krb5_renew_interval (integer)</term>
                 <listitem>
                     <para>

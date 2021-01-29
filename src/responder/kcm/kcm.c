@@ -51,6 +51,39 @@ static int kcm_responder_ctx_destructor(void *ptr)
     return 0;
 }
 
+static errno_t kcm_renewals_init(struct tevent_context *ev,
+                                 struct resp_ctx *rctx,
+                                 struct kcm_ctx *kctx,
+                                 struct krb5_ctx *krb5_ctx,
+                                 time_t renew_intv)
+{
+#ifndef HAVE_KCM_RENEWAL
+    return EOK;
+#else
+    ret = kcm_get_renewal_config(kctx, &krb5_ctx, &renew_intv);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "fatal error getting KCM renewal config\n");
+        goto fail;
+    }
+
+    if (renew_intv > 0) {
+        ret = kcm_renewal_init(rctx, krb5_ctx, ev, kctx->kcm_data->db, renew_intv);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_FATAL_FAILURE,
+                  "fatal error initializing KCM renewals\n");
+            goto fail;
+        }
+
+        ret = kcm_ccdb_renew_init(rctx, krb5_ctx, ev, kctx->kcm_data->db);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_FATAL_FAILURE,
+                  "fatal error initializing KCM ccdb renewals\n");
+            goto fail;
+        }
+    }
+#endif
+}
+
 static errno_t kcm_get_ccdb_be(struct kcm_ctx *kctx)
 {
     errno_t ret;
@@ -212,6 +245,7 @@ static int kcm_process_init(TALLOC_CTX *mem_ctx,
 {
     struct resp_ctx *rctx;
     struct kcm_ctx *kctx;
+    struct krb5_ctx *krb5_ctx;
     time_t renew_intv = 0;
     int ret;
 
@@ -257,26 +291,10 @@ static int kcm_process_init(TALLOC_CTX *mem_ctx,
         goto fail;
     }
 
-    ret = kcm_get_renewal_config(kctx, &krb5_ctx, &renew_intv);
+    ret = kcm_renewals_init(ev, rctx, kctx, krb5_ctx, renew_intv);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "fatal error getting KCM renewal config\n");
         goto fail;
-    }
-
-    if (renew_intv > 0) {
-        ret = kcm_renewal_init(rctx, krb5_ctx, ev, kctx->kcm_data->db, renew_intv);
-        if (ret != EOK) {
-            DEBUG(SSSDBG_FATAL_FAILURE,
-                  "fatal error initializing KCM renewals\n");
-            goto fail;
-        }
-
-        ret = kcm_ccdb_renew_init(rctx, krb5_ctx, ev, kctx->kcm_data->db);
-        if (ret != EOK) {
-            DEBUG(SSSDBG_FATAL_FAILURE,
-                  "fatal error initializing KCM ccdb renewals\n");
-            goto fail;
-        }
     }
 
     /* Set up file descriptor limits */
