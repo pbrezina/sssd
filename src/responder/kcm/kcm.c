@@ -55,7 +55,8 @@ static errno_t kcm_renewals_init(struct tevent_context *ev,
                                  struct resp_ctx *rctx,
                                  struct kcm_ctx *kctx,
                                  struct krb5_ctx *krb5_ctx,
-                                 time_t renew_intv)
+                                 time_t renew_intv,
+                                 bool *_renewal_enabled)
 {
 #ifndef HAVE_KCM_RENEWAL
     return EOK;
@@ -63,24 +64,28 @@ static errno_t kcm_renewals_init(struct tevent_context *ev,
     ret = kcm_get_renewal_config(kctx, &krb5_ctx, &renew_intv);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "fatal error getting KCM renewal config\n");
-        goto fail;
+        return ret;
     }
 
     if (renew_intv > 0) {
+        *_renewal_enabled = true;
+
         ret = kcm_renewal_init(rctx, krb5_ctx, ev, kctx->kcm_data->db, renew_intv);
         if (ret != EOK) {
             DEBUG(SSSDBG_FATAL_FAILURE,
                   "fatal error initializing KCM renewals\n");
-            goto fail;
+            return ret;
         }
 
         ret = kcm_ccdb_renew_init(rctx, krb5_ctx, ev, kctx->kcm_data->db);
         if (ret != EOK) {
             DEBUG(SSSDBG_FATAL_FAILURE,
                   "fatal error initializing KCM ccdb renewals\n");
-            goto fail;
+            return ret;
         }
     }
+    
+    return EOK;
 #endif
 }
 
@@ -173,15 +178,6 @@ static int kcm_get_config(struct kcm_ctx *kctx)
         goto done;
     }
 
-    if (kctx->cc_be == CCDB_BE_SECRETS || kctx->cc_be == CCDB_BE_SECDB) {
-        ret = responder_setup_idle_timeout_config(kctx->rctx);
-        if (ret != EOK) {
-            DEBUG(SSSDBG_MINOR_FAILURE,
-                  "Cannot set up idle responder timeout\n");
-            /* Not fatal */
-        }
-    }
-
     kctx->qctx = kcm_ops_queue_create(kctx, kctx);
     if (ret != EOK) {
         DEBUG(SSSDBG_OP_FAILURE,
@@ -245,6 +241,7 @@ static int kcm_process_init(TALLOC_CTX *mem_ctx,
 {
     struct resp_ctx *rctx;
     struct kcm_ctx *kctx;
+    bool renewal_enabled = false;
     struct krb5_ctx *krb5_ctx;
     time_t renew_intv = 0;
     int ret;
@@ -291,10 +288,17 @@ static int kcm_process_init(TALLOC_CTX *mem_ctx,
         goto fail;
     }
 
-    ret = kcm_renewals_init(ev, rctx, kctx, krb5_ctx, renew_intv);
+    ret = kcm_renewals_init(ev, rctx, kctx, krb5_ctx, renew_intv, &renewal_enabled);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "fatal error getting KCM renewal config\n");
         goto fail;
+    }
+
+    if (renewal_enabled) {
+        /* Disable resp idle timeout to allow renewals */
+        rctx->idle_timeout = 0;
+    } else {
+        responder_setup_idle_timeout_config(kctx->rctx);
     }
 
     /* Set up file descriptor limits */
