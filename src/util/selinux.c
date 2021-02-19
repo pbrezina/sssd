@@ -25,6 +25,7 @@
 
 #ifdef HAVE_SELINUX
 #include <selinux/selinux.h>
+#include <selinux/label.h>
 #endif
 
 #include "tools/tools_util.h"
@@ -43,25 +44,47 @@
  */
 int selinux_file_context(const char *dst_name)
 {
+    struct selabel_handle *handle = NULL;
     char *scontext = NULL;
+    int ret;
 
     if (is_selinux_enabled() == 1) {
         /* Get the default security context for this file */
-        if (matchpathcon(dst_name, 0, &scontext) < 0) {
-            if (security_getenforce () != 0) {
-                return 1;
-            }
+        handle = selabel_open(SELABEL_CTX_FILE, NULL, 0);
+        if (handle == NULL) {
+            ret = errno;
+            DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create selabel context "
+                  "[%d]: %s\n", ret, sss_strerror(ret));
+            ret = 1;
+            goto done;
         }
+
+        ret = selabel_lookup(handle, &scontext, dst_name, 0);
+        if (ret < 0 && errno == ENOENT) {
+            scontext = NULL;
+        } else if (ret != 0) {
+            ret = errno;
+            DEBUG(SSSDBG_CRIT_FAILURE, "Unable to lookup selinux context "
+                  "[%d]: %s", ret, sss_strerror(ret));
+            ret = 1;
+            goto done;
+        }
+
         /* Set the security context for the next created file */
         if (setfscreatecon(scontext) < 0) {
             if (security_getenforce() != 0) {
-                return 1;
+                ret = 1;
+                goto done;
             }
         }
         freecon(scontext);
     }
 
-    return 0;
+    ret = 0;
+
+done:
+    selabel_close(handle);
+    return ret;
 }
 
 int reset_selinux_file_context(void)
