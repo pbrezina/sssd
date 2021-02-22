@@ -950,7 +950,9 @@ libsss_debug_la_SOURCES = \
     src/util/sss_cli_cmd.c \
     $(NULL)
 libsss_debug_la_LIBADD = \
-    $(SYSLOG_LIBS)
+    $(SYSLOG_LIBS) \
+    $(TEVENT_LIBS) \
+    $(NULL)
 libsss_debug_la_LDFLAGS = \
     -avoid-version
 
