@@ -25,6 +25,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <tevent.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -286,6 +287,7 @@ void sss_vdebug_fn(const char *file,
     struct timeval tv;
     struct tm tm;
     time_t t;
+    uint32_t chain_id;
 
 #ifdef WITH_JOURNALD
     errno_t ret;
@@ -334,6 +336,11 @@ void sss_vdebug_fn(const char *file,
     }
 
     debug_printf("[%s] [%s] (%#.4x): ", debug_prg_name, function, level);
+
+    chain_id = tevent_get_chain_id();
+    if (chain_id > 0) {
+        debug_printf("[#%u] ", chain_id);
+    }
 
     debug_vprintf(format, ap);
     if (flags & APPEND_LINE_FEED) {

@@ -107,6 +107,10 @@ static errno_t dp_attach_req(struct dp_req *dp_req,
 {
     /* If we run out of numbers we simply overflow. */
     dp_req->num = provider->requests.index++;
+    if (dp_req->num == 0) {
+        dp_req->num = 1;
+    }
+
     dp_req->name = talloc_asprintf(dp_req, "%s #%u", name, dp_req->num);
     if (dp_req->name == NULL) {
         return ENOMEM;
@@ -203,6 +207,7 @@ file_dp_request(TALLOC_CTX *mem_ctx,
     dp_req_send_fn send_fn;
     struct dp_req *dp_req;
     struct be_ctx *be_ctx;
+    uint32_t old_chain_id;
     errno_t ret;
 
     be_ctx = provider->be_ctx;
@@ -247,8 +252,10 @@ file_dp_request(TALLOC_CTX *mem_ctx,
     dp_params->method = dp_req->method;
 
     send_fn = dp_req->execute->send_fn;
+    old_chain_id = tevent_set_chain_id(dp_req->num);
     dp_req->handler_req = send_fn(dp_req, dp_req->execute->method_data,
                                   dp_req->request_data, dp_params);
+    tevent_set_chain_id(old_chain_id);
     if (dp_req->handler_req == NULL) {
         ret = ENOMEM;
         goto done;
