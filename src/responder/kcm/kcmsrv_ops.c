@@ -2263,6 +2263,44 @@ static errno_t kcm_op_set_kdc_offset_recv(struct tevent_req *req,
     KCM_OP_RET_FROM_TYPE(req, struct kcm_op_set_kdc_offset_state, _op_ret);
 }
 
+static struct tevent_req *
+kcm_op_get_notification_path_send(TALLOC_CTX *mem_ctx,
+                                  struct tevent_context *ev,
+                                  struct kcm_op_ctx *op_ctx)
+{
+    struct kcm_op_common_state *state;
+    struct tevent_req *req;
+    errno_t ret;
+
+    req = tevent_req_create(mem_ctx, &state, struct kcm_op_common_state);
+    if (req == NULL) {
+        return NULL;
+    }
+
+    state->op_ctx = op_ctx;
+    state->ev = ev;
+
+    ret = sss_iobuf_write_stringz(state->op_ctx->reply, "/tmp/1000/kcm");
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, "Cannot write reply [%d]: %s\n",
+              ret, sss_strerror(ret));
+        goto done;
+    }
+
+    state->op_ret = EOK;
+    ret = EOK;
+
+done:
+    if (ret == EOK) {
+        tevent_req_done(req);
+    } else {
+        tevent_req_error(req, ret);
+    }
+
+    tevent_req_post(req, ev);
+    return req;
+}
+
 static struct kcm_op kcm_optable[] = {
     { "NOOP",                NULL, NULL },
     { "GET_NAME",            NULL, NULL },
@@ -2300,6 +2338,8 @@ static struct kcm_op kcm_optable[] = {
 /* MIT EXTENSIONS. */
 #define KCM_MIT_OFFSET 13000
 static struct kcm_op kcm_mit_optable[] = {
+    { "GET_CACHE_NOTIFICATION_PATH", kcm_op_get_notification_path_send, NULL },
+
     { NULL, NULL, NULL }
 };
 
