@@ -90,6 +90,7 @@ typedef enum kcm_opcode {
     KCM_OP_DEL_NTLM_CRED,
     KCM_OP_DO_NTLM_AUTH,
     KCM_OP_GET_NTLM_USER_LIST,
+    KCM_OP_GET_CRED_LIST,
 
     KCM_OP_SENTINEL,            /* SSSD addition, not in the MIT header */
 } kcm_opcode;
