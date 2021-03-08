@@ -218,6 +218,58 @@ struct kcm_cred *kcm_cc_next_cred(struct kcm_cred *crd)
     return crd->next;
 }
 
+int kcm_cc_unmarshall_destructor(krb5_creds **creds)
+{
+    int i;
+
+    for (i = 0; creds[i] != NULL; i++) {
+        krb5_free_creds(NULL, creds[i]);
+    }
+
+    return 0;
+}
+
+krb5_creds **kcm_cc_unmarshall(TALLOC_CTX *mem_ctx,
+                               struct kcm_ccache *cc,
+                               krb5_context kctx)
+{
+    struct kcm_cred *crd;
+    krb5_error_code kerr;
+    krb5_creds **creds;
+    krb5_data data;
+    int i;
+
+    /* Count creds */
+    for (i = 0, crd = kcm_cc_get_cred(cc);
+         crd != NULL;
+         i++, crd = kcm_cc_next_cred(crd)) {
+        /* Just count. */
+    }
+
+    creds = talloc_zero_array(mem_ctx, krb5_creds *, i + 1);
+    if (creds == NULL) {
+        return NULL;
+    }
+
+    for (i = 0, crd = kcm_cc_get_cred(cc);
+         crd != NULL;
+         i++, crd = kcm_cc_next_cred(crd)) {
+        data.magic = 0;
+        data.data = (char*)sss_iobuf_get_data(crd->cred_blob);
+        data.length = sss_iobuf_get_size(crd->cred_blob);
+
+        kerr = krb5_unmarshal_credentials(kctx, &data, &creds[i]);
+        if (kerr != 0) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "Failed to unmarshall credential"
+                "[%d]: %s\n", kerr, krb5_get_error_message(kctx, kerr));
+            talloc_free(creds);
+            return NULL;
+        }
+    }
+
+    return creds;
+}
+
 struct kcm_cred *kcm_cred_new(TALLOC_CTX *mem_ctx,
                               uuid_t uuid,
                               struct sss_iobuf *cred_blob)

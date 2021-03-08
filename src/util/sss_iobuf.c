@@ -131,7 +131,7 @@ inline uint8_t *sss_iobuf_get_ptr(struct sss_iobuf *iobuf)
     return iobuf->data + iobuf->dp;
 }
 
-static size_t iobuf_get_len(struct sss_iobuf *iobuf)
+size_t sss_iobuf_get_remaining_len(struct sss_iobuf *iobuf)
 {
     if (iobuf == NULL) {
         return 0;
@@ -195,7 +195,7 @@ errno_t sss_iobuf_read(struct sss_iobuf *iobuf,
         return EINVAL;
     }
 
-    remaining = iobuf_get_len(iobuf);
+    remaining = sss_iobuf_get_remaining_len(iobuf);
     if (len > remaining) {
         len = remaining;
     }

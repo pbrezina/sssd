@@ -985,6 +985,180 @@ static errno_t kcm_op_store_recv(struct tevent_req *req,
     KCM_OP_RET_FROM_TYPE(req, struct kcm_op_store_state, _op_ret);
 }
 
+struct kcm_op_retrieve_state {
+    uint32_t op_ret;
+    struct kcm_op_ctx *op_ctx;
+    struct tevent_context *ev;
+
+    const char *ccname;
+    krb5_context kctx;
+    krb5_creds *mcred;
+    uint32_t flags;
+};
+
+static int kcm_op_retrieve_state_destructor(struct kcm_op_retrieve_state *state)
+{
+    if (state->kctx != NULL) {
+        krb5_free_creds(state->kctx, state->mcred);
+        krb5_free_context(state->kctx);
+    }
+
+    return 0;
+}
+
+static void kcm_op_retrieve_done(struct tevent_req *subreq);
+
+/* (name, flags, match_cred) -> (creds) */
+static struct tevent_req *kcm_op_retrieve_send(TALLOC_CTX *mem_ctx,
+                                               struct tevent_context *ev,
+                                               struct kcm_op_ctx *op_ctx)
+{
+    struct kcm_op_retrieve_state *state;
+    struct tevent_req *req;
+    struct tevent_req *subreq;
+    krb5_error_code kerr;
+    krb5_data data;
+    errno_t ret;
+
+    req = tevent_req_create(mem_ctx, &state, struct kcm_op_retrieve_state);
+    if (req == NULL) {
+        return NULL;
+    }
+    state->op_ctx = op_ctx;
+
+    talloc_set_destructor(state, kcm_op_retrieve_state_destructor);
+
+    /* Read input. */
+    ret = sss_iobuf_read_stringz(op_ctx->input, &state->ccname);
+    if (ret != EOK) {
+        goto done;
+    }
+
+    ret = sss_iobuf_read_uint32(op_ctx->input, &state->flags);
+    if (ret != EOK) {
+        goto done;
+    }
+    state->flags = be32toh(state->flags);
+
+    /* Read and parse match credential. */
+    data.magic = 0;
+    data.data = (char*)sss_iobuf_get_ptr(op_ctx->input);
+    data.length = sss_iobuf_get_remaining_len(op_ctx->input);
+
+    kerr = krb5_init_context(&state->kctx);
+    if (kerr != 0) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Failed to initialize Kerberos context"
+              "[%d]\n", kerr);
+        ret = EIO;
+        goto done;
+    }
+
+    kerr = krb5_unmarshal_credentials(state->kctx, &data, &state->mcred);
+    if (kerr != 0) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Failed to unmarshall match credential"
+              "[%d]: %s\n", kerr, krb5_get_error_message(state->kctx, kerr));
+        ret = EIO;
+        goto done;
+    }
+
+    subreq = kcm_ccdb_getbyname_send(state, ev, op_ctx->kcm_data->db,
+                                     op_ctx->client, state->ccname);
+    if (subreq == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    tevent_req_set_callback(subreq, kcm_op_retrieve_done, req);
+
+    ret = EAGAIN;
+
+done:
+    if (ret != EAGAIN) {
+        tevent_req_post(req, ev);
+        tevent_req_error(req, ret);
+    }
+
+    return req;
+}
+
+static void kcm_op_retrieve_done(struct tevent_req *subreq)
+{
+    struct kcm_op_retrieve_state *state;
+    struct tevent_req *req;
+    struct kcm_ccache *cc;
+    krb5_error_code kerr;
+    krb5_creds **creds;
+    krb5_creds out_creds;
+    krb5_data *data;
+    errno_t ret;
+
+    req = tevent_req_callback_data(subreq, struct tevent_req);
+    state = tevent_req_data(req, struct kcm_op_retrieve_state);
+
+    ret = kcm_ccdb_getbyname_recv(subreq, state, &cc);
+    talloc_zfree(subreq);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, "Cannot get ccache by name [%d]: %s\n",
+              ret, sss_strerror(ret));
+        tevent_req_error(req, ret);
+        return;
+    }
+
+    if (cc == NULL) {
+        ret = ENOENT;
+        goto done;
+    }
+
+    creds = kcm_cc_unmarshall(state, cc, state->kctx);
+    if (creds == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    kerr = krb5_cc_match_cred(state->kctx, state->flags, state->mcred, creds,
+                              &out_creds);
+    if (kerr != 0) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Failed to match credential [%d]: %s\n",
+              kerr, krb5_get_error_message(state->kctx, kerr));
+        state->op_ret = ERR_NO_CREDS;
+        ret = EOK;
+        goto done;
+    }
+
+    kerr = krb5_marshal_credentials(state->kctx, &out_creds, &data);
+    if (kerr != 0) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Failed to marshall match credential"
+              "[%d]: %s\n", kerr, krb5_get_error_message(state->kctx, kerr));
+        ret = EIO;
+        goto done;
+    }
+
+    ret = sss_iobuf_write_len(state->op_ctx->reply, (uint8_t *)data->data,
+                              data->length);
+    krb5_free_data(state->kctx, data);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, "Cannot write ccache blob [%d]: %s\n",
+              ret, sss_strerror(ret));
+        goto done;
+    }
+
+    state->op_ret = EOK;
+    ret = EOK;
+
+done:
+    if (ret != EOK) {
+        tevent_req_error(req, ret);
+        return;
+    }
+
+    tevent_req_done(req);
+}
+
+static errno_t kcm_op_retrieve_recv(struct tevent_req *req, uint32_t *_op_ret)
+{
+    KCM_OP_RET_FROM_TYPE(req, struct kcm_op_retrieve_state, _op_ret);
+}
+
 /* (name) -> (princ) */
 static void kcm_op_get_principal_getbyname_done(struct tevent_req *subreq);
 
@@ -2272,7 +2446,7 @@ static struct kcm_op kcm_optable[] = {
     { "INITIALIZE",          kcm_op_initialize_send, kcm_op_initialize_recv },
     { "DESTROY",             kcm_op_destroy_send, NULL },
     { "STORE",               kcm_op_store_send, kcm_op_store_recv },
-    { "RETRIEVE",            NULL, NULL },
+    { "RETRIEVE",            kcm_op_retrieve_send, kcm_op_retrieve_recv },
     { "GET_PRINCIPAL",       kcm_op_get_principal_send, NULL },
     { "GET_CRED_UUID_LIST",  kcm_op_get_cred_uuid_list_send, NULL },
     { "GET_CRED_BY_UUID",    kcm_op_get_cred_by_uuid_send, kcm_op_get_cred_by_uuid_recv },

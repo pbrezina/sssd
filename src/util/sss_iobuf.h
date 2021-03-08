@@ -81,6 +81,13 @@ void sss_iobuf_cursor_reset(struct sss_iobuf *iobuf);
 size_t sss_iobuf_get_len(struct sss_iobuf *iobuf);
 
 /*
+ * @brief Returns the remaining length in the iobuf.
+ *
+ * @return The number of bytes (the data pointer offset)
+ */
+size_t sss_iobuf_get_remaining_len(struct sss_iobuf *iobuf);
+
+/*
  * @brief Returns the capacity of the IO buffer
  *
  * @return The capacity of the IO buffer. Returns zero

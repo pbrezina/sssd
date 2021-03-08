@@ -129,6 +129,12 @@ errno_t kcm_cc_store_cred_blob(struct kcm_ccache *cc,
 struct kcm_cred *kcm_cc_get_cred(struct kcm_ccache *cc);
 struct kcm_cred *kcm_cc_next_cred(struct kcm_cred *crd);
 
+
+/* Unmarshall credentials in binary format to krb5_creds array. */
+krb5_creds **kcm_cc_unmarshall(TALLOC_CTX *mem_ctx,
+                               struct kcm_ccache *cc,
+                               krb5_context kctx);
+
 /* An opaque database that contains all the ccaches */
 struct kcm_ccdb;
 
