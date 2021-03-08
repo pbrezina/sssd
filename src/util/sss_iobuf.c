@@ -126,6 +126,11 @@ uint8_t *sss_iobuf_get_data(struct sss_iobuf *iobuf)
     return iobuf->data;
 }
 
+inline uint8_t *sss_iobuf_get_ptr(struct sss_iobuf *iobuf)
+{
+    return iobuf->data + iobuf->dp;
+}
+
 static size_t iobuf_get_len(struct sss_iobuf *iobuf)
 {
     if (iobuf == NULL) {
@@ -179,11 +184,6 @@ static errno_t ensure_bytes(struct sss_iobuf *iobuf,
     return EOK;
 }
 
-static inline uint8_t *iobuf_ptr(struct sss_iobuf *iobuf)
-{
-    return iobuf->data + iobuf->dp;
-}
-
 errno_t sss_iobuf_read(struct sss_iobuf *iobuf,
                        size_t len,
                        uint8_t *_buf,
@@ -200,7 +200,7 @@ errno_t sss_iobuf_read(struct sss_iobuf *iobuf,
         len = remaining;
     }
 
-    safealign_memcpy(_buf, iobuf_ptr(iobuf), len, &iobuf->dp);
+    safealign_memcpy(_buf, sss_iobuf_get_ptr(iobuf), len, &iobuf->dp);
     if (_read != NULL) {
         *_read = len;
     }
@@ -242,7 +242,7 @@ errno_t sss_iobuf_write_len(struct sss_iobuf *iobuf,
         return ret;
     }
 
-    safealign_memcpy(iobuf_ptr(iobuf), buf, len, &iobuf->dp);
+    safealign_memcpy(sss_iobuf_get_ptr(iobuf), buf, len, &iobuf->dp);
 
     return EOK;
 }
@@ -345,7 +345,7 @@ errno_t sss_iobuf_write_iobuf(struct sss_iobuf *iobuf,
 errno_t sss_iobuf_read_uint8(struct sss_iobuf *iobuf,
                              uint8_t *_val)
 {
-    SAFEALIGN_COPY_UINT8_CHECK(_val, iobuf_ptr(iobuf),
+    SAFEALIGN_COPY_UINT8_CHECK(_val, sss_iobuf_get_ptr(iobuf),
                                iobuf->capacity, &iobuf->dp);
     return EOK;
 }
@@ -353,7 +353,7 @@ errno_t sss_iobuf_read_uint8(struct sss_iobuf *iobuf,
 errno_t sss_iobuf_read_uint32(struct sss_iobuf *iobuf,
                               uint32_t *_val)
 {
-    SAFEALIGN_COPY_UINT32_CHECK(_val, iobuf_ptr(iobuf),
+    SAFEALIGN_COPY_UINT32_CHECK(_val, sss_iobuf_get_ptr(iobuf),
                                 iobuf->capacity, &iobuf->dp);
     return EOK;
 }
@@ -361,7 +361,7 @@ errno_t sss_iobuf_read_uint32(struct sss_iobuf *iobuf,
 errno_t sss_iobuf_read_int32(struct sss_iobuf *iobuf,
                              int32_t *_val)
 {
-    SAFEALIGN_COPY_INT32_CHECK(_val, iobuf_ptr(iobuf),
+    SAFEALIGN_COPY_INT32_CHECK(_val, sss_iobuf_get_ptr(iobuf),
                                iobuf->capacity, &iobuf->dp);
     return EOK;
 }
@@ -376,7 +376,7 @@ errno_t sss_iobuf_write_uint8(struct sss_iobuf *iobuf,
         return ret;
     }
 
-    SAFEALIGN_SETMEM_UINT8(iobuf_ptr(iobuf), val, &iobuf->dp);
+    SAFEALIGN_SETMEM_UINT8(sss_iobuf_get_ptr(iobuf), val, &iobuf->dp);
     return EOK;
 }
 
@@ -390,7 +390,7 @@ errno_t sss_iobuf_write_uint32(struct sss_iobuf *iobuf,
         return ret;
     }
 
-    SAFEALIGN_SETMEM_UINT32(iobuf_ptr(iobuf), val, &iobuf->dp);
+    SAFEALIGN_SETMEM_UINT32(sss_iobuf_get_ptr(iobuf), val, &iobuf->dp);
     return EOK;
 }
 
@@ -404,7 +404,7 @@ errno_t sss_iobuf_write_int32(struct sss_iobuf *iobuf,
         return ret;
     }
 
-    SAFEALIGN_SETMEM_INT32(iobuf_ptr(iobuf), val, &iobuf->dp);
+    SAFEALIGN_SETMEM_INT32(sss_iobuf_get_ptr(iobuf), val, &iobuf->dp);
     return EOK;
 }
 
@@ -424,17 +424,17 @@ errno_t sss_iobuf_read_stringz(struct sss_iobuf *iobuf,
 
     *_out = NULL;
 
-    end = memchr(iobuf_ptr(iobuf), '\0', sss_iobuf_get_size(iobuf));
+    end = memchr(sss_iobuf_get_ptr(iobuf), '\0', sss_iobuf_get_size(iobuf));
     if (end == NULL) {
         return EINVAL;
     }
 
-    len = end + 1 - iobuf_ptr(iobuf);
+    len = end + 1 - sss_iobuf_get_ptr(iobuf);
     if (sss_iobuf_get_size(iobuf) < len) {
         return EINVAL;
     }
 
-    *_out = (const char *) iobuf_ptr(iobuf);
+    *_out = (const char *) sss_iobuf_get_ptr(iobuf);
     iobuf->dp += len;
     return EOK;
 }
@@ -446,7 +446,7 @@ errno_t sss_iobuf_write_stringz(struct sss_iobuf *iobuf,
         return EINVAL;
     }
 
-    SAFEALIGN_MEMCPY_CHECK(iobuf_ptr(iobuf),
+    SAFEALIGN_MEMCPY_CHECK(sss_iobuf_get_ptr(iobuf),
                            str, strlen(str)+1,
                            sss_iobuf_get_size(iobuf),
                            &iobuf->dp);

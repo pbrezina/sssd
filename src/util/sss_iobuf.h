@@ -99,6 +99,11 @@ size_t sss_iobuf_get_size(struct sss_iobuf *iobuf);
 uint8_t *sss_iobuf_get_data(struct sss_iobuf *iobuf);
 
 /*
+ * @brief Returns the current data pointer (data + cursor) of the IO buffer.
+ */
+uint8_t *sss_iobuf_get_ptr(struct sss_iobuf *iobuf);
+
+/*
  * @brief Read from an IO buffer
  *
  * Read up to len bytes from an IO buffer. It is not an error to request
