@@ -288,7 +288,8 @@ sss_dp_get_account_send(TALLOC_CTX *mem_ctx,
                         enum sss_dp_acct_type type,
                         const char *opt_name,
                         uint32_t opt_id,
-                        const char *extra);
+                        const char *extra,
+                        uint32_t cr_reqid);
 errno_t
 sss_dp_get_account_recv(TALLOC_CTX *mem_ctx,
                         struct tevent_req *req,
@@ -303,7 +304,8 @@ sss_dp_resolver_get_send(TALLOC_CTX *mem_ctx,
                          bool fast_reply,
                          uint32_t entry_type,
                          uint32_t filter_type,
-                         const char *filter_value);
+                         const char *filter_value,
+                         uint32_t cr_reqid);
 
 errno_t
 sss_dp_resolver_get_recv(TALLOC_CTX *mem_ctx,
@@ -350,7 +352,8 @@ struct tevent_req *sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
                                                   struct sss_domain_info *domain,
                                                   bool fast_reply,
                                                   enum sss_dp_acct_type type,
-                                                  uint32_t opt_id);
+                                                  uint32_t opt_id,
+                                                  uint32_t cr_reqid);
 
 /* Receive a getAccountDomain request result
  *

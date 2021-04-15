@@ -102,7 +102,7 @@ cache_req_svc_by_port_dp_send(TALLOC_CTX *mem_ctx,
 {
     return sss_dp_get_account_send(mem_ctx, cr->rctx, domain, true,
                                    SSS_DP_SERVICES, NULL, cr->data->svc.port,
-                                   cr->data->svc.protocol.lookup);
+                                   cr->data->svc.protocol.lookup, cr->reqid);
 }
 
 const struct cache_req_plugin cache_req_svc_by_port = {

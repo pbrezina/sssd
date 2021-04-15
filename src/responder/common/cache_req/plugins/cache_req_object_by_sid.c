@@ -97,7 +97,8 @@ cache_req_object_by_sid_dp_send(TALLOC_CTX *mem_ctx,
                                 struct ldb_result *result)
 {
     return sss_dp_get_account_send(mem_ctx, cr->rctx, domain, true,
-                                   SSS_DP_SECID, cr->data->sid, 0, NULL);
+                                   SSS_DP_SECID, cr->data->sid, 0, NULL,
+                                   cr->reqid);
 }
 
 const struct cache_req_plugin cache_req_object_by_sid = {

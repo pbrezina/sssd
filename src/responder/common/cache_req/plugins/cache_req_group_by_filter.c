@@ -108,7 +108,8 @@ cache_req_group_by_filter_dp_send(TALLOC_CTX *mem_ctx,
 {
     return sss_dp_get_account_send(mem_ctx, cr->rctx, domain, true,
                                    SSS_DP_WILDCARD_GROUP,
-                                   cr->data->name.lookup, cr->data->id, NULL);
+                                   cr->data->name.lookup, cr->data->id, NULL,
+                                   cr->reqid);
 }
 
 const struct cache_req_plugin cache_req_group_by_filter = {

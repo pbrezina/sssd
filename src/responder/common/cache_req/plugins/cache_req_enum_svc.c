@@ -53,7 +53,8 @@ cache_req_enum_svc_dp_send(TALLOC_CTX *mem_ctx,
                            struct ldb_result *result)
 {
     return sss_dp_get_account_send(mem_ctx, cr->rctx, domain, true,
-                                   SSS_DP_SERVICES, NULL, 0, NULL);
+                                   SSS_DP_SERVICES, NULL, 0, NULL,
+                                   cr->reqid);
 }
 
 const struct cache_req_plugin cache_req_enum_svc = {

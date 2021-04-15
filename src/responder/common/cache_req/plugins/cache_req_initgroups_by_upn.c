@@ -97,7 +97,7 @@ cache_req_initgroups_by_upn_dp_send(TALLOC_CTX *mem_ctx,
 {
     return sss_dp_get_account_send(mem_ctx, cr->rctx, domain, true,
                                    SSS_DP_INITGROUPS, cr->data->name.lookup,
-                                   0, EXTRA_NAME_IS_UPN);
+                                   0, EXTRA_NAME_IS_UPN, cr->reqid);
 }
 
 const struct cache_req_plugin cache_req_initgroups_by_upn = {

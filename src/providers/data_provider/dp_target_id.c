@@ -471,7 +471,8 @@ dp_get_account_info_send(TALLOC_CTX *mem_ctx,
                          uint32_t entry_type,
                          const char *filter,
                          const char *domain,
-                         const char *extra)
+                         const char *extra,
+                         uint32_t cr_reqid)
 {
     struct dp_get_account_info_state *state;
     struct tevent_req *subreq;
@@ -502,9 +503,9 @@ dp_get_account_info_send(TALLOC_CTX *mem_ctx,
     }
 
     DEBUG(SSSDBG_FUNC_DATA,
-          "Got request for [%#"PRIx32"][%s][%s]\n",
+          "Got request for [%#"PRIx32"][%s][%s][CR #%u]\n",
           state->data->entry_type, be_req2str(state->data->entry_type),
-          filter);
+          filter, cr_reqid);
 
     if ((state->data->entry_type & BE_REQ_TYPE_MASK) == BE_REQ_INITGROUPS) {
         state->request_name = "Initgroups";
@@ -693,7 +694,8 @@ dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
                            struct data_provider *provider,
                            uint32_t dp_flags,
                            uint32_t entry_type,
-                           const char *filter)
+                           const char *filter,
+                           uint32_t cr_reqid)
 {
     struct dp_get_account_domain_state *state;
     struct tevent_req *subreq;

@@ -151,7 +151,8 @@ cache_req_user_by_id_dp_send(TALLOC_CTX *mem_ctx,
     }
 
     return sss_dp_get_account_send(mem_ctx, cr->rctx, domain, true,
-                                   SSS_DP_USER, string, id, flag);
+                                   SSS_DP_USER, string, id, flag,
+                                   cr->reqid);
 }
 
 static bool
@@ -173,6 +174,7 @@ static struct tevent_req *
 cache_req_user_by_id_get_domain_send(TALLOC_CTX *mem_ctx,
                                      struct resp_ctx *rctx,
                                      struct sss_domain_info *domain,
+                                     struct cache_req *cr,
                                      struct cache_req_data *data)
 {
     int nret;
@@ -190,7 +192,8 @@ cache_req_user_by_id_get_domain_send(TALLOC_CTX *mem_ctx,
                                           domain,
                                           true, /* fast_reply */
                                           SSS_DP_USER,
-                                          data->id);
+                                          data->id,
+                                          cr->reqid);
 }
 
 const struct cache_req_plugin cache_req_user_by_id = {

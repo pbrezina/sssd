@@ -583,6 +583,7 @@ struct tevent_req *cache_req_locate_domain_send(TALLOC_CTX *mem_ctx,
     subreq = cr->plugin->dp_get_domain_send_fn(state,
                                                cr->rctx,
                                                get_domains_head(cr->domain),
+                                               cr,
                                                cr->data);
     if (subreq == NULL) {
         ret = ENOMEM;

@@ -95,7 +95,7 @@ cache_req_ip_host_by_name_dp_send(TALLOC_CTX *mem_ctx,
 {
     return sss_dp_resolver_get_send(mem_ctx, cr->rctx, domain, true,
                                     BE_REQ_HOST, BE_FILTER_NAME,
-                                    data->name.lookup);
+                                    data->name.lookup, cr->reqid);
 }
 
 static bool

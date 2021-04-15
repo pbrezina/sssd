@@ -171,7 +171,8 @@ cache_req_group_by_name_dp_send(TALLOC_CTX *mem_ctx,
     }
 
     return sss_dp_get_account_send(mem_ctx, cr->rctx, domain, true,
-                                   SSS_DP_GROUP, string, id, flag);
+                                   SSS_DP_GROUP, string, id, flag,
+                                   cr->reqid);
 }
 
 const struct cache_req_plugin cache_req_group_by_name = {

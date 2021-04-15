@@ -182,6 +182,7 @@ typedef bool
  * @param   domain          The domain to check. This should be the domain-head,
  *                          because the locator works across a domain and its
  *                          subdomains.
+ * @param   cr              The cache_req being processed.
  * @param   data            The cache request data that contains primarily the key
  *                          to look for.
  *
@@ -193,6 +194,7 @@ typedef struct tevent_req *
 (*cache_req_dp_get_domain_send_fn)(TALLOC_CTX *mem_ctx,
                                    struct resp_ctx *rctx,
                                    struct sss_domain_info *domain,
+                                   struct cache_req *cr,
                                    struct cache_req_data *data);
 
 /**

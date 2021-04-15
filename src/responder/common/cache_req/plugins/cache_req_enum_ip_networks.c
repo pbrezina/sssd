@@ -55,7 +55,8 @@ cache_req_enum_ip_networks_dp_send(TALLOC_CTX *mem_ctx,
                                    struct ldb_result *result)
 {
     return sss_dp_resolver_get_send(mem_ctx, cr->rctx, domain, true,
-                                    BE_REQ_IP_NETWORK, BE_FILTER_ENUM, NULL);
+                                    BE_REQ_IP_NETWORK, BE_FILTER_ENUM, NULL,
+                                    cr->reqid);
 }
 
 static bool
