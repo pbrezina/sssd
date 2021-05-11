@@ -27,6 +27,7 @@
 #include "util/dlinklist.h"
 #include "util/util.h"
 #include "util/probes.h"
+#include "util/sss_chain_id.h"
 
 struct dp_req {
     struct data_provider *provider;
@@ -107,6 +108,10 @@ static errno_t dp_attach_req(struct dp_req *dp_req,
 {
     /* If we run out of numbers we simply overflow. */
     dp_req->num = provider->requests.index++;
+    if (dp_req->num == 0) {
+        dp_req->num = 1;
+    }
+
     dp_req->name = talloc_asprintf(dp_req, "%s #%u", name, dp_req->num);
     if (dp_req->name == NULL) {
         return ENOMEM;
@@ -203,6 +208,7 @@ file_dp_request(TALLOC_CTX *mem_ctx,
     dp_req_send_fn send_fn;
     struct dp_req *dp_req;
     struct be_ctx *be_ctx;
+    uint64_t old_chain_id;
     errno_t ret;
 
     be_ctx = provider->be_ctx;
@@ -213,6 +219,9 @@ file_dp_request(TALLOC_CTX *mem_ctx,
         *_dp_req = dp_req;
         goto done;
     }
+
+    sss_chain_id_setup_req(req);
+    tevent_req_set_tag(req, dp_req->num);
 
     /* DP request is already created. We will always return it to get nice
      * debug messages. */
@@ -247,8 +256,10 @@ file_dp_request(TALLOC_CTX *mem_ctx,
     dp_params->method = dp_req->method;
 
     send_fn = dp_req->execute->send_fn;
+    old_chain_id = sss_chain_id_set(dp_req->num);
     dp_req->handler_req = send_fn(dp_req, dp_req->execute->method_data,
                                   dp_req->request_data, dp_params);
+    sss_chain_id_set(old_chain_id);
     if (dp_req->handler_req == NULL) {
         ret = ENOMEM;
         goto done;
