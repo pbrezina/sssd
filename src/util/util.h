@@ -45,6 +45,7 @@
 #include "util/sss_format.h"
 #include "util/sss_regexp.h"
 #include "util/debug.h"
+#include "util/sss_chain_id.h"
 
 /* name of the monitor server instance */
 #define SSSD_MONITOR_NAME        "sssd"

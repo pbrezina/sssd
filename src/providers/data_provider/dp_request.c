@@ -220,7 +220,6 @@ file_dp_request(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    sss_chain_id_setup_req(req);
     tevent_req_set_tag(req, dp_req->num);
 
     /* DP request is already created. We will always return it to get nice
