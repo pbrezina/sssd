@@ -347,6 +347,11 @@ enum sss_authtok_type {
     SSS_AUTHTOK_TYPE_2FA_SINGLE = 0x0006, /**< Authentication token has two
                                            * factors in a single string, it may
                                            * or may no contain a trailing \\0 */
+    SSS_AUTHTOK_TYPE_OTP =        0x0007, /**< Authentication token is a
+                                           * one-time password for presented
+                                           * challenge that is acquired from
+                                           * Kerberos. It may or may no
+                                           * contain a trailing \\0 */
 };
 
 /**
