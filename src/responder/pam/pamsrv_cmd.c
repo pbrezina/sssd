@@ -2435,6 +2435,12 @@ static int pam_cmd_preauth(struct cli_ctx *cctx)
     return pam_forwarder(cctx, SSS_PAM_PREAUTH);
 }
 
+static int pam_cmd_challenge(struct cli_ctx *cctx)
+{
+    DEBUG(SSSDBG_CONF_SETTINGS, "entering pam_cmd_challenge\n");
+    return pam_forwarder(cctx, SSS_PAM_CHALLENGE);
+}
+
 struct cli_protocol_version *register_cli_protocol_version(void)
 {
     static struct cli_protocol_version pam_cli_protocol_version[] = {
@@ -2461,6 +2467,7 @@ struct sss_cmd_table *get_pam_cmds(void)
         {SSS_PAM_PREAUTH, pam_cmd_preauth},
         {SSS_GSSAPI_INIT, pam_cmd_gssapi_init},
         {SSS_GSSAPI_SEC_CTX, pam_cmd_gssapi_sec_ctx},
+        {SSS_PAM_CHALLENGE, pam_cmd_challenge},
         {SSS_CLI_NULL, NULL}
     };
 

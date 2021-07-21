@@ -51,6 +51,11 @@ static void choose_target(struct data_provider *provider,
             method = DPM_AUTH_HANDLER;
             name = "PAM Preauth";
             break;
+        case SSS_PAM_CHALLENGE:
+            target = DPT_AUTH;
+            method = DPM_AUTH_HANDLER;
+            name = "PAM Challenge";
+            break;
         case SSS_PAM_ACCT_MGMT:
             target = DPT_ACCESS;
             method = DPM_ACCESS_HANDLER;

@@ -214,6 +214,8 @@ const char *sss_cmd2str(enum sss_cli_command cmd)
         return "SSS_CMD_RENEW";
     case SSS_PAM_PREAUTH:
         return "SSS_PAM_PREAUTH";
+    case SSS_PAM_CHALLENGE:
+        return "SSS_PAM_CHALLENGE";
 
     /* PAC responder calls */
     case SSS_PAC_ADD_PAC_USER:

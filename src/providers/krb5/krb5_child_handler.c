@@ -163,6 +163,7 @@ static errno_t create_send_buffer(struct krb5child_req *kr,
 
     if (kr->pd->cmd == SSS_PAM_AUTHENTICATE ||
         kr->pd->cmd == SSS_PAM_PREAUTH ||
+        kr->pd->cmd == SSS_PAM_CHALLENGE ||
         kr->pd->cmd == SSS_CMD_RENEW ||
         kr->pd->cmd == SSS_PAM_CHAUTHTOK_PRELIM ||
         kr->pd->cmd == SSS_PAM_CHAUTHTOK) {
@@ -207,6 +208,7 @@ static errno_t create_send_buffer(struct krb5child_req *kr,
 
     if (kr->pd->cmd == SSS_PAM_AUTHENTICATE ||
         kr->pd->cmd == SSS_PAM_PREAUTH ||
+        kr->pd->cmd == SSS_PAM_CHALLENGE ||
         kr->pd->cmd == SSS_CMD_RENEW ||
         kr->pd->cmd == SSS_PAM_CHAUTHTOK_PRELIM ||
         kr->pd->cmd == SSS_PAM_CHAUTHTOK) {

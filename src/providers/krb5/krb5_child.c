@@ -558,7 +558,7 @@ static krb5_error_code answer_otp(krb5_context ctx,
 
     kr->otp = true;
 
-    if (kr->pd->cmd == SSS_PAM_PREAUTH) {
+    if (kr->pd->cmd == SSS_PAM_PREAUTH || kr->pd->cmd == SSS_PAM_CHALLENGE) {
         for (i = 0; chl->tokeninfo[i] != NULL; i++) {
             DEBUG(SSSDBG_TRACE_ALL, "[%zu] Vendor [%s].\n",
                                     i, chl->tokeninfo[i]->vendor);
@@ -2132,7 +2132,7 @@ static errno_t tgt_req_child(struct krb5_req *kr)
     DEBUG(SSSDBG_TRACE_LIBS, "Attempting to get a TGT\n");
 
     /* No password is needed for pre-auth or if we have 2FA or SC */
-    if (kr->pd->cmd != SSS_PAM_PREAUTH
+    if (kr->pd->cmd != SSS_PAM_PREAUTH && kr->pd->cmd != SSS_PAM_CHALLENGE
             && sss_authtok_get_type(kr->pd->authtok) != SSS_AUTHTOK_TYPE_2FA
             && sss_authtok_get_type(kr->pd->authtok) != SSS_AUTHTOK_TYPE_2FA_SINGLE
             && sss_authtok_get_type(kr->pd->authtok) != SSS_AUTHTOK_TYPE_SC_PIN
@@ -2427,6 +2427,8 @@ static const char *krb5_child_command_to_str(int cmd)
         return "ticket renewal";
     case SSS_PAM_PREAUTH:
         return "pre-auth";
+    case SSS_PAM_CHALLENGE:
+        return "otp-challenge";
     }
 
     DEBUG(SSSDBG_MINOR_FAILURE, "Unexpected command %d\n", cmd);
@@ -2485,17 +2487,22 @@ static errno_t unpack_buffer(uint8_t *buf, size_t size,
 
     if (pd->cmd == SSS_PAM_AUTHENTICATE ||
         pd->cmd == SSS_PAM_PREAUTH ||
+        pd->cmd == SSS_PAM_CHALLENGE ||
         pd->cmd == SSS_CMD_RENEW ||
         pd->cmd == SSS_PAM_CHAUTHTOK_PRELIM || pd->cmd == SSS_PAM_CHAUTHTOK) {
+
+        DEBUG(SSSDBG_IMPORTANT_INFO, "HERE 0\n");
         SAFEALIGN_COPY_UINT32_CHECK(&len, buf + p, size, &p);
         if (len > size - p) return EINVAL;
         kr->ccname = talloc_strndup(pd, (char *)(buf + p), len);
         if (kr->ccname == NULL) return ENOMEM;
         p += len;
 
+        DEBUG(SSSDBG_IMPORTANT_INFO, "HERE 1\n");
         SAFEALIGN_COPY_UINT32_CHECK(&len, buf + p, size, &p);
         if (len > size - p) return EINVAL;
 
+        DEBUG(SSSDBG_IMPORTANT_INFO, "HERE 2\n");
         if (len > 0) {
             kr->old_ccname = talloc_strndup(pd, (char *)(buf + p), len);
             if (kr->old_ccname == NULL) return ENOMEM;
@@ -2504,9 +2511,11 @@ static errno_t unpack_buffer(uint8_t *buf, size_t size,
             DEBUG(SSSDBG_TRACE_INTERNAL, "No old ccache\n");
         }
 
+        DEBUG(SSSDBG_IMPORTANT_INFO, "HERE 3\n");
         SAFEALIGN_COPY_UINT32_CHECK(&len, buf + p, size, &p);
         if (len > size - p) return EINVAL;
 
+        DEBUG(SSSDBG_IMPORTANT_INFO, "HERE 4\n");
         if (len > 0) {
             kr->keytab = talloc_strndup(pd, (char *)(buf + p), len);
             p += len;
@@ -2514,11 +2523,13 @@ static errno_t unpack_buffer(uint8_t *buf, size_t size,
             kr->keytab = NULL;
         }
 
+        DEBUG(SSSDBG_IMPORTANT_INFO, "HERE 5\n");
         ret = unpack_authtok(pd->authtok, buf, size, &p);
         if (ret) {
             return ret;
         }
 
+        DEBUG(SSSDBG_IMPORTANT_INFO, "HERE 6\n");
         DEBUG(SSSDBG_CONF_SETTINGS,
               "ccname: [%s] old_ccname: [%s] keytab: [%s]\n",
               kr->ccname,
@@ -3485,6 +3496,9 @@ int main(int argc, const char *argv[])
         ret = renew_tgt_child(kr);
         break;
     case SSS_PAM_PREAUTH:
+        ret = tgt_req_child(kr);
+        break;
+    case SSS_PAM_CHALLENGE:
         ret = tgt_req_child(kr);
         break;
     default:

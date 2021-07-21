@@ -2616,6 +2616,9 @@ static int pam_sss(enum sss_cli_command task, pam_handle_t *pamh,
                     }
                 }
 
+                pam_status = send_and_receive(pamh, &pi, SSS_PAM_CHALLENGE,
+                                              quiet_mode);
+
                 if (flags & PAM_CLI_FLAGS_TRY_CERT_AUTH
                         && pi.cert_list == NULL) {
                     D(("No certificates for authentication available."));

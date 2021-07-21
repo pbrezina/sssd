@@ -235,6 +235,7 @@ enum sss_cli_command {
                                         * are available for the given user. */
     SSS_GSSAPI_INIT          = 0x00FA, /**< Initialize GSSAPI authentication. */
     SSS_GSSAPI_SEC_CTX       = 0x00FB, /**< Establish GSSAPI security ctx. */
+    SSS_PAM_CHALLENGE        = 0x00FC, /**< Get Kerberos challenge . */
 
 /* PAC responder calls */
     SSS_PAC_ADD_PAC_USER     = 0x0101,

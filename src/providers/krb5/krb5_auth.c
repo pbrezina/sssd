@@ -352,6 +352,10 @@ static void krb5_auth_store_creds(struct sss_domain_info *domain,
             /* There are no credentials available during pre-authentication,
              * nothing to do. */
             break;
+        case SSS_PAM_CHALLENGE:
+            /* There are no credentials available during otp-challenge,
+             * nothing to do. */
+            break;
         case SSS_PAM_AUTHENTICATE:
         case SSS_PAM_CHAUTHTOK_PRELIM:
             if (sss_authtok_get_type(pd->authtok) == SSS_AUTHTOK_TYPE_2FA) {
@@ -390,7 +394,8 @@ static void krb5_auth_store_creds(struct sss_domain_info *domain,
     }
 
     if (password == NULL) {
-        if (pd->cmd != SSS_CMD_RENEW && pd->cmd != SSS_PAM_PREAUTH) {
+        if (pd->cmd != SSS_CMD_RENEW && pd->cmd != SSS_PAM_PREAUTH
+              && pd->cmd != SSS_PAM_CHALLENGE) {
             DEBUG(SSSDBG_FATAL_FAILURE,
                   "password not available, offline auth may not work.\n");
             /* password caching failures are not fatal errors */
@@ -543,6 +548,17 @@ struct tevent_req *krb5_auth_send(TALLOC_CTX *mem_ctx,
             }
             break;
         case SSS_PAM_PREAUTH:
+            break;
+        case SSS_PAM_CHALLENGE:
+            if (authtok_type != SSS_AUTHTOK_TYPE_EMPTY) {
+                DEBUG(SSSDBG_CRIT_FAILURE,
+                      "Non-empty authtok when obtaining PAM challenge "
+                      "for user [%s].\n", pd->user);
+                state->pam_status = PAM_SYSTEM_ERR;
+                state->dp_err = DP_ERR_FATAL;
+                ret = EINVAL;
+                goto done;
+            }
             break;
         default:
             DEBUG(SSSDBG_CONF_SETTINGS, "Unexpected pam task %d.\n", pd->cmd);
@@ -849,6 +865,7 @@ static void krb5_auth_done(struct tevent_req *subreq)
                 break;
             }
         case SSS_PAM_PREAUTH:
+        case SSS_PAM_CHALLENGE:
             state->pam_status = PAM_CRED_UNAVAIL;
             state->dp_err = DP_ERR_OK;
             ret = EOK;
@@ -1236,6 +1253,7 @@ krb5_pam_handler_send(TALLOC_CTX *mem_ctx,
     switch (pd->cmd) {
         case SSS_PAM_AUTHENTICATE:
         case SSS_PAM_PREAUTH:
+        case SSS_PAM_CHALLENGE:
         case SSS_CMD_RENEW:
         case SSS_PAM_CHAUTHTOK_PRELIM:
         case SSS_PAM_CHAUTHTOK:
