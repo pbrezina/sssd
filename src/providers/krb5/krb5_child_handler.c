@@ -29,6 +29,7 @@
 #include "providers/krb5/krb5_common.h"
 #include "providers/krb5/krb5_auth.h"
 #include "src/providers/krb5/krb5_utils.h"
+#include "util/sss_chain_id.h"
 
 #ifndef KRB5_CHILD_DIR
 #ifndef SSSD_LIBEXEC_PATH
@@ -115,7 +116,10 @@ static errno_t create_send_buffer(struct krb5child_req *kr,
     uint32_t use_enterprise_principal;
     uint32_t posix_domain = 0;
     size_t username_len = 0;
+    uint64_t chain_id;
     errno_t ret;
+
+    chain_id = sss_chain_id_get();
 
     keytab = dp_opt_get_cstring(kr->krb5_ctx->opts, KRB5_KEYTAB);
     if (keytab == NULL) {
@@ -159,7 +163,7 @@ static errno_t create_send_buffer(struct krb5child_req *kr,
         return ENOMEM;
     }
 
-    buf->size = 9*sizeof(uint32_t) + strlen(kr->upn);
+    buf->size = 9*sizeof(uint32_t) + sizeof(uint64_t) + strlen(kr->upn);
 
     if (kr->pd->cmd == SSS_PAM_AUTHENTICATE ||
         kr->pd->cmd == SSS_PAM_PREAUTH ||
@@ -201,6 +205,7 @@ static errno_t create_send_buffer(struct krb5child_req *kr,
     SAFEALIGN_COPY_UINT32(&buf->data[rp], &kr->is_offline, &rp);
     SAFEALIGN_COPY_UINT32(&buf->data[rp], &send_pac, &rp);
     SAFEALIGN_COPY_UINT32(&buf->data[rp], &use_enterprise_principal, &rp);
+    safealign_memcpy(&buf->data[rp], &chain_id, sizeof(uint64_t), &rp);
 
     SAFEALIGN_SET_UINT32(&buf->data[rp], strlen(kr->upn), &rp);
     safealign_memcpy(&buf->data[rp], kr->upn, strlen(kr->upn), &rp);

@@ -41,6 +41,7 @@
 #include "providers/krb5/krb5_auth.h"
 #include "providers/krb5/krb5_utils.h"
 #include "sss_cli.h"
+#include "src/util/sss_chain_id.h"
 
 #define SSSD_KRB5_CHANGEPW_PRINCIPAL "kadmin/changepw"
 
@@ -95,6 +96,8 @@ struct krb5_req {
     bool posix_domain;
     bool send_pac;
     bool use_enterprise_princ;
+    uint64_t old_chain_id;
+    uint64_t chain_id;
     char *fast_ccname;
 
     const char *upn;
@@ -2468,11 +2471,15 @@ static errno_t unpack_buffer(uint8_t *buf, size_t size,
     kr->send_pac = (send_pac == 0) ? false : true;
     SAFEALIGN_COPY_UINT32_CHECK(&use_enterprise_princ, buf + p, size, &p);
     kr->use_enterprise_princ = (use_enterprise_princ == 0) ? false : true;
+    safealign_memcpy(&kr->chain_id, buf + p, sizeof(uint64_t), &p);
     SAFEALIGN_COPY_UINT32_CHECK(&len, buf + p, size, &p);
     if (len > size - p) return EINVAL;
     kr->upn = talloc_strndup(pd, (char *)(buf + p), len);
     if (kr->upn == NULL) return ENOMEM;
     p += len;
+
+    /* Set the chain id */
+    kr->old_chain_id = sss_chain_id_set(kr->chain_id);
 
     DEBUG(SSSDBG_CONF_SETTINGS,
           "cmd [%d (%s)] uid [%llu] gid [%llu] validate [%s] "
@@ -3501,6 +3508,9 @@ int main(int argc, const char *argv[])
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Failed to send reply\n");
     }
+
+    /* Restore the chain id */
+    sss_chain_id_set(kr->old_chain_id);
 
 done:
     if (ret == EOK) {

@@ -4507,6 +4507,7 @@ krb5_child_SOURCES = \
     src/util/util.c \
     src/util/util_ext.c \
     src/util/signal.c \
+    src/util/sss_chain_id.c \
     src/util/strtonum.c \
     src/util/become_user.c \
     src/util/util_errors.c \
@@ -4517,6 +4518,7 @@ krb5_child_CFLAGS = \
     $(POPT_CFLAGS) \
     $(KRB5_CFLAGS) \
     $(SYSTEMD_LOGIN_CFLAGS) \
+    $(TEVENT_CFLAGS) \
     $(NULL)
 krb5_child_LDADD = \
     libsss_debug.la \
@@ -4526,6 +4528,7 @@ krb5_child_LDADD = \
     $(KRB5_LIBS) \
     $(CLIENT_LIBS) \
     $(SYSTEMD_LOGIN_LIBS) \
+    $(TEVENT_LIBS) \
     $(NULL)
 
 ldap_child_SOURCES = \
