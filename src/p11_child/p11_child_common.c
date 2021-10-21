@@ -32,6 +32,7 @@
 #include "util/child_common.h"
 #include "providers/backend.h"
 #include "util/crypto/sss_crypto.h"
+#include "util/sss_chain_id.h"
 #include "util/cert.h"
 #include "p11_child/p11_child.h"
 
@@ -101,11 +102,14 @@ done:
     return ret;
 }
 
-static errno_t p11c_recv_data(TALLOC_CTX *mem_ctx, int fd, char **pin)
+static errno_t p11c_recv_data(TALLOC_CTX *mem_ctx, int fd, char **pin,
+                              uint64_t *_old_chain_id)
 {
     uint8_t buf[IN_BUF_SIZE];
     ssize_t len;
+    size_t p = 0;
     errno_t ret;
+    uint64_t chain_id;
     char *str;
 
     errno = 0;
@@ -123,7 +127,7 @@ static errno_t p11c_recv_data(TALLOC_CTX *mem_ctx, int fd, char **pin)
         return EINVAL;
     }
 
-    str = talloc_strndup(mem_ctx, (char *) buf, len);
+    str = talloc_strndup(mem_ctx, (char *) buf + p, len);
     if (str == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "talloc_strndup failed.\n");
         return ENOMEM;
@@ -131,11 +135,14 @@ static errno_t p11c_recv_data(TALLOC_CTX *mem_ctx, int fd, char **pin)
 
     if (strlen(str) != len) {
         DEBUG(SSSDBG_CRIT_FAILURE,
-              "Input contains additional data, only PIN expected.\n");
+              "PIN does not match expected size.\n");
         talloc_free(str);
         return EINVAL;
     }
 
+    safealign_memcpy(&chain_id, buf + p, sizeof(uint64_t), &p);
+
+    *_old_chain_id = sss_chain_id_set(chain_id);
     *pin = str;
 
     return EOK;
@@ -163,6 +170,7 @@ int main(int argc, const char *argv[])
     char *cert_b64 = NULL;
     bool wait_for_card = false;
     char *uri = NULL;
+	uint64_t old_chain_id = -1;
 
     struct poptOption long_options[] = {
         POPT_AUTOHELP
@@ -357,7 +365,7 @@ int main(int argc, const char *argv[])
     }
 
     if (mode == OP_AUTH && pin_mode == PIN_STDIN) {
-        ret = p11c_recv_data(main_ctx, STDIN_FILENO, &pin);
+        ret = p11c_recv_data(main_ctx, STDIN_FILENO, &pin, &old_chain_id);
         if (ret != EOK) {
             DEBUG(SSSDBG_FATAL_FAILURE, "Failed to read PIN.\n");
             goto fail;
@@ -376,10 +384,16 @@ int main(int argc, const char *argv[])
         fprintf(stdout, "%s", multi);
     }
 
+    /* Restore the chain id */
+    sss_chain_id_set(old_chain_id);
+
     talloc_free(main_ctx);
     return EXIT_SUCCESS;
 fail:
     DEBUG(SSSDBG_CRIT_FAILURE, "p11_child failed!\n");
+    if (old_chain_id != -1) {
+        sss_chain_id_set(old_chain_id);
+    }
     close(STDOUT_FILENO);
     talloc_free(main_ctx);
     return EXIT_FAILURE;

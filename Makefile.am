@@ -4627,6 +4627,7 @@ p11_child_SOURCES = \
     src/util/atomic_io.c \
     src/util/util.c \
     src/util/util_ext.c \
+    src/util/sss_chain_id.c \
     $(NULL)
 p11_child_SOURCES += src/p11_child/p11_child_openssl.c
 
@@ -4638,6 +4639,7 @@ p11_child_CFLAGS += \
     $(P11_KIT_CFLAGS) \
     $(CRYPTO_CFLAGS) \
     $(SSL_CFLAGS) \
+    $(TEVENT_CFLAGS) \
     $(NULL)
 
 p11_child_LDADD = \
@@ -4651,6 +4653,7 @@ p11_child_LDADD += \
     $(P11_KIT_LIBS) \
     $(CRYPTO_LIBS) \
     $(SSL_LIBS) \
+    $(TEVENT_LIBS) \
     $(NULL)
 
 memberof_la_SOURCES = \

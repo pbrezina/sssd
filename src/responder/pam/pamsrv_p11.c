@@ -29,6 +29,7 @@
 #include "responder/pam/pam_helpers.h"
 #include "lib/certmap/sss_certmap.h"
 #include "util/crypto/sss_crypto.h"
+#include "util/sss_chain_id.h"
 #include "db/sysdb.h"
 
 
@@ -439,12 +440,17 @@ static errno_t get_p11_child_write_buffer(TALLOC_CTX *mem_ctx,
     int ret;
     uint8_t *buf;
     size_t len;
+    size_t rp;
+    uint64_t chain_id;
     const char *pin = NULL;
 
     if (pd == NULL || pd->authtok == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Missing authtok.\n");
         return EINVAL;
     }
+
+    chain_id = sss_chain_id_get();
+    rp = 0;
 
     switch (sss_authtok_get_type(pd->authtok)) {
     case SSS_AUTHTOK_TYPE_SC_PIN:
@@ -458,13 +464,14 @@ static errno_t get_p11_child_write_buffer(TALLOC_CTX *mem_ctx,
             return EINVAL;
         }
 
-        buf = talloc_size(mem_ctx, len);
+        buf = talloc_size(mem_ctx, len + sizeof(uint64_t));
         if (buf == NULL) {
             DEBUG(SSSDBG_OP_FAILURE, "talloc_size failed.\n");
             return ENOMEM;
         }
 
-        safealign_memcpy(buf, pin, len, NULL);
+        safealign_memcpy(&buf[rp], pin, len, &rp);
+        safealign_memcpy(&buf[rp], &chain_id, sizeof(uint64_t), &rp);
 
         break;
     case SSS_AUTHTOK_TYPE_SC_KEYPAD:
