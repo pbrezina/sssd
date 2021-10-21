@@ -4585,11 +4585,13 @@ gpo_child_SOURCES = \
     src/util/atomic_io.c \
     src/util/util.c \
     src/util/util_ext.c \
+    src/util/sss_chain_id.c \
     src/util/signal.c
 gpo_child_CFLAGS = \
     $(AM_CFLAGS) \
     $(POPT_CFLAGS) \
     $(KRB5_CFLAGS) \
+    $(TEVENT_CFLAGS) \
     $(INI_CONFIG_CFLAGS) \
     $(SMBCLIENT_CFLAGS)
 gpo_child_LDADD = \
@@ -4597,6 +4599,7 @@ gpo_child_LDADD = \
     $(TALLOC_LIBS) \
     $(POPT_LIBS) \
     $(DHASH_LIBS) \
+    $(TEVENT_LIBS) \
     $(INI_CONFIG_LIBS) \
     $(SMBCLIENT_LIBS) \
     $(SAMBA_UTIL_LIBS)

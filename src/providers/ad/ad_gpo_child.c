@@ -36,6 +36,7 @@
 #include "providers/backend.h"
 #include "providers/ad/ad_gpo.h"
 #include "sss_cli.h"
+#include "util/sss_chain_id.h"
 
 #define SMB_BUFFER_SIZE 65536
 #define GPT_INI "/GPT.INI"
@@ -53,11 +54,17 @@ struct input_buffer {
 static errno_t
 unpack_buffer(uint8_t *buf,
               size_t size,
-              struct input_buffer *ibuf)
+              struct input_buffer *ibuf,
+              uint64_t *_old_chain_id)
 {
     size_t p = 0;
     uint32_t len;
     uint32_t cached_gpt_version;
+    uint64_t chain_id;
+
+    /* chain ID */
+    safealign_memcpy(&chain_id, buf + p, sizeof(uint64_t), &p);
+    *_old_chain_id = sss_chain_id_set(chain_id);
 
     /* cached_gpt_version */
     SAFEALIGN_COPY_UINT32_CHECK(&cached_gpt_version, buf + p, size, &p);
@@ -732,6 +739,7 @@ main(int argc, const char *argv[])
     uint8_t *buf = NULL;
     ssize_t len = 0;
     struct input_buffer *ibuf = NULL;
+    uint64_t old_chain_id;
     struct response *resp = NULL;
     ssize_t written;
 
@@ -811,7 +819,7 @@ main(int argc, const char *argv[])
 
     close(STDIN_FILENO);
 
-    ret = unpack_buffer(buf, len, ibuf);
+    ret = unpack_buffer(buf, len, ibuf, &old_chain_id);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "unpack_buffer failed.[%d][%s].\n", ret, strerror(ret));
@@ -855,6 +863,9 @@ main(int argc, const char *argv[])
               resp->size, written);
         goto fail;
     }
+
+    /* Restore the chain id */
+    sss_chain_id_set(old_chain_id);
 
     DEBUG(SSSDBG_TRACE_FUNC, "gpo_child completed successfully\n");
     close(AD_GPO_CHILD_OUT_FILENO);

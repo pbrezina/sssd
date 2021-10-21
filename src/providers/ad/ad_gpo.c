@@ -49,6 +49,7 @@
 #include "providers/ldap/sdap.h"
 #include "providers/ldap/sdap_idmap.h"
 #include "util/util_sss_idmap.h"
+#include "util/sss_chain_id.h"
 #include <ndr.h>
 #include <gen_ndr/security.h>
 #include <db/sysdb_computer.h>
@@ -4501,11 +4502,14 @@ create_cse_send_buffer(TALLOC_CTX *mem_ctx,
     int smb_share_length;
     int smb_path_length;
     int smb_cse_suffix_length;
+    uint64_t chain_id;
 
     smb_server_length = strlen(smb_server);
     smb_share_length = strlen(smb_share);
     smb_path_length = strlen(smb_path);
     smb_cse_suffix_length = strlen(smb_cse_suffix);
+
+    chain_id = sss_chain_id_get();
 
     buf = talloc(mem_ctx, struct io_buffer);
     if (buf == NULL) {
@@ -4513,7 +4517,7 @@ create_cse_send_buffer(TALLOC_CTX *mem_ctx,
         return ENOMEM;
     }
 
-    buf->size = 5 * sizeof(uint32_t);
+    buf->size = 5 * sizeof(uint32_t) + sizeof(uint64_t);
     buf->size += smb_server_length + smb_share_length + smb_path_length +
         smb_cse_suffix_length;
 
@@ -4527,6 +4531,9 @@ create_cse_send_buffer(TALLOC_CTX *mem_ctx,
     }
 
     rp = 0;
+    /* cache id */
+    safealign_memcpy(&buf->data[rp], &chain_id, sizeof(uint64_t), &rp);
+
     /* cached_gpt_version */
     SAFEALIGN_SET_UINT32(&buf->data[rp], cached_gpt_version, &rp);
 
