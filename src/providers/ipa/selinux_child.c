@@ -30,6 +30,7 @@
 
 #include "util/util.h"
 #include "util/child_common.h"
+#include "util/sss_chain_id.h"
 #include "providers/backend.h"
 
 struct input_buffer {
@@ -40,10 +41,16 @@ struct input_buffer {
 
 static errno_t unpack_buffer(uint8_t *buf,
                              size_t size,
-                             struct input_buffer *ibuf)
+                             struct input_buffer *ibuf,
+                             uint64_t *_old_chain_id)
 {
     size_t p = 0;
     uint32_t len;
+    uint64_t chain_id;
+
+    /* chain id */
+    safealign_memcpy(&chain_id, buf + p, sizeof(uint64_t), &p);
+    *_old_chain_id = sss_chain_id_set(chain_id);
 
     /* seuser */
     SAFEALIGN_COPY_UINT32_CHECK(&len, buf + p, size, &p);
@@ -211,6 +218,7 @@ int main(int argc, const char *argv[])
     uint8_t *buf = NULL;
     ssize_t len = 0;
     struct input_buffer *ibuf = NULL;
+    uint64_t old_chain_id;
     struct response *resp = NULL;
     struct passwd *passwd = NULL;
     ssize_t written;
@@ -338,7 +346,7 @@ int main(int argc, const char *argv[])
 
     close(STDIN_FILENO);
 
-    ret = unpack_buffer(buf, len, ibuf);
+    ret = unpack_buffer(buf, len, ibuf, &old_chain_id);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "unpack_buffer failed.[%d][%s].\n", ret, strerror(ret));
@@ -396,6 +404,9 @@ int main(int argc, const char *argv[])
               resp->size, written);
         goto fail;
     }
+
+    /* Restore the chain id */
+    sss_chain_id_set(old_chain_id);
 
     DEBUG(SSSDBG_TRACE_FUNC, "selinux_child completed successfully\n");
     close(STDOUT_FILENO);

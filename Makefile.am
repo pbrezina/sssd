@@ -4561,6 +4561,7 @@ if BUILD_SEMANAGE
 selinux_child_SOURCES = \
     src/providers/ipa/selinux_child.c \
     src/util/sss_semanage.c \
+    src/util/sss_chain_id.c \
     src/util/atomic_io.c \
     src/util/util.c \
     src/util/util_ext.c \
@@ -4569,6 +4570,7 @@ selinux_child_SOURCES = \
 selinux_child_CFLAGS = \
     $(AM_CFLAGS) \
     $(POPT_CFLAGS) \
+    $(TEVENT_CFLAGS) \
     $(NULL)
 selinux_child_LDADD = \
     libsss_debug.la \
@@ -4577,6 +4579,7 @@ selinux_child_LDADD = \
     $(DHASH_LIBS) \
     $(SEMANAGE_LIBS) \
     $(SELINUX_LIBS) \
+    $(TEVENT_LIBS) \
     $(NULL)
 endif
 

@@ -26,6 +26,7 @@
 #include "db/sysdb_selinux.h"
 #include "util/child_common.h"
 #include "util/sss_selinux.h"
+#include "util/sss_chain_id.h"
 #include "providers/ldap/sdap_async.h"
 #include "providers/ipa/ipa_common.h"
 #include "providers/ipa/ipa_config.h"
@@ -634,12 +635,13 @@ static errno_t selinux_child_create_buffer(struct selinux_child_state *state)
     size_t seuser_len;
     size_t mls_range_len;
     size_t username_len;
+    uint64_t chain_id;
 
     seuser_len = strlen(state->sci->seuser);
     mls_range_len = strlen(state->sci->mls_range);
     username_len = strlen(state->sci->username);
 
-    state->buf->size = 3 * sizeof(uint32_t);
+    state->buf->size = 3 * sizeof(uint32_t) + sizeof(uint64_t);
     state->buf->size += seuser_len + mls_range_len + username_len;
 
     DEBUG(SSSDBG_TRACE_ALL, "buffer size: %zu\n", state->buf->size);
@@ -651,6 +653,10 @@ static errno_t selinux_child_create_buffer(struct selinux_child_state *state)
     }
 
     rp = 0;
+
+    /* chain id */
+    chain_id = sss_chain_id_get();
+    safealign_memcpy(&state->buf->data[rp], &chain_id, sizeof(uint64_t), &rp);
 
     /* seuser */
     SAFEALIGN_SET_UINT32(&state->buf->data[rp], seuser_len, &rp);
