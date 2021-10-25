@@ -26,6 +26,7 @@
 #include "responder/common/cache_req/cache_req_private.h"
 #include "responder/common/cache_req/cache_req_plugin.h"
 #include "db/sysdb.h"
+#include "util/sss_chain_id.h"
 
 static errno_t cache_req_search_ncache(struct cache_req *cr)
 {
@@ -282,6 +283,7 @@ cache_req_expiration_status(struct cache_req *cr,
 }
 
 struct cache_req_search_state {
+    uint64_t chain_id;
     /* input data */
     struct tevent_context *ev;
     struct resp_ctx *rctx;
@@ -420,6 +422,11 @@ static errno_t cache_req_search_dp(struct tevent_req *req,
 
     state = tevent_req_data(req, struct cache_req_search_state);
 
+    /* store the global chain ID and set it back in callback.
+     * Otherwise we lose the chain ID when dp_send_fn is called
+     * (chain ID is set to 0 in sbus_issue_request_done). */
+    state->chain_id = sss_chain_id_get();
+
     switch (status) {
     case CACHE_OBJECT_MIDPOINT:
         /* Out of band update. The calling function will return the cached
@@ -495,6 +502,8 @@ static void cache_req_search_done(struct tevent_req *subreq)
     state->dp_success = state->cr->plugin->dp_recv_fn(subreq, state->cr);
     talloc_zfree(subreq);
 
+    sss_chain_id_set(state->chain_id);
+
     /* Do not try to read from cache if the domain is inconsistent */
     if (sss_domain_get_state(state->cr->domain) == DOM_INCONSISTENT) {
         CACHE_REQ_DEBUG(SSSDBG_TRACE_FUNC, state->cr, "Domain inconsistent, "
@@ -557,6 +566,7 @@ struct cache_req_locate_domain_state {
     struct cache_req *cr;
 
     char *found_domain;
+    uint64_t chain_id;
 };
 
 static void cache_req_locate_domain_done(struct tevent_req *subreq);
@@ -577,6 +587,11 @@ struct tevent_req *cache_req_locate_domain_send(TALLOC_CTX *mem_ctx,
         return NULL;
     }
     state->cr = cr;
+
+    /* store the global chain ID and set it back in callback.
+     * Otherwise we lose the chain ID when dp_get_domain_check_fn is called
+     * (chain ID is set to 0 in sbus_issue_request_done). */
+    state->chain_id = sss_chain_id_get();
 
     should_run = cr->plugin->dp_get_domain_check_fn(cr->rctx,
                                                     get_domains_head(cr->domain),
@@ -624,6 +639,7 @@ static void cache_req_locate_domain_done(struct tevent_req *subreq)
                                                    state->cr,
                                                    &state->found_domain);
     talloc_zfree(subreq);
+    sss_chain_id_set(state->chain_id);
     if (ret != EOK) {
         tevent_req_error(req, ret);
         return;
