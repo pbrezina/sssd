@@ -147,8 +147,8 @@ class RequestAnalyzer:
         if line.startswith('   *  '):
             return
         fields = line.split("[")
-        cr_field = fields[2].split(":")[1]
-        cr = cr_field[5:]
+        cr_field = fields[3][7:]
+        cr = cr_field.split(":")[0][4:]
         if "refreshed" in line:
             return
         # CR Plugin name
@@ -165,7 +165,7 @@ class RequestAnalyzer:
             ts = line.split(")")[0]
             ts = ts[1:]
             fields = line.split("[")
-            cid = fields[3][5:-1]
+            cid = fields[3][4:-9]
             cmd = fields[4][4:-1]
             uid = fields[5][4:-1]
             if not uid.isnumeric():
@@ -198,10 +198,11 @@ class RequestAnalyzer:
         """
         component = source.Component.NSS
         resp = "nss"
+        # Log messages matching the following regex patterns contain
+        # the useful info we need to produce list output
         patterns = ['\[cmd']
         patterns.append("(cache_req_send|cache_req_process_input|"
                         "cache_req_search_send)")
-        consume = True
         if pam:
             component = source.Component.PAM
             resp = "pam"
@@ -209,7 +210,6 @@ class RequestAnalyzer:
         logger.info(f"******** Listing {resp} client requests ********")
         source.set_component(component)
         self.done = ""
-        # For each CID
         for line in self.matched_line(source, patterns):
             if isinstance(source, Journald):
                 print(line)
@@ -238,7 +238,8 @@ class RequestAnalyzer:
         if pam:
             component = source.Component.PAM
             resp = "pam"
-            pam_data_regex = f'pam_print_data.*\[CID #{cid}\]'
+            pam_data_regex = f'pam.*\[CID#{cid}\]'
+            pattern.append(pam_data_regex)
 
         logger.info(f"******** Checking {resp} responder for Client ID"
                     f" {cid} *******")
@@ -261,8 +262,6 @@ class RequestAnalyzer:
         pattern.clear()
         [pattern.append(f'\\{id}') for id in be_ids]
 
-        if pam:
-            pattern.append(pam_data_regex)
         for match in self.matched_line(source, pattern):
             be_results = self.consume_line(match, source, merge)
 
