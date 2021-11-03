@@ -21,6 +21,11 @@
 #include <stdint.h>
 #include "util/sss_chain_id.h"
 
+void sss_chain_id_set_format(const char *fmt)
+{
+    debug_chain_id_fmt = fmt;
+}
+
 uint64_t sss_chain_id_set(uint64_t id)
 {
     uint64_t old_id = debug_chain_id;

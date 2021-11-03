@@ -3386,6 +3386,9 @@ int main(int argc, const char *argv[])
         }
     }
 
+    sss_chain_id_set_format(DEBUG_CHAIN_ID_FMT_RID);
+    sss_chain_id_set(chain_id);
+
     DEBUG_INIT(debug_level, opt_logger);
 
     DEBUG(SSSDBG_TRACE_FUNC, "krb5_child started.\n");

@@ -24,11 +24,15 @@
 #include <stdint.h>
 
 extern uint64_t debug_chain_id;
+extern const char *debug_chain_id_fmt;
 
 /* Explicitly set new chain id. The old id is returned. */
 uint64_t sss_chain_id_set(uint64_t id);
 
 /* Get the current chain id. */
 uint64_t sss_chain_id_get(void);
+
+/* Set new debug chain id logging format. */
+void sss_chain_id_set_format(const char *fmt);
 
 #endif /* _SSS_CHAIN_ID_ */

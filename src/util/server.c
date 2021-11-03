@@ -33,6 +33,7 @@
 #include <ldb.h>
 #include "util/util.h"
 #include "confdb/confdb.h"
+#include "util/sss_chain_id_tevent.h"
 
 #ifdef HAVE_PRCTL
 #include <sys/prctl.h>
@@ -451,7 +452,8 @@ static const char *get_pid_path(void)
 #endif
 }
 
-int server_setup(const char *name, int flags,
+int server_setup(const char *name, bool is_responder,
+                 int flags,
                  uid_t uid, gid_t gid,
                  const char *conf_entry,
                  struct main_context **main_ctx)
@@ -701,6 +703,12 @@ int server_setup(const char *name, int flags,
             DEBUG(SSSDBG_CRIT_FAILURE, "Watchdog setup failed.\n");
             return ret;
         }
+    }
+
+    if (is_responder) {
+        sss_chain_id_setup(ctx->event_ctx, DEBUG_CHAIN_ID_FMT_CID);
+    } else {
+        sss_chain_id_setup(ctx->event_ctx, DEBUG_CHAIN_ID_FMT_RID);
     }
 
     sss_log(SSS_LOG_INFO, "Starting up");

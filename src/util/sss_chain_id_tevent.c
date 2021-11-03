@@ -119,13 +119,15 @@ static void sss_chain_id_trace_loop(enum tevent_trace_point point,
     }
 }
 
-void sss_chain_id_setup(struct tevent_context *ev)
+void sss_chain_id_setup(struct tevent_context *ev, const char *fmt)
 {
     tevent_set_trace_callback(ev, sss_chain_id_trace_loop, NULL);
     tevent_set_trace_fd_callback(ev, sss_chain_id_trace_fde, NULL);
     tevent_set_trace_signal_callback(ev, sss_chain_id_trace_signal, NULL);
     tevent_set_trace_timer_callback(ev, sss_chain_id_trace_timer, NULL);
     tevent_set_trace_immediate_callback(ev, sss_chain_id_trace_immediate, NULL);
+
+    debug_chain_id_fmt = fmt;
 }
 
 #else /* BUILD_CHAIN_ID not defined */

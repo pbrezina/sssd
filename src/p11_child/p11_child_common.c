@@ -313,6 +313,8 @@ int main(int argc, const char *argv[])
         }
     }
 
+    sss_chain_id_set_format(DEBUG_CHAIN_ID_FMT_CID);
+
     DEBUG_INIT(debug_level, opt_logger);
 
     DEBUG(SSSDBG_TRACE_FUNC, "p11_child started.\n");
