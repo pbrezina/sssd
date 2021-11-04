@@ -32,11 +32,13 @@ def list(ctx, verbose, pam):
 @click.option("--cachereq", is_flag=True, help="Include cache request "
               "related logs")
 @click.option("--pam", is_flag=True, help="Track only PAM requests")
+@click.option("--child", is_flag=True, help="Include searching in child "
+              "log files")
 @click.pass_obj
-def show(ctx, cid, merge, cachereq, pam):
+def show(ctx, cid, merge, cachereq, pam, child):
     analyzer = RequestAnalyzer()
     source = analyzer.load(ctx)
-    analyzer.track_request(source, cid, merge, cachereq, pam)
+    analyzer.track_request(source, cid, merge, cachereq, pam, child)
 
 
 class RequestAnalyzer:
@@ -208,7 +210,7 @@ class RequestAnalyzer:
             resp = "pam"
 
         logger.info(f"******** Listing {resp} client requests ********")
-        source.set_component(component)
+        source.set_component(component, False)
         self.done = ""
         for line in self.matched_line(source, patterns):
             if isinstance(source, Journald):
@@ -216,7 +218,7 @@ class RequestAnalyzer:
             else:
                 self.print_formatted(line, verbose)
 
-    def track_request(self, source, cid, merge, cachereq, pam):
+    def track_request(self, source, cid, merge, cachereq, pam, child):
         """
         Print Logs pertaining to individual SSSD client request
 
@@ -227,6 +229,8 @@ class RequestAnalyzer:
                 by timestamp
             pam (bool): True if --pam cli option is provided, track requests
                 in the PAM responder
+            child (bool): True if --child cli option is provided, include
+                child log files in search
         """
         resp_results = False
         be_results = False
@@ -243,7 +247,7 @@ class RequestAnalyzer:
 
         logger.info(f"******** Checking {resp} responder for Client ID"
                     f" {cid} *******")
-        source.set_component(component)
+        source.set_component(component, child)
         if cachereq:
             cr_id_regex = 'CR #[0-9]+'
             cr_ids = self.get_linked_ids(source, pattern, cr_id_regex)
@@ -254,7 +258,7 @@ class RequestAnalyzer:
 
         logger.info(f"********* Checking Backend for Client ID {cid} ********")
         pattern = [f'REQ_TRACE.*\[sssd.{resp} CID #{cid}\]']
-        source.set_component(source.Component.BE)
+        source.set_component(source.Component.BE, child)
 
         be_id_regex = '\[RID#[0-9]+\]'
         be_ids = self.get_linked_ids(source, pattern, be_id_regex)
