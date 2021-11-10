@@ -30,6 +30,7 @@
 
 #include "util/util.h"
 #include "util/child_common.h"
+#include "util/sss_chain_id.h"
 #include "providers/backend.h"
 
 struct input_buffer {
@@ -217,12 +218,15 @@ int main(int argc, const char *argv[])
     bool needs_update;
     const char *username;
     const char *opt_logger = NULL;
+    uint64_t chain_id;
 
     struct poptOption long_options[] = {
         POPT_AUTOHELP
         SSSD_DEBUG_OPTS
         {"debug-fd", 0, POPT_ARG_INT, &debug_fd, 0,
          _("An open file descriptor for the debug logs"), NULL},
+        {"chain-id", 0, POPT_ARG_LONG, &chain_id,
+         0, _("Tevent chain ID used for logging purposes"), NULL},
         SSSD_LOGGER_OPTS
         POPT_TABLEEND
     };
