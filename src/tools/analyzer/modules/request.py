@@ -29,16 +29,14 @@ def list(ctx, verbose, pam):
 @click.argument("cid", nargs=1, type=int, required=True)
 @click.option("--merge", is_flag=True, help="Merge logs together sorted"
               " by timestamp (requires debug_microseconds = True)")
-@click.option("--cachereq", is_flag=True, help="Include cache request "
-              "related logs")
 @click.option("--pam", is_flag=True, help="Track only PAM requests")
 @click.option("--child", is_flag=True, help="Include searching in child "
               "log files")
 @click.pass_obj
-def show(ctx, cid, merge, cachereq, pam, child):
+def show(ctx, cid, merge, pam, child):
     analyzer = RequestAnalyzer()
     source = analyzer.load(ctx)
-    analyzer.track_request(source, cid, merge, cachereq, pam, child)
+    analyzer.track_request(source, cid, merge, pam, child)
 
 
 class RequestAnalyzer:
@@ -218,7 +216,7 @@ class RequestAnalyzer:
             else:
                 self.print_formatted(line, verbose)
 
-    def track_request(self, source, cid, merge, cachereq, pam, child):
+    def track_request(self, source, cid, merge, pam, child):
         """
         Print Logs pertaining to individual SSSD client request
 
@@ -237,22 +235,15 @@ class RequestAnalyzer:
         component = source.Component.NSS
         resp = "nss"
         pattern = [f'REQ_TRACE.*\[CID #{cid}\\]']
-        pattern.append(f"\[CID #{cid}\\].*connected")
+        pattern.append(f"\[CID#{cid}\\]")
 
         if pam:
             component = source.Component.PAM
             resp = "pam"
-            pam_data_regex = f'pam.*\[CID#{cid}\]'
-            pattern.append(pam_data_regex)
 
         logger.info(f"******** Checking {resp} responder for Client ID"
                     f" {cid} *******")
         source.set_component(component, child)
-        if cachereq:
-            cr_id_regex = 'CR #[0-9]+'
-            cr_ids = self.get_linked_ids(source, pattern, cr_id_regex)
-            [pattern.append(f'{id}\:') for id in cr_ids]
-
         for match in self.matched_line(source, pattern):
             resp_results = self.consume_line(match, source, merge)
 
