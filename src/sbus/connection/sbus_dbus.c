@@ -37,8 +37,8 @@ sbus_dbus_request_name(DBusConnection *dbus_conn, const char *name)
 
     dbus_error_init(&dbus_error);
 
-    /* We are interested only in being the primary owner of this name. */
-    flags = DBUS_NAME_FLAG_DO_NOT_QUEUE;
+    /* We want to wait in the queue if the name is already owned. */
+    flags = SBUS_DBUS_NO_FLAGS;
 
     dbret = dbus_bus_request_name(dbus_conn, name, flags, &dbus_error);
     if (dbret == -1) {
@@ -46,7 +46,8 @@ sbus_dbus_request_name(DBusConnection *dbus_conn, const char *name)
               "system bus [%s]: %s\n", dbus_error.name, dbus_error.message);
         ret = EIO;
         goto done;
-    } else if (dbret != DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER) {
+    } else if (dbret == DBUS_REQUEST_NAME_REPLY_ALREADY_OWNER || 
+               dbret == DBUS_REQUEST_NAME_REPLY_EXISTS) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to request name on the "
               "system bus [%d]\n", dbret);
         ret = EIO;
