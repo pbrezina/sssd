@@ -1,0 +1,21 @@
+#!/sbin/openrc-run
+# Copyright 1999-2021 Gentoo Authors
+# Distributed under the terms of the GNU General Public License v3
+
+description="SSSD Kerberos Cache Manager"
+command="${exec_prefix}/libexec/sssd/sssd_kcm"
+command_background="true"
+command_args="--uid=0 --gid=0 --logger=files ${SSSD_KCM_OPTIONS}"
+pidfile="${prefix}/var/run/sssd_kcm.pid"
+
+start_pre()
+{
+    "${exec_prefix}/sbin/sssd" --genconf-section=kcm || return $?
+}
+
+depend()
+{
+    need localmount clock
+    use syslog
+    before sssd
+}

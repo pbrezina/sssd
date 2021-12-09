@@ -23,6 +23,9 @@
 
 #include <dbus/dbus.h>
 
+/* Master DBus server */
+#define SBUS_DBUS_NO_FLAGS 0x0
+
 /* Get D-Bus connection to a D-Bus system or session bus. */
 DBusConnection *sbus_dbus_connect_bus(DBusBusType bus, const char *name);
 

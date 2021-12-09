@@ -18,6 +18,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <talloc.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <resolv.h>
@@ -37,6 +38,12 @@ sss_iface_domain_address(TALLOC_CTX *mem_ctx,
     head = get_domains_head(domain);
 
     return talloc_asprintf(mem_ctx, SSS_BACKEND_ADDRESS, head->name);
+}
+
+char *
+new_sss_iface_domain_address(TALLOC_CTX *mem_ctx)
+{
+    return talloc_strdup(mem_ctx, SSS_MASTER_ADDRESS);
 }
 
 char *
