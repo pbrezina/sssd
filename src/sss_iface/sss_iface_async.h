@@ -39,6 +39,16 @@ sss_iface_connect_address(TALLOC_CTX *mem_ctx,
                           time_t *last_request_time,
                           struct sbus_connection **_conn);
 
+/**
+ * Check socket and connect to private sbus server.
+ */
+errno_t
+TEMPORARY_sss_iface_connect_address(TALLOC_CTX *mem_ctx,
+                              struct tevent_context *ev,
+                              const char *conn_name,
+                              time_t *last_request_time,
+                              struct sbus_connection **_conn);
+
 enum mt_svc_type {
     MT_SVC_SERVICE,
     MT_SVC_PROVIDER

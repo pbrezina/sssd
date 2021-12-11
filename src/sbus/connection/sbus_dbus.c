@@ -25,6 +25,7 @@
 #include <dbus/dbus.h>
 
 #include "util/util.h"
+#include "sss_iface/sss_iface.h"
 #include "sbus/connection/sbus_dbus_private.h"
 
 static errno_t
@@ -167,6 +168,63 @@ sbus_dbus_connect_address(const char *address, const char *name, bool init)
         DEBUG(SSSDBG_TRACE_FUNC, "Connected to %s bus as anonymous\n", address);
     } else {
         DEBUG(SSSDBG_TRACE_FUNC, "Connected to %s bus as %s\n", address, name);
+    }
+
+    ret = EOK;
+
+done:
+    dbus_error_free(&dbus_error);
+    if (ret != EOK && dbus_conn != NULL) {
+        dbus_connection_unref(dbus_conn);
+        dbus_conn = NULL;
+    }
+
+    return dbus_conn;
+}
+
+DBusConnection *
+TEMPORARY_sbus_dbus_connect_address(const char *name, bool init)
+{
+    DBusConnection *dbus_conn;
+    DBusError dbus_error;
+    dbus_bool_t dbret;
+    errno_t ret;
+
+    dbus_error_init(&dbus_error);
+
+    dbus_conn = dbus_connection_open(SSS_MASTER_ADDRESS, &dbus_error);
+    if (dbus_conn == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to connect to %s [%s]: %s\n",
+              SSS_MASTER_ADDRESS, dbus_error.name, dbus_error.message);
+        ret = EIO;
+        goto done;
+    }
+
+    if (!init) {
+        ret = EOK;
+        goto done;
+    }
+
+    dbret = dbus_bus_register(dbus_conn, &dbus_error);
+    if (!dbret) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to register to %s [%s]: %s\n",
+              SSS_MASTER_ADDRESS, dbus_error.name, dbus_error.message);
+        ret = EIO;
+        goto done;
+    }
+
+    /* Request a well-known name. */
+    if (name != NULL) {
+        ret = sbus_dbus_request_name(dbus_conn, name);
+        if (ret != EOK) {
+            goto done;
+        }
+    }
+
+    if (name == NULL) {
+        DEBUG(SSSDBG_TRACE_FUNC, "Connected to %s bus as anonymous\n", SSS_MASTER_ADDRESS);
+    } else {
+        DEBUG(SSSDBG_TRACE_FUNC, "Connected to %s bus as %s\n", SSS_MASTER_ADDRESS, name);
     }
 
     ret = EOK;

@@ -34,4 +34,8 @@ DBusConnection *sbus_dbus_connect_address(const char *address,
                                           const char *name,
                                           bool init);
 
+/* Get D-Bus connection to a D-Bus address. */
+DBusConnection *TEMPORARY_sbus_dbus_connect_address(const char *name,
+                                              bool init);
+
 #endif /* _SBUS_DBUS_PRIVATE_H_ */

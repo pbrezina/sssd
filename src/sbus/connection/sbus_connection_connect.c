@@ -212,6 +212,41 @@ sbus_connect_private(TALLOC_CTX *mem_ctx,
     return sbus_conn;
 }
 
+struct sbus_connection *
+TEMPORARY_sbus_connect_private(TALLOC_CTX *mem_ctx,
+                     struct tevent_context *ev,
+                     const char *dbus_name,
+                     time_t *last_activity_time)
+{
+    struct sbus_connection *sbus_conn;
+    DBusConnection *dbus_conn;
+    errno_t ret;
+
+    dbus_conn = TEMPORARY_sbus_dbus_connect_address(dbus_name, true);
+    if (dbus_conn == NULL) {
+        return NULL;
+    }
+
+    sbus_conn = TEMPORARY_sbus_connection_init(mem_ctx, ev, dbus_conn, dbus_name,
+                                         SBUS_CONNECTION_ADDRESS,
+                                         last_activity_time);
+    dbus_connection_unref(dbus_conn);
+    if (sbus_conn == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create connection context!\n");
+        return NULL;
+    }
+
+    ret = sbus_register_standard_signals(sbus_conn);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to register signal listeners "
+              "[%d]: %s\n", ret, sss_strerror(ret));
+        talloc_free(sbus_conn);
+        return NULL;
+    }
+
+    return sbus_conn;
+}
+
 struct sbus_connect_private_state {
     struct sbus_connection *conn;
 };

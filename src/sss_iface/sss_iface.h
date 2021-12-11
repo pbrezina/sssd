@@ -73,7 +73,7 @@ sss_iface_domain_address(TALLOC_CTX *mem_ctx,
  * Return domain address.
  */
 char *
-new_sss_iface_domain_address(TALLOC_CTX *mem_ctx);
+TEMPORARY_sss_iface_domain_address(TALLOC_CTX *mem_ctx);
 
 /**
  * Return domain bus name.

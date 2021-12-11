@@ -41,7 +41,7 @@ sss_iface_domain_address(TALLOC_CTX *mem_ctx,
 }
 
 char *
-new_sss_iface_domain_address(TALLOC_CTX *mem_ctx)
+TEMPORARY_sss_iface_domain_address(TALLOC_CTX *mem_ctx)
 {
     return talloc_strdup(mem_ctx, SSS_MASTER_ADDRESS);
 }
@@ -130,6 +130,71 @@ sss_iface_connect_address(TALLOC_CTX *mem_ctx,
     *_conn = conn;
 
     return EOK;
+}
+
+errno_t
+TEMPORARY_sss_iface_connect_address(TALLOC_CTX *mem_ctx,
+                              struct tevent_context *ev,
+                              const char *conn_name,
+                              time_t *last_request_time,
+                              struct sbus_connection **_conn)
+{
+    struct sbus_connection *conn;
+    const char *filename;
+    TALLOC_CTX *tmp_ctx;
+    const char *address;
+    errno_t ret;
+    uid_t check_uid;
+    gid_t check_gid;
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    address = talloc_strdup(tmp_ctx, SSS_MASTER_ADDRESS);
+    if (address == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
+    filename = strchr(address, '/');
+    if (filename == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Unexpected dbus address [%s].\n", address);
+        ret = EIO;
+        goto done;
+    }
+
+    check_uid = geteuid();
+    check_gid = getegid();
+
+    /* Ignore ownership checks when the server runs as root. This is the
+     * case when privileged monitor is setting up sockets for unprivileged
+     * responders */
+    if (check_uid == 0) check_uid = -1;
+    if (check_gid == 0) check_gid = -1;
+
+    ret = check_file(filename, check_uid, check_gid,
+                     S_IFSOCK|S_IRUSR|S_IWUSR, 0, NULL, true);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "check_file failed for [%s].\n", filename);
+        ret = EIO;
+        goto done;
+    }
+
+    conn = TEMPORARY_sbus_connect_private(mem_ctx, ev, conn_name, last_request_time);
+    if (conn == NULL) { /* most probably sbus_dbus_connect_address() failed */
+        ret = EFAULT;
+        goto done;
+    }
+
+    *_conn = conn;
+
+done:
+    talloc_free(tmp_ctx);
+
+    return ret;
 }
 
 static void

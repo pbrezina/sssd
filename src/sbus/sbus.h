@@ -85,6 +85,29 @@ sbus_connect_private(TALLOC_CTX *mem_ctx,
                      time_t *last_activity_time);
 
 /**
+ * Connect to a private D-Bus bus at @address.
+ *
+ * If @last_activity_time pointer is given, it is updated with current time
+ * each time an important event (such as method or property call) on the bus
+ * occurs. It is not updated when an signal arrives.
+ *
+ * @param mem_ctx                Memory context.
+ * @param ev                     Tevent context.
+ * @param dbus_name              Name of this end-point.
+ * @param last_activity_time     Pointer to a time that is updated each time
+ *                               an event occurs.
+ *
+ * @return New sbus connection or NULL on error.
+ *
+ * @see sbus_server_create
+ */
+struct sbus_connection *
+TEMPORARY_sbus_connect_private(TALLOC_CTX *mem_ctx,
+                         struct tevent_context *ev,
+                         const char *dbus_name,
+                         time_t *last_activity_time);
+
+/**
  * Connect to a private D-Bus bus at @address an perform its initialization
  * asynchronously. Usually, you can just call @sbus_connect_private which
  * will block for a while during Hello and RequestName calls, which is mostly
@@ -338,6 +361,32 @@ enum sbus_reconnect_status {
  * @param data          Private data passed to the callback.
  */
 #define sbus_reconnect_enable(conn, max_retries, callback, data) do {         \
+    SBUS_CHECK_FUNCTION(callback, void,                                       \
+                        struct sbus_connection *,                             \
+                        enum sbus_reconnect_status,                           \
+                        SBUS_TYPEOF(data));                                   \
+    _sbus_reconnect_enable((conn), max_retries,                               \
+        (sbus_reconnect_cb)callback, (sbus_reconnect_data)data);              \
+} while(0)
+
+
+/**
+ * Enable automatic reconnection when an sbus connection is dropped.
+ *
+ * You can also set a callback that is called upon successful or
+ * unsuccessful reconnection.
+ *
+ * Callback is of type:
+ * void callback(struct sbus_connection *conn,
+ *               enum sbus_reconnect_status status,
+ *               data_type *data)
+ *
+ * @param conn          An sbus connection.
+ * @param max_retries   Maximum number of reconnection retries.
+ * @param callback      Callback function.
+ * @param data          Private data passed to the callback.
+ */
+#define TEMPORARY_sbus_reconnect_enable(conn, max_retries, callback, data) do {     \
     SBUS_CHECK_FUNCTION(callback, void,                                       \
                         struct sbus_connection *,                             \
                         enum sbus_reconnect_status,                           \

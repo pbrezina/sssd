@@ -32,6 +32,7 @@
 #include <fcntl.h>
 #include <popt.h>
 #include <dbus/dbus.h>
+#include <talloc.h>
 
 #include "util/util.h"
 #include "util/strtonum.h"
@@ -707,6 +708,11 @@ sss_dp_on_reconnect(struct sbus_connection *conn,
                     struct be_conn *be_conn);
 
 static void
+TEMPORARY_sss_dp_on_reconnect(struct sbus_connection *conn,
+                        enum sbus_reconnect_status status,
+                        struct be_conn *be_conn);
+
+static void
 sss_dp_init_done(struct tevent_req *req);
 
 static errno_t
@@ -735,14 +741,6 @@ sss_dp_init(struct resp_ctx *rctx,
     be_conn->domain = domain;
     be_conn->rctx = rctx;
 
-    /* be_conn->sbus_address = sss_iface_domain_address(be_conn, domain); */
-    be_conn->sbus_address = new_sss_iface_domain_address(be_conn);
-    if (be_conn->sbus_address == NULL) {
-        DEBUG(SSSDBG_FATAL_FAILURE, "Could not locate DP address.\n");
-        ret = ENOMEM;
-        goto done;
-    }
-
     be_conn->bus_name = sss_iface_domain_bus(be_conn, domain);
     if (be_conn->bus_name == NULL) {
         DEBUG(SSSDBG_FATAL_FAILURE, "Could not locate DP address.\n");
@@ -750,9 +748,8 @@ sss_dp_init(struct resp_ctx *rctx,
         goto done;
     }
 
-    ret = sss_iface_connect_address(be_conn, rctx->ev, conn_name,
-                                    be_conn->sbus_address, NULL,
-                                    &be_conn->conn);
+    ret = TEMPORARY_sss_iface_connect_address(be_conn, rctx->ev,
+                                        conn_name, NULL, &be_conn->conn);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "Failed to connect to backend server.\n");
         goto done;
@@ -765,8 +762,8 @@ sss_dp_init(struct resp_ctx *rctx,
         goto done;
     }
 
-    sbus_reconnect_enable(be_conn->conn, max_retries, sss_dp_on_reconnect,
-                          be_conn);
+    TEMPORARY_sbus_reconnect_enable(be_conn->conn, max_retries, TEMPORARY_sss_dp_on_reconnect,
+                              be_conn);
 
     DLIST_ADD_END(rctx->be_conns, be_conn, struct be_conn *);
 
@@ -795,6 +792,34 @@ static void
 sss_dp_on_reconnect(struct sbus_connection *conn,
                     enum sbus_reconnect_status status,
                     struct be_conn *be_conn)
+{
+    struct tevent_req *req;
+
+    if (status != SBUS_RECONNECT_SUCCESS) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "Could not reconnect to %s provider.\n",
+              be_conn->domain->name);
+        return;
+    }
+
+    DEBUG(SSSDBG_TRACE_FUNC, "Reconnected to the Data Provider.\n");
+
+    /* Identify ourselves to the DP */
+    req = sbus_call_dp_client_Register_send(be_conn, be_conn->conn,
+                                            be_conn->bus_name,
+                                            SSS_BUS_PATH,
+                                            be_conn->cli_name);
+    if (req == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "sbus_call_dp_client_Register_send() failed\n");
+        return;
+    }
+
+    tevent_req_set_callback(req, sss_dp_init_done, be_conn);
+}
+
+static void
+TEMPORARY_sss_dp_on_reconnect(struct sbus_connection *conn,
+                        enum sbus_reconnect_status status,
+                        struct be_conn *be_conn)
 {
     struct tevent_req *req;
 

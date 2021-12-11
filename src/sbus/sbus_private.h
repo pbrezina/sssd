@@ -179,6 +179,15 @@ sbus_connection_init(TALLOC_CTX *mem_ctx,
                      enum sbus_connection_type type,
                      time_t *last_activity_time);
 
+/* Initialize new sbus connection. */
+struct sbus_connection *
+TEMPORARY_sbus_connection_init(TALLOC_CTX *mem_ctx,
+                     struct tevent_context *ev,
+                     DBusConnection *dbus_conn,
+                     const char *dbus_name,
+                     enum sbus_connection_type type,
+                     time_t *last_activity_time);
+
 /* Replace current D-Bus connection context with a new one. */
 errno_t sbus_connection_replace(struct sbus_connection *sbus_conn,
                                 DBusConnection *dbus_conn);
