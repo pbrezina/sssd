@@ -33,17 +33,6 @@
  */
 errno_t
 sss_iface_connect_address(TALLOC_CTX *mem_ctx,
-                          struct tevent_context *ev,
-                          const char *conn_name,
-                          const char *address,
-                          time_t *last_request_time,
-                          struct sbus_connection **_conn);
-
-/**
- * Check socket and connect to private sbus server.
- */
-errno_t
-TEMPORARY_sss_iface_connect_address(TALLOC_CTX *mem_ctx,
                               struct tevent_context *ev,
                               const char *conn_name,
                               time_t *last_request_time,

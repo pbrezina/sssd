@@ -68,7 +68,6 @@ sbus_connect_system(TALLOC_CTX *mem_ctx,
  *
  * @param mem_ctx                Memory context.
  * @param ev                     Tevent context.
- * @param address                Remote end-point address.
  * @param dbus_name              Name of this end-point.
  * @param last_activity_time     Pointer to a time that is updated each time
  *                               an event occurs.
@@ -79,30 +78,6 @@ sbus_connect_system(TALLOC_CTX *mem_ctx,
  */
 struct sbus_connection *
 sbus_connect_private(TALLOC_CTX *mem_ctx,
-                     struct tevent_context *ev,
-                     const char *address,
-                     const char *dbus_name,
-                     time_t *last_activity_time);
-
-/**
- * Connect to a private D-Bus bus at @address.
- *
- * If @last_activity_time pointer is given, it is updated with current time
- * each time an important event (such as method or property call) on the bus
- * occurs. It is not updated when an signal arrives.
- *
- * @param mem_ctx                Memory context.
- * @param ev                     Tevent context.
- * @param dbus_name              Name of this end-point.
- * @param last_activity_time     Pointer to a time that is updated each time
- *                               an event occurs.
- *
- * @return New sbus connection or NULL on error.
- *
- * @see sbus_server_create
- */
-struct sbus_connection *
-TEMPORARY_sbus_connect_private(TALLOC_CTX *mem_ctx,
                          struct tevent_context *ev,
                          const char *dbus_name,
                          time_t *last_activity_time);
@@ -133,7 +108,6 @@ TEMPORARY_sbus_connect_private(TALLOC_CTX *mem_ctx,
 struct tevent_req *
 sbus_connect_private_send(TALLOC_CTX *mem_ctx,
                           struct tevent_context *ev,
-                          const char *address,
                           const char *dbus_name,
                           time_t *last_activity_time);
 
@@ -157,7 +131,6 @@ errno_t sbus_connect_private_recv(TALLOC_CTX *mem_ctx,
  *
  * @param mem_ctx                Memory context.
  * @param ev                     Tevent context.
- * @param address                Socket address.
  * @param use_symlink            If a symlink to @address should be created.
  * @param uid                    Socket owner uid.
  * @param gid                    Socket owner gid.
@@ -167,15 +140,14 @@ errno_t sbus_connect_private_recv(TALLOC_CTX *mem_ctx,
  * @return New sbus server or NULL on error.
  */
 struct sbus_server *
-sbus_server_create(TALLOC_CTX *mem_ctx,
-                   struct tevent_context *ev,
-                   const char *address,
-                   bool use_symlink,
-                   uint32_t max_connections,
-                   uid_t uid,
-                   gid_t gid,
-                   sbus_server_on_connection_cb on_conn_cb,
-                   sbus_server_on_connection_data on_conn_data);
+server_create(TALLOC_CTX *mem_ctx,
+              struct tevent_context *ev,
+              bool use_symlink,
+              uint32_t max_connections,
+              uid_t uid,
+              gid_t gid,
+              sbus_server_on_connection_cb on_conn_cb,
+              sbus_server_on_connection_data on_conn_data);
 
 /**
  * Create a new sbus server at socket address @address and connect to it.
@@ -185,7 +157,6 @@ sbus_server_create(TALLOC_CTX *mem_ctx,
  * @param dbus_name              Name of the connection.
  * @param last_activity_time     Pointer to a time that is updated each time
  *                               an event occurs on connection.
- * @param address                Socket address.
  * @param use_symlink            If a symlink to @address should be created.
  * @param uid                    Socket owner uid.
  * @param gid                    Socket owner gid.
@@ -199,7 +170,6 @@ sbus_server_create_and_connect_send(TALLOC_CTX *mem_ctx,
                                     struct tevent_context *ev,
                                     const char *dbus_name,
                                     time_t *last_activity_time,
-                                    const char *address,
                                     bool use_symlink,
                                     uint32_t max_connections,
                                     uid_t uid,
@@ -361,32 +331,6 @@ enum sbus_reconnect_status {
  * @param data          Private data passed to the callback.
  */
 #define sbus_reconnect_enable(conn, max_retries, callback, data) do {         \
-    SBUS_CHECK_FUNCTION(callback, void,                                       \
-                        struct sbus_connection *,                             \
-                        enum sbus_reconnect_status,                           \
-                        SBUS_TYPEOF(data));                                   \
-    _sbus_reconnect_enable((conn), max_retries,                               \
-        (sbus_reconnect_cb)callback, (sbus_reconnect_data)data);              \
-} while(0)
-
-
-/**
- * Enable automatic reconnection when an sbus connection is dropped.
- *
- * You can also set a callback that is called upon successful or
- * unsuccessful reconnection.
- *
- * Callback is of type:
- * void callback(struct sbus_connection *conn,
- *               enum sbus_reconnect_status status,
- *               data_type *data)
- *
- * @param conn          An sbus connection.
- * @param max_retries   Maximum number of reconnection retries.
- * @param callback      Callback function.
- * @param data          Private data passed to the callback.
- */
-#define TEMPORARY_sbus_reconnect_enable(conn, max_retries, callback, data) do {     \
     SBUS_CHECK_FUNCTION(callback, void,                                       \
                         struct sbus_connection *,                             \
                         enum sbus_reconnect_status,                           \

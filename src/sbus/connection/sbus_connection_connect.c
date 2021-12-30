@@ -156,7 +156,7 @@ sbus_connect_system(TALLOC_CTX *mem_ctx,
         return NULL;
     }
 
-    sbus_conn = sbus_connection_init(mem_ctx, ev, dbus_conn, NULL, dbus_name,
+    sbus_conn = sbus_connection_init(mem_ctx, ev, dbus_conn, dbus_name,
                                      SBUS_CONNECTION_SYSBUS,
                                      last_activity_time);
     dbus_connection_unref(dbus_conn);
@@ -179,7 +179,6 @@ sbus_connect_system(TALLOC_CTX *mem_ctx,
 struct sbus_connection *
 sbus_connect_private(TALLOC_CTX *mem_ctx,
                      struct tevent_context *ev,
-                     const char *address,
                      const char *dbus_name,
                      time_t *last_activity_time)
 {
@@ -187,49 +186,14 @@ sbus_connect_private(TALLOC_CTX *mem_ctx,
     DBusConnection *dbus_conn;
     errno_t ret;
 
-    dbus_conn = sbus_dbus_connect_address(address, dbus_name, true);
+    dbus_conn = sbus_dbus_connect_address(dbus_name, true);
     if (dbus_conn == NULL) {
         return NULL;
     }
 
-    sbus_conn = sbus_connection_init(mem_ctx, ev, dbus_conn, address, dbus_name,
+    sbus_conn = sbus_connection_init(mem_ctx, ev, dbus_conn, dbus_name,
                                      SBUS_CONNECTION_ADDRESS,
                                      last_activity_time);
-    dbus_connection_unref(dbus_conn);
-    if (sbus_conn == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create connection context!\n");
-        return NULL;
-    }
-
-    ret = sbus_register_standard_signals(sbus_conn);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to register signal listeners "
-              "[%d]: %s\n", ret, sss_strerror(ret));
-        talloc_free(sbus_conn);
-        return NULL;
-    }
-
-    return sbus_conn;
-}
-
-struct sbus_connection *
-TEMPORARY_sbus_connect_private(TALLOC_CTX *mem_ctx,
-                     struct tevent_context *ev,
-                     const char *dbus_name,
-                     time_t *last_activity_time)
-{
-    struct sbus_connection *sbus_conn;
-    DBusConnection *dbus_conn;
-    errno_t ret;
-
-    dbus_conn = TEMPORARY_sbus_dbus_connect_address(dbus_name, true);
-    if (dbus_conn == NULL) {
-        return NULL;
-    }
-
-    sbus_conn = TEMPORARY_sbus_connection_init(mem_ctx, ev, dbus_conn, dbus_name,
-                                         SBUS_CONNECTION_ADDRESS,
-                                         last_activity_time);
     dbus_connection_unref(dbus_conn);
     if (sbus_conn == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create connection context!\n");
@@ -256,7 +220,6 @@ static void sbus_connect_private_done(struct tevent_req *subreq);
 struct tevent_req *
 sbus_connect_private_send(TALLOC_CTX *mem_ctx,
                           struct tevent_context *ev,
-                          const char *address,
                           const char *dbus_name,
                           time_t *last_activity_time)
 {
@@ -273,14 +236,14 @@ sbus_connect_private_send(TALLOC_CTX *mem_ctx,
         return NULL;
     }
 
-    dbus_conn = sbus_dbus_connect_address(address, dbus_name, false);
+    dbus_conn = sbus_dbus_connect_address(dbus_name, false);
     if (dbus_conn == NULL) {
         ret = ENOMEM;
         goto done;
     }
 
-    state->conn = sbus_connection_init(state, ev, dbus_conn, address,
-                                       dbus_name, SBUS_CONNECTION_ADDRESS,
+    state->conn = sbus_connection_init(state, ev, dbus_conn, dbus_name,
+                                       SBUS_CONNECTION_ADDRESS,
                                        last_activity_time);
     dbus_connection_unref(dbus_conn);
     if (state->conn == NULL) {
@@ -375,7 +338,6 @@ sbus_server_create_and_connect_send(TALLOC_CTX *mem_ctx,
                                     struct tevent_context *ev,
                                     const char *dbus_name,
                                     time_t *last_activity_time,
-                                    const char *address,
                                     bool use_symlink,
                                     uint32_t max_connections,
                                     uid_t uid,
@@ -394,16 +356,16 @@ sbus_server_create_and_connect_send(TALLOC_CTX *mem_ctx,
         return NULL;
     }
 
-    state->server = sbus_server_create(state, ev, address, use_symlink,
-                                       max_connections, uid, gid,
-                                       on_conn_cb, on_conn_data);
+    state->server = server_create(state, ev, use_symlink,
+                                  max_connections, uid, gid,
+                                  on_conn_cb, on_conn_data);
     if (state->server == NULL) {
         ret = ENOMEM;
         goto done;
     }
 
-    subreq = sbus_connect_private_send(state, ev, address, dbus_name,
-                                       last_activity_time);
+    subreq = sbus_connect_private_send(state, ev, dbus_name,
+                                                 last_activity_time);
     if (subreq == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");
         ret = ENOMEM;

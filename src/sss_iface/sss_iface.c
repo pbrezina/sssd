@@ -29,19 +29,7 @@
 #include "sss_iface/sss_iface_async.h"
 
 char *
-sss_iface_domain_address(TALLOC_CTX *mem_ctx,
-                         struct sss_domain_info *domain)
-{
-    struct sss_domain_info *head;
-
-    /* There is only one bus that belongs to the top level domain. */
-    head = get_domains_head(domain);
-
-    return talloc_asprintf(mem_ctx, SSS_BACKEND_ADDRESS, head->name);
-}
-
-char *
-TEMPORARY_sss_iface_domain_address(TALLOC_CTX *mem_ctx)
+sss_iface_domain_address(TALLOC_CTX *mem_ctx)
 {
     return talloc_strdup(mem_ctx, SSS_MASTER_ADDRESS);
 }
@@ -82,58 +70,6 @@ sss_iface_proxy_bus(TALLOC_CTX *mem_ctx,
 
 errno_t
 sss_iface_connect_address(TALLOC_CTX *mem_ctx,
-                          struct tevent_context *ev,
-                          const char *conn_name,
-                          const char *address,
-                          time_t *last_request_time,
-                          struct sbus_connection **_conn)
-{
-    struct sbus_connection *conn;
-    const char *filename;
-    errno_t ret;
-    uid_t check_uid;
-    gid_t check_gid;
-
-    if (address == NULL) {
-        return EINVAL;
-    }
-
-    filename = strchr(address, '/');
-    if (filename == NULL) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "Unexpected dbus address [%s].\n", address);
-        return EIO;
-    }
-
-    check_uid = geteuid();
-    check_gid = getegid();
-
-    /* Ignore ownership checks when the server runs as root. This is the
-     * case when privileged monitor is setting up sockets for unprivileged
-     * responders */
-    if (check_uid == 0) check_uid = -1;
-    if (check_gid == 0) check_gid = -1;
-
-    ret = check_file(filename, check_uid, check_gid,
-                     S_IFSOCK|S_IRUSR|S_IWUSR, 0, NULL, true);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "check_file failed for [%s].\n", filename);
-        return EIO;
-    }
-
-    conn = sbus_connect_private(mem_ctx, ev, address,
-                                conn_name, last_request_time);
-    if (conn == NULL) { /* most probably sbus_dbus_connect_address() failed */
-        return EFAULT;
-    }
-
-    *_conn = conn;
-
-    return EOK;
-}
-
-errno_t
-TEMPORARY_sss_iface_connect_address(TALLOC_CTX *mem_ctx,
                               struct tevent_context *ev,
                               const char *conn_name,
                               time_t *last_request_time,
@@ -183,7 +119,7 @@ TEMPORARY_sss_iface_connect_address(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    conn = TEMPORARY_sbus_connect_private(mem_ctx, ev, conn_name, last_request_time);
+    conn = sbus_connect_private(mem_ctx, ev, conn_name, last_request_time);
     if (conn == NULL) { /* most probably sbus_dbus_connect_address() failed */
         ret = EFAULT;
         goto done;
@@ -215,7 +151,6 @@ sss_monitor_service_init(TALLOC_CTX *mem_ctx,
     errno_t ret;
 
     ret = sss_iface_connect_address(mem_ctx, ev, conn_name,
-                                    SSS_MONITOR_ADDRESS,
                                     last_request_time, &conn);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to connect to monitor sbus server "

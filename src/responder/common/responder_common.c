@@ -708,11 +708,6 @@ sss_dp_on_reconnect(struct sbus_connection *conn,
                     struct be_conn *be_conn);
 
 static void
-TEMPORARY_sss_dp_on_reconnect(struct sbus_connection *conn,
-                        enum sbus_reconnect_status status,
-                        struct be_conn *be_conn);
-
-static void
 sss_dp_init_done(struct tevent_req *req);
 
 static errno_t
@@ -748,8 +743,8 @@ sss_dp_init(struct resp_ctx *rctx,
         goto done;
     }
 
-    ret = TEMPORARY_sss_iface_connect_address(be_conn, rctx->ev,
-                                        conn_name, NULL, &be_conn->conn);
+    ret = sss_iface_connect_address(be_conn, rctx->ev, conn_name,
+                                    NULL, &be_conn->conn);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "Failed to connect to backend server.\n");
         goto done;
@@ -762,8 +757,7 @@ sss_dp_init(struct resp_ctx *rctx,
         goto done;
     }
 
-    TEMPORARY_sbus_reconnect_enable(be_conn->conn, max_retries, TEMPORARY_sss_dp_on_reconnect,
-                              be_conn);
+    sbus_reconnect_enable(be_conn->conn, max_retries, sss_dp_on_reconnect, be_conn);
 
     DLIST_ADD_END(rctx->be_conns, be_conn, struct be_conn *);
 
@@ -817,7 +811,7 @@ sss_dp_on_reconnect(struct sbus_connection *conn,
 }
 
 static void
-TEMPORARY_sss_dp_on_reconnect(struct sbus_connection *conn,
+sss_dp_on_reconnect(struct sbus_connection *conn,
                         enum sbus_reconnect_status status,
                         struct be_conn *be_conn)
 {
