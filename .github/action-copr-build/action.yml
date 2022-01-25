@@ -1,0 +1,115 @@
+name: Build source rpm in copr
+inputs:
+  token:
+    description: Copr API token
+    required: true
+  srpm:
+    description: Source rpm to build
+    required: true
+  chroots:
+    description: Comma separate list of chroots
+    required: false
+    default: '@fedora'
+  project:
+    description: Copr project name
+    required: true
+  account:
+    description: Copr user or group
+    required: true
+  description:
+    description: Copr project description.
+    required: false
+    default: ""
+  instructions:
+    description: Copr project instructions.
+    required: false
+    default: ""
+runs:
+  using: 'composite'
+  steps:
+    - name: Install copr-cli
+      shell: bash
+      run: |
+        pip3 install copr-cli
+
+    - name: Create copr configuration
+      id: config
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+      run: |
+        dir=`mktemp -d`
+        echo -e "$TOKEN" > $dir/.coprcfg
+        echo ::set-output name=path::$dir/.coprcfg
+
+    - name: Generate list of chroots
+      id: chroot
+      shell: bash
+      env:
+        CHROOTS: ${{ inputs.chroots }}
+        CONFIG: ${{ steps.config.outputs.path }}
+      run: |
+        set -ex
+        trap "rm -f $CONFIG" ERR
+
+        fedora=`copr-cli --config "$CONFIG" list-chroots | grep -E 'fedora-.+-x86_64' | tr '\n' ' '`
+        centos=`copr-cli --config "$CONFIG" list-chroots | grep -E 'centos-.+-x86_64' | tr '\n' ' '`
+
+        CHROOTS=${CHROOTS/@fedora/$fedora}
+        CHROOTS=${CHROOTS/@centos/$centos}
+
+        echo ::set-output name=list::$CHROOTS
+
+    - name: Create copr project
+      shell: bash
+      env:
+        CONFIG: ${{ steps.config.outputs.path }}
+        ACCOUNT: ${{ inputs.account }}
+        PROJECT: ${{ inputs.project }}
+        CHROOTS: ${{ steps.chroot.outputs.list }}
+        DESCRIPTION: ${{ inputs.description }}
+        INSTRUCTIONS: ${{ inputs.instructions }}
+        FEDORA_STABLE: ${{ steps.releases.outputs.stable }}
+        FEDORA_DEVEL: ${{ steps.releases.outputs.development }}
+        FEDORA_ACTIVE: ${{ steps.releases.outputs.active }}
+      run: |
+        set -ex
+        trap "rm -f $CONFIG" ERR
+
+        if copr-cli --config "$CONFIG" list "$ACCOUNT" | grep "$PROJECT" &> /dev/null; then
+          echo "Project $PROJECT already exist. Nothing to do."
+          exit 0
+        fi
+
+        args=""
+        for chroot in $CHROOTS; do
+          args+=" --chroot $chroot"
+        done
+
+        echo $args
+
+        echo copr-cli --config "$CONFIG" create "$ACCOUNT/$PROJECT" $args \
+          --unlisted-on-hp on                \
+          --appstream off                    \
+          --delete-after-days 60             \
+          --fedora-review                    \
+          --description "$DESCRIPTION"       \
+          --instructions "$INSTRUCTIONS"
+
+    - name: Submit copr build
+      shell: bash
+      env:
+        SRPM: ${{ inputs.srpm }}
+        CONFIG: ${{ steps.config.outputs.path }}
+        ACCOUNT: ${{ inputs.account }}
+        PROJECT: ${{ inputs.project }}
+      run: |
+        trap "rm -f $CONFIG" ERR
+        echo copr-cli --config "$CONFIG"  build "$ACCOUNT/$PROJECT" "$SRPM"
+
+    - name: Cleanup
+      shell: bash
+      env:
+        CONFIG: ${{ steps.config.outputs.path }}
+      run: |
+        rm -f "$CONFIG"

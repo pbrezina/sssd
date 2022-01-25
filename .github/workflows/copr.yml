@@ -1,0 +1,66 @@
+name: copr build
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, closed]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      COPR_PROJECT: pr${{ github.event.pull_request.number }}
+      COPR_ACCOUNT: '@sssd'
+    steps:
+    - name: Echo action
+      shell: bash
+      run: |
+        echo ${{ github.action }}
+
+    - uses: actions/checkout@v2
+      with:
+        ref: ${{ github.event.pull_request.head.ref }}
+        repository: ${{ github.event.pull_request.head.repo.full_name }}
+      if: ${{ github.action != 'closed' }}
+
+    - name: Generate tarball and spec file
+      shell: bash
+      run: |
+        NAME=sssd-$COPR_PROJECT
+        tar -cvzf $NAME.tar.gz --transform "s,^,$NAME/," *
+
+        cp contrib/sssd.spec.in ./sssd.spec
+
+        sed -iE "s/@PACKAGE_NAME@/sssd/g" ./sssd.spec
+        sed -iE "s/@PACKAGE_VERSION@/$COPR_PROJECT/g" ./sssd.spec
+        sed -iE "s/@PRERELEASE_VERSION@/$GITHUB_RUN_NUMBER/g" ./sssd.spec
+      if: ${{ github.action != 'closed' }}
+
+    - name: Build source rpm
+      id: srpm
+      uses: ./.github/action-srpm
+      with:
+        tarball: sssd-$COPR_PROJECT.tar.gz
+        specfile: sssd.spec
+      if: ${{ github.action != 'closed' }}
+
+    - name: Build copr project
+      uses: ./.github/action-copr-build
+      with:
+          token: ${{ secrets.COPR_SECRETS }}
+          srpm: ${{ steps.srpm.outputs.srpm }}
+          chroots: '@centos @fedora'
+          project: ${{ env.COPR_PROJECT }}
+          account: ${{ env.COPR_ACCOUNT }}
+          description: test description
+          instructions: test instructions
+      if: ${{ github.action != 'closed' }}
+
+    - name: Delete copr project
+      uses: ./.github/action-copr-remove
+      with:
+          token: ${{ secrets.COPR_SECRETS }}
+          project: ${{ env.COPR_PROJECT }}
+          account: ${{ env.COPR_ACCOUNT }}
+      if: ${{ github.action == 'closed' }}
+
