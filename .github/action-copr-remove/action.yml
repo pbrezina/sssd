@@ -1,0 +1,43 @@
+name: Delete copr project
+inputs:
+  token:
+    description: Copr API token
+    required: true
+  project:
+    description: Copr project name
+    required: true
+  account:
+    description: Copr user or group
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Install copr-cli
+      shell: bash
+      run: |
+        pip3 install copr-cli
+
+    - name: Create copr configuration
+      id: config
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+      run: |
+        dir=`mktemp -d`
+        echo -e "$TOKEN" > $dir/.coprcfg
+        echo ::set-output name=path::$dir/.coprcfg
+
+    - name: Delete copr project
+      shell: bash
+      env:
+        CONFIG: ${{ steps.config.outputs.path }}
+        ACCOUNT: ${{ inputs.account }}
+        PROJECT: ${{ inputs.project }}
+      run: |
+        set -ex
+        trap "rm -f $CONFIG" EXIT
+
+        builds=`copr-cli --config "$CONFIG" list-builds --output-format text-row "$ACCOUNT/$PROJECT" | grep "running\|pending" | cut -f1`
+        for i in $builds; do copr-cli --config "$CONFIG" cancel $i; done
+
+        copr-cli --config "$CONFIG" delete "$ACCOUNT/$PROJECT"

@@ -1,0 +1,90 @@
+name: copr
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, closed]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      PR_ID: ${{ github.event.pull_request.number }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      COPR_PROJECT: pr${{ github.event.pull_request.number }}
+      COPR_ACCOUNT: '@sssd'
+      COPR_PACKAGE: sssd
+      COPR_URL: https://copr.fedorainfracloud.org/coprs/g/sssd
+    steps:
+    - name: Add pull request comment
+      uses: marocchino/sticky-pull-request-comment@v2
+      env:
+        URL: ${{ env.COPR_URL }}/${{ env.COPR_PROJECT }}
+        BADGE: ${{ env.COPR_URL }}/package/${{ env.COPR_PACKAGE }}/status_image/last_build.png?
+        BUILDS: ${{ env.COPR_URL }}/${{ env.COPR_PROJECT }}/builds
+      with:
+        message: |
+          * This pull request is built in copr: ${{ env.URL }}
+            [![The project is not yet created.](${{ env.BADGE }})](${{ env.BUILDS }})
+          * You can install this pull request by running:
+
+          ```
+          $ dnf copr enable ${{ env.COPR_ACCOUNT }}/${{ env.COPR_PROJECT }}
+          $ dnf install ${{ env.COPR_PACKAGE }}
+          ```
+      if: ${{ github.event.action != 'closed' }}
+
+    - uses: actions/checkout@v2
+      with:
+        ref: ${{ github.event.pull_request.head.ref }}
+        repository: ${{ github.event.pull_request.head.repo.full_name }}
+      if: ${{ github.event.action != 'closed' }}
+
+    - name: Generate tarball and spec file
+      shell: bash
+      run: |
+        NAME=sssd-$COPR_PROJECT
+        tar -cvzf $NAME.tar.gz --transform "s,^,$NAME/," *
+
+        cp contrib/sssd.spec.in ./sssd.spec
+
+        sed -iE "s/@PACKAGE_NAME@/sssd/g" ./sssd.spec
+        sed -iE "s/@PACKAGE_VERSION@/$COPR_PROJECT/g" ./sssd.spec
+        sed -iE "s/@PRERELEASE_VERSION@/$GITHUB_RUN_NUMBER/g" ./sssd.spec
+      if: ${{ github.event.action != 'closed' }}
+
+    - name: Build source rpm
+      id: srpm
+      uses: ./.github/action-srpm
+      with:
+        tarball: sssd-$COPR_PROJECT.tar.gz
+        specfile: sssd.spec
+      if: ${{ github.event.action != 'closed' }}
+
+    - name: Upload source rpm as an artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: sssd-${{ env.COPR_PROJECT }}-0${{ env.GITHUB_RUN_NUMBER }}.src.rpm
+        path: ${{ steps.srpm.outputs.srpm }}
+      if: ${{ github.event.action != 'closed' }}
+
+    - name: Build copr project
+      uses: ./.github/action-copr-build
+      with:
+          token: ${{ secrets.COPR_SECRETS }}
+          srpm: ${{ steps.srpm.outputs.srpm }}
+          chroots: '@centos @fedora'
+          project: ${{ env.COPR_PROJECT }}
+          account: ${{ env.COPR_ACCOUNT }}
+          description: 'Development package for [SSSD pull request #${{ env.PR_ID }}](${{ env.PR_URL }}).'
+          instructions: 'Use this for test purpose only. Do not use this in production.'
+      if: ${{ github.event.action != 'closed' }}
+
+    - name: Delete copr project
+      uses: ./.github/action-copr-remove
+      with:
+          token: ${{ secrets.COPR_SECRETS }}
+          project: ${{ env.COPR_PROJECT }}
+          account: ${{ env.COPR_ACCOUNT }}
+      if: ${{ github.event.action == 'closed' }}
+
