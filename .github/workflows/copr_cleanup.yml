@@ -1,0 +1,15 @@
+name: copr cleanup
+on:
+  pull_request_target:
+    types: [closed]
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.action == 'closed' }}
+    steps:
+    - name: Delete copr project
+      uses: SSSD/action-copr-delete@master
+      with:
+        token: ${{ secrets.COPR_SECRETS }}
+        project: 'pr${{ github.event.pull_request.number }}'
+        account: '@sssd'
