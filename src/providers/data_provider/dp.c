@@ -158,7 +158,7 @@ dp_init_send(TALLOC_CTX *mem_ctx,
         return NULL;
     }
 
-    sbus_address = sss_iface_domain_address(state, be_ctx->domain);
+    sbus_address = sss_iface_domain_address(state);
     if (sbus_address == NULL) {
         DEBUG(SSSDBG_FATAL_FAILURE, "Could not get sbus backend address.\n");
         ret = ENOMEM;

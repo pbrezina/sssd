@@ -363,7 +363,7 @@ proxy_cli_init(struct pc_ctx *ctx)
         {NULL, NULL}
     };
 
-    sbus_address = sss_iface_domain_address(tmp_ctx, ctx->domain);
+    sbus_address = sss_iface_domain_address(tmp_ctx);
     if (sbus_address == NULL) {
         ret = ENOMEM;
         goto done;

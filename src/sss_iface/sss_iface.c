@@ -28,15 +28,9 @@
 #include "sss_iface/sss_iface_async.h"
 
 char *
-sss_iface_domain_address(TALLOC_CTX *mem_ctx,
-                         struct sss_domain_info *domain)
+sss_iface_domain_address(TALLOC_CTX *mem_ctx)
 {
-    struct sss_domain_info *head;
-
-    /* There is only one bus that belongs to the top level domain. */
-    head = get_domains_head(domain);
-
-    return talloc_asprintf(mem_ctx, SSS_BACKEND_ADDRESS, head->name);
+    return talloc_asprintf(mem_ctx, SSS_MASTER_ADDRESS);
 }
 
 char *
@@ -143,7 +137,7 @@ sss_monitor_service_init(TALLOC_CTX *mem_ctx,
     errno_t ret;
 
     ret = sss_iface_connect_address(mem_ctx, ev, conn_name,
-                                    SSS_MONITOR_ADDRESS,
+                                    SSS_MASTER_ADDRESS,
                                     last_request_time, &conn);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to connect to monitor sbus server "

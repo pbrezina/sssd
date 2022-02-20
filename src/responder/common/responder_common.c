@@ -739,7 +739,7 @@ sss_dp_init(struct resp_ctx *rctx,
     be_conn->domain = domain;
     be_conn->rctx = rctx;
 
-    be_conn->sbus_address = sss_iface_domain_address(be_conn, domain);
+    be_conn->sbus_address = sss_iface_domain_address(be_conn);
     if (be_conn->sbus_address == NULL) {
         DEBUG(SSSDBG_FATAL_FAILURE, "Could not locate DP address.\n");
         ret = ENOMEM;
