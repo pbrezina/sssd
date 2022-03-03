@@ -79,9 +79,6 @@ struct cli_protocol {
 struct resp_ctx;
 
 struct be_conn {
-    struct be_conn *next;
-    struct be_conn *prev;
-
     struct resp_ctx *rctx;
 
     const char *cli_name;
@@ -106,7 +103,7 @@ struct resp_ctx {
     struct sss_names_ctx *global_names;
 
     struct sbus_connection *mon_conn;
-    struct be_conn *be_conns;
+    struct be_conn *be_conn;
 
     struct sss_domain_info *domains;
     int domains_timeout;
@@ -210,8 +207,7 @@ int sss_process_init(TALLOC_CTX *mem_ctx,
                      connection_setup_t conn_setup,
                      struct resp_ctx **responder_ctx);
 
-int sss_dp_get_domain_conn(struct resp_ctx *rctx, const char *domain,
-                           struct be_conn **_conn);
+int sss_dp_get_domain_conn(struct resp_ctx *rctx, struct be_conn **_conn);
 struct sss_domain_info *
 responder_get_domain(struct resp_ctx *rctx, const char *domain);
 

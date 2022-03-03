@@ -1508,20 +1508,11 @@ fail:
     return ret;
 }
 
-int sss_dp_get_domain_conn(struct resp_ctx *rctx, const char *domain,
-                           struct be_conn **_conn)
+int sss_dp_get_domain_conn(struct resp_ctx *rctx, struct be_conn **_conn)
 {
-    struct be_conn *iter;
+    if (!rctx->be_conn) return ENOENT;
 
-    if (!rctx->be_conns) return ENOENT;
-
-    for (iter = rctx->be_conns; iter; iter = iter->next) {
-        if (strcasecmp(domain, iter->domain->name) == 0) break;
-    }
-
-    if (!iter) return ENOENT;
-
-    *_conn = iter;
+    *_conn = rctx->be_conn;
 
     return EOK;
 }

@@ -252,11 +252,10 @@ sss_dp_get_account_send(TALLOC_CTX *mem_ctx,
         }
     }
 
-    ret = sss_dp_get_domain_conn(rctx, dom->conn_name, &be_conn);
+    ret = sss_dp_get_domain_conn(rctx, &be_conn);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
-              "BUG: The Data Provider connection for %s is not available!\n",
-              dom->name);
+              "BUG: The Data Provider connection is not available!\n");
         ret = EIO;
         goto done;
     }
