@@ -1508,15 +1508,6 @@ fail:
     return ret;
 }
 
-int sss_dp_get_domain_conn(struct resp_ctx *rctx, struct be_conn **_conn)
-{
-    if (!rctx->be_conn) return ENOENT;
-
-    *_conn = rctx->be_conn;
-
-    return EOK;
-}
-
 struct sss_domain_info *
 responder_get_domain(struct resp_ctx *rctx, const char *name)
 {

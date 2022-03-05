@@ -42,7 +42,6 @@ get_subdomains_send(TALLOC_CTX *mem_ctx,
     struct get_subdomains_state *state;
     struct tevent_req *subreq;
     struct tevent_req *req;
-    struct be_conn *be_conn;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state, struct get_subdomains_state);
@@ -65,18 +64,9 @@ get_subdomains_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = sss_dp_get_domain_conn(rctx, dom->conn_name, &be_conn);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "BUG: The Data Provider connection for %s is not available!\n",
-              dom->name);
-        ret = EIO;
-        goto done;
-    }
-
-    subreq = sbus_call_dp_dp_getDomains_send(state, be_conn->conn,
-                                             be_conn->bus_name,
-                                             SSS_BUS_PATH, hint);
+    subreq = sbus_call_dp_dp_getDomains_send(state, rctx->master_conn,
+                                             dom->conn_name, SSS_BUS_PATH,
+                                             hint);
     if (subreq == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");
         ret = ENOMEM;
@@ -701,7 +691,6 @@ sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
     struct sss_dp_get_account_domain_state *state;
     struct tevent_req *subreq;
     struct tevent_req *req;
-    struct be_conn *be_conn;
     uint32_t entry_type;
     char *filter;
     uint32_t dp_flags;
@@ -711,15 +700,6 @@ sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
     if (req == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create tevent request!\n");
         return NULL;
-    }
-
-    ret = sss_dp_get_domain_conn(rctx, dom->conn_name, &be_conn);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "BUG: The Data Provider connection for %s is not available!\n",
-              dom->name);
-        ret = EIO;
-        goto done;
     }
 
     switch (type) {
@@ -747,10 +727,9 @@ sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
 
     dp_flags = fast_reply ? DP_FAST_REPLY : 0;
 
-    subreq = sbus_call_dp_dp_getAccountDomain_send(state, be_conn->conn,
-                                                   be_conn->bus_name,
-                                                   SSS_BUS_PATH, dp_flags,
-                                                   entry_type, filter,
+    subreq = sbus_call_dp_dp_getAccountDomain_send(state, rctx->master_conn,
+                                                   dom->conn_name, SSS_BUS_PATH,
+                                                   dp_flags, entry_type, filter,
                                                    rctx->client_id_num);
     if (subreq == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");

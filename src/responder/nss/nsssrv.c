@@ -468,7 +468,6 @@ int nss_process_init(TALLOC_CTX *mem_ctx,
 {
     struct resp_ctx *rctx;
     struct sss_cmd_table *nss_cmds;
-    struct be_conn *iter;
     struct nss_ctx *nctx;
     int ret;
     enum idmap_error_code err;
@@ -504,11 +503,9 @@ int nss_process_init(TALLOC_CTX *mem_ctx,
         goto fail;
     }
 
-    for (iter = nctx->rctx->be_conns; iter; iter = iter->next) {
-        ret = nss_register_backend_iface(iter->conn, nctx);
-        if (ret != EOK) {
-            goto fail;
-        }
+    ret = nss_register_backend_iface(nctx->rctx->master_conn, nctx);
+    if (ret != EOK) {
+        goto fail;
     }
 
     err = sss_idmap_init(sss_idmap_talloc, nctx, sss_idmap_talloc_free,
