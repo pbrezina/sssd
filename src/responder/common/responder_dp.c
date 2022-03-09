@@ -263,7 +263,7 @@ sss_dp_get_account_send(TALLOC_CTX *mem_ctx,
           dom->name, entry_type, be_req2str(entry_type),
           filter, extra == NULL ? "-" : extra);
 
-    subreq = sbus_call_dp_dp_getAccountInfo_send(state, rctx->master_conn,
+    subreq = sbus_call_dp_dp_getAccountInfo_send(state, rctx->sbus_conn,
                  dom->conn_name, SSS_BUS_PATH, dp_flags,
                  entry_type, filter, dom->name, extra,
                  rctx->client_id_num);
@@ -381,7 +381,7 @@ sss_dp_resolver_get_send(TALLOC_CTX *mem_ctx,
           filter_type, filter_value ? filter_value : "-");
 
     dp_flags = fast_reply ? DP_FAST_REPLY : 0;
-    subreq = sbus_call_dp_dp_resolverHandler_send(state, rctx->master_conn,
+    subreq = sbus_call_dp_dp_resolverHandler_send(state, rctx->sbus_conn,
                                                   dom->conn_name,
                                                   SSS_BUS_PATH,
                                                   dp_flags, entry_type,

@@ -72,7 +72,7 @@ cache_req_host_by_name_dp_send(TALLOC_CTX *mem_ctx,
                                struct sss_domain_info *domain,
                                struct ldb_result *result)
 {
-    return sbus_call_dp_dp_hostHandler_send(mem_ctx, cr->rctx->master_conn,
+    return sbus_call_dp_dp_hostHandler_send(mem_ctx, cr->rctx->sbus_conn,
                                             domain->conn_name, SSS_BUS_PATH,
                                             0, data->name.name, data->alias,
                                             cr->rctx->client_id_num);

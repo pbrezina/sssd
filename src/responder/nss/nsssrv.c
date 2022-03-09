@@ -503,7 +503,7 @@ int nss_process_init(TALLOC_CTX *mem_ctx,
         goto fail;
     }
 
-    ret = nss_register_backend_iface(nctx->rctx->master_conn, nctx);
+    ret = nss_register_backend_iface(nctx->rctx->sbus_conn, nctx);
     if (ret != EOK) {
         goto fail;
     }

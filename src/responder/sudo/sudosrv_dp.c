@@ -187,7 +187,7 @@ sss_dp_get_sudoers_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    subreq = sbus_call_dp_dp_sudoHandler_send(state, rctx->master_conn, msg);
+    subreq = sbus_call_dp_dp_sudoHandler_send(state, rctx->sbus_conn, msg);
     if (subreq == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");
         ret = ENOMEM;

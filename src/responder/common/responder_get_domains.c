@@ -64,7 +64,7 @@ get_subdomains_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    subreq = sbus_call_dp_dp_getDomains_send(state, rctx->master_conn,
+    subreq = sbus_call_dp_dp_getDomains_send(state, rctx->sbus_conn,
                                              dom->conn_name, SSS_BUS_PATH,
                                              hint);
     if (subreq == NULL) {
@@ -727,7 +727,7 @@ sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
 
     dp_flags = fast_reply ? DP_FAST_REPLY : 0;
 
-    subreq = sbus_call_dp_dp_getAccountDomain_send(state, rctx->master_conn,
+    subreq = sbus_call_dp_dp_getAccountDomain_send(state, rctx->sbus_conn,
                                                    dom->conn_name, SSS_BUS_PATH,
                                                    dp_flags, entry_type, filter,
                                                    rctx->client_id_num);

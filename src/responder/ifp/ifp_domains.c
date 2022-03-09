@@ -583,7 +583,7 @@ ifp_domains_domain_is_online_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    subreq = sbus_call_dp_backend_IsOnline_send(state, ifp_ctx->rctx->master_conn,
+    subreq = sbus_call_dp_backend_IsOnline_send(state, ifp_ctx->rctx->sbus_conn,
                 dom->conn_name, SSS_BUS_PATH, dom->name);
     if (subreq == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");
@@ -670,7 +670,7 @@ ifp_domains_domain_list_services_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    subreq = sbus_call_dp_failover_ListServices_send(state, ifp_ctx->rctx->master_conn,
+    subreq = sbus_call_dp_failover_ListServices_send(state, ifp_ctx->rctx->sbus_conn,
                 dom->conn_name, SSS_BUS_PATH, dom->name);
     if (subreq == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");
@@ -758,7 +758,7 @@ ifp_domains_domain_active_server_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    subreq = sbus_call_dp_failover_ActiveServer_send(state, ifp_ctx->rctx->master_conn,
+    subreq = sbus_call_dp_failover_ActiveServer_send(state, ifp_ctx->rctx->sbus_conn,
                 dom->conn_name, SSS_BUS_PATH, service);
     if (subreq == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");
@@ -846,7 +846,7 @@ ifp_domains_domain_list_servers_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    subreq = sbus_call_dp_failover_ListServers_send(state, ifp_ctx->rctx->master_conn,
+    subreq = sbus_call_dp_failover_ListServers_send(state, ifp_ctx->rctx->sbus_conn,
                 dom->conn_name, SSS_BUS_PATH, service);
     if (subreq == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");
@@ -933,7 +933,7 @@ ifp_domains_domain_refresh_access_rules_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    subreq = sbus_call_dp_access_RefreshRules_send(state, ifp_ctx->rctx->master_conn,
+    subreq = sbus_call_dp_access_RefreshRules_send(state, ifp_ctx->rctx->sbus_conn,
                 dom->conn_name, SSS_BUS_PATH);
     if (subreq == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");

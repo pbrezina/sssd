@@ -89,7 +89,7 @@ struct resp_ctx {
     struct sss_nc_ctx *ncache;
     struct sss_names_ctx *global_names;
 
-    struct sbus_connection *master_conn;
+    struct sbus_connection *sbus_conn;
 
     struct sss_domain_info *domains;
     int domains_timeout;
