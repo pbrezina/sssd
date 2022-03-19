@@ -380,7 +380,7 @@ nss_register_service_iface(struct nss_ctx *nss_ctx,
         SBUS_PROPERTIES(SBUS_NO_PROPERTIES)
     );
 
-    ret = sbus_connection_add_path(rctx->mon_conn, SSS_BUS_PATH, &iface_svc);
+    ret = sbus_connection_add_path(rctx->sbus_conn, SSS_BUS_PATH, &iface_svc);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "Unable to register service interface"
               "[%d]: %s\n", ret, sss_strerror(ret));
@@ -600,7 +600,7 @@ int nss_process_init(TALLOC_CTX *mem_ctx,
     ret = sss_monitor_service_init(rctx, rctx->ev, SSS_BUS_NSS,
                                    NSS_SBUS_SERVICE_NAME,
                                    NSS_SBUS_SERVICE_VERSION, MT_SVC_SERVICE,
-                                   &rctx->last_request_time, &rctx->mon_conn);
+                                   &rctx->last_request_time, &rctx->sbus_conn);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "fatal error setting up message bus\n");
         goto fail;

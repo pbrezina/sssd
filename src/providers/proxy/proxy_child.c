@@ -53,8 +53,7 @@ struct pc_ctx {
     struct sss_domain_info *domain;
     const char *identity;
     const char *conf_path;
-    struct sbus_connection *mon_conn;
-    struct sbus_connection *conn;
+    struct sbus_connection *sbus_conn;
     const char *pam_target;
     uint32_t id;
 };
@@ -382,13 +381,13 @@ proxy_cli_init(struct pc_ctx *ctx)
     }
 
     ret = sss_iface_connect_address(ctx, ctx->ev, sbus_cliname, sbus_address,
-                                    NULL, &ctx->conn);
+                                    NULL, &ctx->sbus_conn);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "Unable to connect to %s\n", sbus_address);
         goto done;
     }
 
-    ret = sbus_connection_add_path_map(ctx->conn, paths);
+    ret = sbus_connection_add_path_map(ctx->sbus_conn, paths);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "Unable to add paths [%d]: %s\n",
               ret, sss_strerror(ret));
@@ -398,7 +397,7 @@ proxy_cli_init(struct pc_ctx *ctx)
     DEBUG(SSSDBG_TRACE_FUNC, "Sending ID to Proxy Backend: (%"PRIu32")\n",
           ctx->id);
 
-    subreq = sbus_call_proxy_client_Register_send(ctx, ctx->conn, sbus_busname,
+    subreq = sbus_call_proxy_client_Register_send(ctx, ctx->sbus_conn, sbus_busname,
                                                   SSS_BUS_PATH, ctx->id);
     if (subreq == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");
