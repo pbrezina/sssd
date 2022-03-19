@@ -42,6 +42,7 @@ get_subdomains_send(TALLOC_CTX *mem_ctx,
     struct get_subdomains_state *state;
     struct tevent_req *subreq;
     struct tevent_req *req;
+    char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state, struct get_subdomains_state);
@@ -63,6 +64,16 @@ get_subdomains_send(TALLOC_CTX *mem_ctx,
         ret = EOK;
         goto done;
     }
+
+    conn_name = sss_iface_domain_bus(rctx, rctx->domains);
+    if (conn_name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "BUG: The Data Provider connection for %s is not available!\n",
+                dom->name);
+        ret = EIO;
+        goto done;
+    }
+    dom->conn_name = conn_name;
 
     subreq = sbus_call_dp_dp_getDomains_send(state, rctx->sbus_conn,
                                              dom->conn_name, SSS_BUS_PATH,
@@ -694,6 +705,7 @@ sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
     uint32_t entry_type;
     char *filter;
     uint32_t dp_flags;
+    char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state, struct sss_dp_get_account_domain_state);
@@ -701,6 +713,16 @@ sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create tevent request!\n");
         return NULL;
     }
+
+    conn_name = sss_iface_domain_bus(rctx, rctx->domains);
+    if (conn_name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "BUG: The Data Provider connection for %s is not available!\n",
+                dom->name);
+        ret = EIO;
+        goto done;
+    }
+    dom->conn_name = conn_name;
 
     switch (type) {
     case SSS_DP_USER:

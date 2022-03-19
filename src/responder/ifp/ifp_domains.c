@@ -568,6 +568,7 @@ ifp_domains_domain_is_online_send(TALLOC_CTX *mem_ctx,
     struct sss_domain_info *dom;
     struct tevent_req *subreq;
     struct tevent_req *req;
+    char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state,
@@ -582,6 +583,16 @@ ifp_domains_domain_is_online_send(TALLOC_CTX *mem_ctx,
         ret = ERR_DOMAIN_NOT_FOUND;
         goto done;
     }
+
+    conn_name = sss_iface_domain_bus(ifp_ctx->rctx, ifp_ctx->rctx->domains);
+    if (conn_name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "BUG: The Data Provider connection for %s is not available!\n",
+                dom->name);
+        ret = ENOENT;
+        goto done;
+    }
+    dom->conn_name = conn_name;
 
     subreq = sbus_call_dp_backend_IsOnline_send(state, ifp_ctx->rctx->sbus_conn,
                 dom->conn_name, SSS_BUS_PATH, dom->name);
@@ -655,6 +666,7 @@ ifp_domains_domain_list_services_send(TALLOC_CTX *mem_ctx,
     struct sss_domain_info *dom;
     struct tevent_req *subreq;
     struct tevent_req *req;
+    char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state,
@@ -669,6 +681,16 @@ ifp_domains_domain_list_services_send(TALLOC_CTX *mem_ctx,
         ret = ERR_DOMAIN_NOT_FOUND;
         goto done;
     }
+
+    conn_name = sss_iface_domain_bus(ifp_ctx->rctx, ifp_ctx->rctx->domains);
+    if (conn_name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "BUG: The Data Provider connection for %s is not available!\n",
+                dom->name);
+        ret = ENOENT;
+        goto done;
+    }
+    dom->conn_name = conn_name;
 
     subreq = sbus_call_dp_failover_ListServices_send(state, ifp_ctx->rctx->sbus_conn,
                 dom->conn_name, SSS_BUS_PATH, dom->name);
@@ -743,6 +765,7 @@ ifp_domains_domain_active_server_send(TALLOC_CTX *mem_ctx,
     struct sss_domain_info *dom;
     struct tevent_req *subreq;
     struct tevent_req *req;
+    char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state,
@@ -757,6 +780,16 @@ ifp_domains_domain_active_server_send(TALLOC_CTX *mem_ctx,
         ret = ERR_DOMAIN_NOT_FOUND;
         goto done;
     }
+
+    conn_name = sss_iface_domain_bus(ifp_ctx->rctx, ifp_ctx->rctx->domains);
+    if (conn_name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "BUG: The Data Provider connection for %s is not available!\n",
+                dom->name);
+        ret = ENOENT;
+        goto done;
+    }
+    dom->conn_name = conn_name;
 
     subreq = sbus_call_dp_failover_ActiveServer_send(state, ifp_ctx->rctx->sbus_conn,
                 dom->conn_name, SSS_BUS_PATH, service);
@@ -831,6 +864,7 @@ ifp_domains_domain_list_servers_send(TALLOC_CTX *mem_ctx,
     struct sss_domain_info *dom;
     struct tevent_req *subreq;
     struct tevent_req *req;
+    char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state,
@@ -845,6 +879,16 @@ ifp_domains_domain_list_servers_send(TALLOC_CTX *mem_ctx,
         ret = ERR_DOMAIN_NOT_FOUND;
         goto done;
     }
+
+    conn_name = sss_iface_domain_bus(ifp_ctx->rctx, ifp_ctx->rctx->domains);
+    if (conn_name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "BUG: The Data Provider connection for %s is not available!\n",
+                dom->name);
+        ret = ENOENT;
+        goto done;
+    }
+    dom->conn_name = conn_name;
 
     subreq = sbus_call_dp_failover_ListServers_send(state, ifp_ctx->rctx->sbus_conn,
                 dom->conn_name, SSS_BUS_PATH, service);
@@ -918,6 +962,7 @@ ifp_domains_domain_refresh_access_rules_send(TALLOC_CTX *mem_ctx,
     struct sss_domain_info *dom;
     struct tevent_req *subreq;
     struct tevent_req *req;
+    char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state,
@@ -932,6 +977,16 @@ ifp_domains_domain_refresh_access_rules_send(TALLOC_CTX *mem_ctx,
         ret = ERR_DOMAIN_NOT_FOUND;
         goto done;
     }
+
+    conn_name = sss_iface_domain_bus(ifp_ctx->rctx, ifp_ctx->rctx->domains);
+    if (conn_name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "BUG: The Data Provider connection for %s is not available!\n",
+                dom->name);
+        ret = ENOENT;
+        goto done;
+    }
+    dom->conn_name = conn_name;
 
     subreq = sbus_call_dp_access_RefreshRules_send(state, ifp_ctx->rctx->sbus_conn,
                 dom->conn_name, SSS_BUS_PATH);

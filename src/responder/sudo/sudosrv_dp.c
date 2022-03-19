@@ -158,6 +158,7 @@ sss_dp_get_sudoers_send(TALLOC_CTX *mem_ctx,
     struct tevent_req *subreq;
     struct tevent_req *req;
     DBusMessage *msg;
+    char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state, struct sss_dp_get_sudoers_state);
@@ -179,6 +180,15 @@ sss_dp_get_sudoers_send(TALLOC_CTX *mem_ctx,
         ret = EOK;
         goto done;
     }
+
+    conn_name = sss_iface_domain_bus(rctx, rctx->domains);
+    if (conn_name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "BUG: The Data Provider connection for %s is not available!\n",
+                dom->name);
+        return NULL;
+    }
+    dom->conn_name = conn_name;
 
     msg = sss_dp_get_sudoers_msg(state, dom->conn_name, dom, fast_reply,
                                  type, name, num_rules, rules);

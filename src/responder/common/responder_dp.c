@@ -192,6 +192,7 @@ sss_dp_get_account_send(TALLOC_CTX *mem_ctx,
     struct tevent_req *req;
     uint32_t entry_type;
     uint32_t dp_flags;
+    char *conn_name;
     char *filter;
     errno_t ret;
 
@@ -250,6 +251,16 @@ sss_dp_get_account_send(TALLOC_CTX *mem_ctx,
             goto done;
         }
     }
+
+    conn_name = sss_iface_domain_bus(rctx, rctx->domains);
+    if (conn_name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "BUG: The Data Provider connection for %s is not available!\n",
+                dom->name);
+        ret = EIO;
+        goto done;
+    }
+    dom->conn_name = conn_name;
 
     /* Build filter. */
     ret = sss_dp_get_account_filter(state, type, fast_reply, opt_name, opt_id,
@@ -351,6 +362,7 @@ sss_dp_resolver_get_send(TALLOC_CTX *mem_ctx,
     struct tevent_req *req;
     struct tevent_req *subreq;
     uint32_t dp_flags;
+    char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state, struct sss_dp_resolver_get_state);
@@ -374,6 +386,16 @@ sss_dp_resolver_get_send(TALLOC_CTX *mem_ctx,
         ret = EINVAL;
         goto done;
     }
+
+    conn_name = sss_iface_domain_bus(rctx, rctx->domains);
+    if (conn_name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "BUG: The Data Provider connection for %s is not available!\n",
+                dom->name);
+        ret = EIO;
+        goto done;
+    }
+    dom->conn_name = conn_name;
 
     DEBUG(SSSDBG_TRACE_FUNC,
           "Creating request for [%s][%#x][%s][%#x:%s]\n",

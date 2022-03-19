@@ -36,6 +36,15 @@ pam_dp_send_req(struct pam_auth_req *preq)
 {
     struct tevent_req *subreq;
 
+    char *conn_name = sss_iface_domain_bus(preq->cctx->rctx, preq->cctx->rctx->domains);
+    if (conn_name == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+                "BUG: The Data Provider connection for %s is not available!\n",
+                preq->domain->name);
+        return EIO;
+    }
+    preq->domain->conn_name = conn_name;
+
     DEBUG(SSSDBG_CONF_SETTINGS, "Sending request with the following data:\n");
     DEBUG_PAM_DATA(SSSDBG_CONF_SETTINGS, preq->pd);
 
