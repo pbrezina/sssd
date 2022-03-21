@@ -18,11 +18,15 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "util/debug.h"
 #include "util/util.h"
 #include "responder/common/responder.h"
 #include "providers/data_provider.h"
 #include "db/sysdb.h"
 #include "sss_iface/sss_iface_async.h"
+#include <strings.h>
+#include <talloc.h>
+#include "sbus/sbus_private.h"
 
 /* ========== Get subdomains for a domain ================= */
 struct get_subdomains_state {
@@ -42,7 +46,7 @@ get_subdomains_send(TALLOC_CTX *mem_ctx,
     struct get_subdomains_state *state;
     struct tevent_req *subreq;
     struct tevent_req *req;
-    char *conn_name;
+//     char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state, struct get_subdomains_state);
@@ -65,15 +69,40 @@ get_subdomains_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    conn_name = sss_iface_domain_bus(rctx, rctx->domains);
-    if (conn_name == NULL) {
+//     conn_name = sss_iface_domain_bus(rctx, rctx->domains);
+//     if (conn_name) {
+//         DEBUG(SSSDBG_CRIT_FAILURE,
+//                 "BUG: The Data Provider connection for %s is not available!\n",
+//                 dom->name);
+//         ret = EIO;
+//         goto done;
+//     }
+//     DEBUG(SSSDBG_DEFAULT, "PRE: dom.conn_name: %s\n", dom->conn_name);
+//     dom->conn_name = talloc_strdup(dom, conn_name);
+//     DEBUG(SSSDBG_DEFAULT, "POST: dom.conn_name: %s\n", dom->conn_name);
+//     talloc_free(conn_name);
+// 
+//     DEBUG(SSSDBG_DEFAULT, "                        macro: %s\n", CONFDB_DOMAIN_CONNECTION_NAME);
+//     DEBUG(SSSDBG_DEFAULT, "                dom.conn_name: %s\n", dom->conn_name);
+//     DEBUG(SSSDBG_DEFAULT, "                     dom.name: %s\n", dom->name);
+//     DEBUG(SSSDBG_DEFAULT, " rctx->sbus_conn->unique_name: %s\n", rctx->sbus_conn->unique_name);
+//     DEBUG(SSSDBG_DEFAULT, "     rctx->sbus_conn->address: %s\n", rctx->sbus_conn->address);
+//     if (strcasecmp(dom->conn_name, CONFDB_DOMAIN_CONNECTION_NAME) != 0) {
+//         DEBUG(SSSDBG_CRIT_FAILURE,
+//                 "BUG: The Data Provider connection %s for %s does not exist!\n",
+//                 dom->conn_name, dom->name);
+//         ret = EIO;
+//         goto done;
+//     }
+
+    ret = tmp_name(rctx, dom->name);
+    if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
-                "BUG: The Data Provider connection for %s is not available!\n",
-                dom->name);
+              "BUG: The Data Provider connection %s for %s is not available!\n",
+              dom->name, dom->conn_name);
         ret = EIO;
         goto done;
     }
-    dom->conn_name = conn_name;
 
     subreq = sbus_call_dp_dp_getDomains_send(state, rctx->sbus_conn,
                                              dom->conn_name, SSS_BUS_PATH,

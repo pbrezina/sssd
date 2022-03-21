@@ -299,6 +299,8 @@
 #define CONFDB_PC_2FA_2ND_PROMPT "second_prompt"
 #define CONFDB_PC_TYPE_CERT_AUTH "cert_auth"
 
+#define CONFDB_DOMAIN_CONNECTION_NAME "sbus_conn"
+
 struct confdb_ctx;
 struct config_file_ctx;
 

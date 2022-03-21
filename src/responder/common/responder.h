@@ -193,6 +193,8 @@ int sss_process_init(TALLOC_CTX *mem_ctx,
                      connection_setup_t conn_setup,
                      struct resp_ctx **responder_ctx);
 
+int tmp_name(struct resp_ctx *rctx, const char *conn_name);
+
 struct sss_domain_info *
 responder_get_domain(struct resp_ctx *rctx, const char *domain);
 

@@ -22,6 +22,8 @@
 #include "config.h"
 
 #include <ctype.h>
+#include <talloc.h>
+#include "util/debug.h"
 #include "util/util.h"
 #include "confdb/confdb.h"
 #include "confdb/confdb_private.h"
@@ -967,12 +969,20 @@ static int confdb_get_domain_internal(struct confdb_ctx *cdb,
         ret = EINVAL;
         goto done;
     }
+
     domain->name = talloc_strdup(domain, tmp);
     if (!domain->name) {
         ret = ENOMEM;
         goto done;
     }
-    domain->conn_name = domain->name;
+//     DEBUG(SSSDBG_DEFAULT, "%s\n", domain->name);
+
+//     domain->conn_name = domain->name;
+    domain->conn_name = talloc_strdup(domain, CONFDB_DOMAIN_CONNECTION_NAME);
+    if (!domain->conn_name) {
+        ret = ENOMEM;
+        goto done;
+    }
 
     tmp = ldb_msg_find_attr_as_string(res->msgs[0],
                                       CONFDB_DOMAIN_ID_PROVIDER,
