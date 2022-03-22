@@ -181,14 +181,14 @@ sss_dp_get_sudoers_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    conn_name = sss_iface_domain_bus(rctx, rctx->domains);
-    if (conn_name == NULL) {
+    ret = tmp_name(rctx, dom->conn_name);
+    if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
-                "BUG: The Data Provider connection for %s is not available!\n",
-                dom->name);
-        return NULL;
+              "BUG: The Data Provider connection %s for %s is not available!\n",
+              dom->conn_name, dom->name);
+        ret = EIO;
+        goto done;
     }
-    dom->conn_name = conn_name;
 
     msg = sss_dp_get_sudoers_msg(state, dom->conn_name, dom, fast_reply,
                                  type, name, num_rules, rules);

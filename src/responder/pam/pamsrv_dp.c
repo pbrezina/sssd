@@ -35,15 +35,15 @@ errno_t
 pam_dp_send_req(struct pam_auth_req *preq)
 {
     struct tevent_req *subreq;
+    errno_t ret;
 
-    char *conn_name = sss_iface_domain_bus(preq->cctx->rctx, preq->cctx->rctx->domains);
-    if (conn_name == NULL) {
+    ret = tmp_name(preq->cctx->rctx, preq->domain->conn_name);
+    if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
-                "BUG: The Data Provider connection for %s is not available!\n",
-                preq->domain->name);
+              "BUG: The Data Provider connection %s for %s is not available!\n",
+              preq->domain->conn_name, preq->domain->name);
         return EIO;
     }
-    preq->domain->conn_name = conn_name;
 
     DEBUG(SSSDBG_CONF_SETTINGS, "Sending request with the following data:\n");
     DEBUG_PAM_DATA(SSSDBG_CONF_SETTINGS, preq->pd);

@@ -915,6 +915,91 @@ static char *confdb_get_domain_hostname(TALLOC_CTX *mem_ctx,
     return talloc_strdup(mem_ctx, sys);
 }
 
+char *
+opath_escape(TALLOC_CTX *mem_ctx,
+                  const char *component)
+{
+    size_t n;
+    char *safe_path = NULL;
+    TALLOC_CTX *tmp_ctx = NULL;
+
+    /* The path must be valid */
+    if (component == NULL) {
+        return NULL;
+    }
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return NULL;
+    }
+
+    safe_path = talloc_strdup(tmp_ctx, "");
+    if (safe_path == NULL) {
+        goto done;
+    }
+
+    /* Special case for an empty string */
+    if (strcmp(component, "") == 0) {
+        /* the for loop would just fall through */
+        safe_path = talloc_asprintf_append_buffer(safe_path, "_");
+        if (safe_path == NULL) {
+            goto done;
+        }
+    }
+
+    for (n = 0; component[n]; n++) {
+        int c = component[n];
+        /* D-Bus spec says:
+         * *
+         * * Each element must only contain the ASCII characters
+         * "[A-Z][a-z][0-9]_"
+         * */
+        if ((c >= 'A' && c <= 'Z')
+                || (c >= 'a' && c <= 'z')
+                || (c >= '0' && c <= '9')) {
+            safe_path = talloc_asprintf_append_buffer(safe_path, "%c", c);
+            if (safe_path == NULL) {
+                goto done;
+            }
+        } else {
+            safe_path = talloc_asprintf_append_buffer(safe_path, "_%02x", c);
+            if (safe_path == NULL) {
+                goto done;
+            }
+        }
+    }
+
+    safe_path = talloc_steal(mem_ctx, safe_path);
+
+done:
+    talloc_free(tmp_ctx);
+    return safe_path;
+}
+
+char *confdb_get_domain_bus(TALLOC_CTX *mem_ctx,
+                            struct sss_domain_info *domain)
+{
+    struct sss_domain_info *head;
+    char *safe_name;
+    char *bus_name;
+
+
+    /* There is only one bus that belongs to the top level domain. */
+    head = get_domains_head(domain);
+
+    safe_name = opath_escape(mem_ctx, head->name);
+    if (safe_name == NULL) {
+        return NULL;
+    }
+
+    /* Parts of bus names must not start with digit thus we concatenate
+     * the name with underscore instead of period. */
+    bus_name = talloc_asprintf(mem_ctx, "sssd.domain_%s", safe_name);
+    talloc_free(safe_name);
+
+    return bus_name;
+}
+
 static int confdb_get_domain_internal(struct confdb_ctx *cdb,
                                       TALLOC_CTX *mem_ctx,
                                       const char *name,
@@ -972,14 +1057,6 @@ static int confdb_get_domain_internal(struct confdb_ctx *cdb,
 
     domain->name = talloc_strdup(domain, tmp);
     if (!domain->name) {
-        ret = ENOMEM;
-        goto done;
-    }
-//     DEBUG(SSSDBG_DEFAULT, "%s\n", domain->name);
-
-//     domain->conn_name = domain->name;
-    domain->conn_name = talloc_strdup(domain, CONFDB_DOMAIN_CONNECTION_NAME);
-    if (!domain->conn_name) {
         ret = ENOMEM;
         goto done;
     }
@@ -1599,6 +1676,13 @@ static int confdb_get_domain_internal(struct confdb_ctx *cdb,
     }
 
     domain->not_found_counter = 0;
+
+    domain->conn_name = confdb_get_domain_bus(domain, domain);
+    if (!domain->conn_name) {
+        ret = ENOMEM;
+        goto done;
+    }
+    DEBUG(SSSDBG_DEFAULT, "domain.conn_name: %s\n", domain->conn_name);
 
     *_domain = domain;
     ret = EOK;

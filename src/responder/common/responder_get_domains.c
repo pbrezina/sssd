@@ -69,37 +69,11 @@ get_subdomains_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-//     conn_name = sss_iface_domain_bus(rctx, rctx->domains);
-//     if (conn_name) {
-//         DEBUG(SSSDBG_CRIT_FAILURE,
-//                 "BUG: The Data Provider connection for %s is not available!\n",
-//                 dom->name);
-//         ret = EIO;
-//         goto done;
-//     }
-//     DEBUG(SSSDBG_DEFAULT, "PRE: dom.conn_name: %s\n", dom->conn_name);
-//     dom->conn_name = talloc_strdup(dom, conn_name);
-//     DEBUG(SSSDBG_DEFAULT, "POST: dom.conn_name: %s\n", dom->conn_name);
-//     talloc_free(conn_name);
-// 
-//     DEBUG(SSSDBG_DEFAULT, "                        macro: %s\n", CONFDB_DOMAIN_CONNECTION_NAME);
-//     DEBUG(SSSDBG_DEFAULT, "                dom.conn_name: %s\n", dom->conn_name);
-//     DEBUG(SSSDBG_DEFAULT, "                     dom.name: %s\n", dom->name);
-//     DEBUG(SSSDBG_DEFAULT, " rctx->sbus_conn->unique_name: %s\n", rctx->sbus_conn->unique_name);
-//     DEBUG(SSSDBG_DEFAULT, "     rctx->sbus_conn->address: %s\n", rctx->sbus_conn->address);
-//     if (strcasecmp(dom->conn_name, CONFDB_DOMAIN_CONNECTION_NAME) != 0) {
-//         DEBUG(SSSDBG_CRIT_FAILURE,
-//                 "BUG: The Data Provider connection %s for %s does not exist!\n",
-//                 dom->conn_name, dom->name);
-//         ret = EIO;
-//         goto done;
-//     }
-
-    ret = tmp_name(rctx, dom->name);
+    ret = tmp_name(rctx, dom->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "BUG: The Data Provider connection %s for %s is not available!\n",
-              dom->name, dom->conn_name);
+              dom->conn_name, dom->name);
         ret = EIO;
         goto done;
     }
@@ -734,7 +708,6 @@ sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
     uint32_t entry_type;
     char *filter;
     uint32_t dp_flags;
-    char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state, struct sss_dp_get_account_domain_state);
@@ -743,15 +716,14 @@ sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
         return NULL;
     }
 
-    conn_name = sss_iface_domain_bus(rctx, rctx->domains);
-    if (conn_name == NULL) {
+    ret = tmp_name(rctx, dom->conn_name);
+    if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
-                "BUG: The Data Provider connection for %s is not available!\n",
-                dom->name);
+              "BUG: The Data Provider connection %s for %s is not available!\n",
+              dom->conn_name, dom->name);
         ret = EIO;
         goto done;
     }
-    dom->conn_name = conn_name;
 
     switch (type) {
     case SSS_DP_USER:

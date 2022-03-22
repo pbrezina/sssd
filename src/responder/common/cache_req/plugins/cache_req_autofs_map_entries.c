@@ -100,16 +100,14 @@ cache_req_autofs_map_entries_dp_send(TALLOC_CTX *mem_ctx,
                                      struct sss_domain_info *domain,
                                      struct ldb_result *result)
 {
-    char *conn_name = sss_iface_domain_bus(cr, cr->domain);
-
-    if (conn_name == NULL) {
+    errno_t ret = tmp_name(cr->rctx, domain->conn_name);
+    if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
-                "BUG: The Data Provider connection for %s is not available!\n",
-                domain->name);
+              "BUG: The Data Provider connection %s for %s is not available!\n",
+              domain->conn_name, domain->name);
         return NULL;
     }
 
-    domain->conn_name = conn_name;
     return sbus_call_dp_autofs_Enumerate_send(mem_ctx, cr->rctx->sbus_conn,
                                               domain->conn_name, SSS_BUS_PATH,
                                               0, data->name.name,

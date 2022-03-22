@@ -299,8 +299,6 @@
 #define CONFDB_PC_2FA_2ND_PROMPT "second_prompt"
 #define CONFDB_PC_TYPE_CERT_AUTH "cert_auth"
 
-#define CONFDB_DOMAIN_CONNECTION_NAME "sbus_conn"
-
 struct confdb_ctx;
 struct config_file_ctx;
 
@@ -735,6 +733,19 @@ int confdb_get_sub_sections(TALLOC_CTX *mem_ctx,
  */
 int confdb_certmap_to_sysdb(struct confdb_ctx *cdb,
                             struct sss_domain_info *dom);
+
+/**
+ * Escape a single object path component. Use @sbus_opath_compose
+ * if you want to create the whole object path.
+ *
+ * @param mem_ctx           Memory context.
+ * @param component         Component to escape.
+ *
+ * @return Escaped component or NULL on failure.
+ */
+char *
+sbus_opath_escape(TALLOC_CTX *mem_ctx,
+                  const char *component);
 
 /**
  * @}
