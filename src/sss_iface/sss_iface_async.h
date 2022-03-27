@@ -64,4 +64,10 @@ monitor_common_res_init(TALLOC_CTX *mem_ctx,
                        struct sbus_request *sbus_req,
                        void *no_data);
 
+errno_t
+sss_monitor_provider_init(struct sbus_connection *conn,
+                          const char *svc_name,
+                          uint16_t svc_version,
+                          uint16_t svc_type);
+
 #endif /* _SSS_IFACE_ASYNC_H_ */

@@ -158,7 +158,6 @@ sss_dp_get_sudoers_send(TALLOC_CTX *mem_ctx,
     struct tevent_req *subreq;
     struct tevent_req *req;
     DBusMessage *msg;
-    char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state, struct sss_dp_get_sudoers_state);
