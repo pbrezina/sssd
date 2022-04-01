@@ -1369,17 +1369,14 @@ fail:
     return ret;
 }
 
-int tmp_name(struct resp_ctx *rctx, const char *conn_name)
+int responder_check_domain_conn(struct resp_ctx *rctx, const char *conn_name)
 {
     struct sss_domain_info *iter;
 
-    DEBUG(SSSDBG_DEFAULT, "PRE: conn_name: %s\n", conn_name);
     if (!rctx->domains) return EIO;
-    DEBUG(SSSDBG_DEFAULT, "POST: conn_name: %s\n", conn_name);
 
     for (iter = rctx->domains; iter; iter = iter->next) {
-        DEBUG(SSSDBG_DEFAULT, "IN: iter: %s\n", iter->name);
-        if (strcasecmp(conn_name, iter->name) == 0) break;
+        if (strcasecmp(conn_name, iter->conn_name) == 0) break;
     }
 
     if (!iter) return ENOENT;

@@ -46,7 +46,6 @@ get_subdomains_send(TALLOC_CTX *mem_ctx,
     struct get_subdomains_state *state;
     struct tevent_req *subreq;
     struct tevent_req *req;
-//     char *conn_name;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state, struct get_subdomains_state);

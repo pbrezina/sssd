@@ -482,6 +482,7 @@ int nss_process_init(TALLOC_CTX *mem_ctx,
                            SSS_BUS_NSS, NSS_SBUS_SERVICE_NAME,
                            nss_connection_setup,
                            &rctx);
+
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "sss_process_init() failed\n");
         return ret;
@@ -497,14 +498,10 @@ int nss_process_init(TALLOC_CTX *mem_ctx,
     nctx->rctx = rctx;
     nctx->rctx->pvt_ctx = nctx;
 
+    DEBUG(SSSDBG_DEFAULT, "MYSTAMP: I AM GOING TO nss_get_config()\n");
     ret = nss_get_config(nctx, cdb);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "fatal error getting nss config\n");
-        goto fail;
-    }
-
-    ret = nss_register_backend_iface(nctx->rctx->sbus_conn, nctx);
-    if (ret != EOK) {
         goto fail;
     }
 
@@ -603,6 +600,11 @@ int nss_process_init(TALLOC_CTX *mem_ctx,
                                    &rctx->last_request_time, &rctx->sbus_conn);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "fatal error setting up message bus\n");
+        goto fail;
+    }
+
+    ret = nss_register_backend_iface(nctx->rctx->sbus_conn, nctx);
+    if (ret != EOK) {
         goto fail;
     }
 
