@@ -37,7 +37,7 @@ pam_dp_send_req(struct pam_auth_req *preq)
     struct tevent_req *subreq;
     errno_t ret;
 
-    ret = tmp_name(preq->cctx->rctx, preq->domain->conn_name);
+    ret = responder_check_domain_conn(preq->cctx->rctx, preq->domain->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "BUG: The Data Provider connection %s for %s is not available!\n",

@@ -583,7 +583,7 @@ ifp_domains_domain_is_online_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = tmp_name(ifp_ctx->rctx, dom->conn_name);
+    ret = responder_check_domain_conn(ifp_ctx->rctx, dom->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "BUG: The Data Provider connection %s for %s is not available!\n",
@@ -678,7 +678,7 @@ ifp_domains_domain_list_services_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = tmp_name(ifp_ctx->rctx, dom->conn_name);
+    ret = responder_check_domain_conn(ifp_ctx->rctx, dom->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "BUG: The Data Provider connection %s for %s is not available!\n",
@@ -774,7 +774,7 @@ ifp_domains_domain_active_server_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = tmp_name(ifp_ctx->rctx, dom->conn_name);
+    ret = responder_check_domain_conn(ifp_ctx->rctx, dom->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "BUG: The Data Provider connection %s for %s is not available!\n",
@@ -870,7 +870,7 @@ ifp_domains_domain_list_servers_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = tmp_name(ifp_ctx->rctx, dom->conn_name);
+    ret = responder_check_domain_conn(ifp_ctx->rctx, dom->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "BUG: The Data Provider connection %s for %s is not available!\n",
@@ -965,7 +965,7 @@ ifp_domains_domain_refresh_access_rules_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = tmp_name(ifp_ctx->rctx, dom->conn_name);
+    ret = responder_check_domain_conn(ifp_ctx->rctx, dom->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "BUG: The Data Provider connection %s for %s is not available!\n",

@@ -603,6 +603,11 @@ int nss_process_init(TALLOC_CTX *mem_ctx,
         goto fail;
     }
 
+    ret = sss_resp_register_sbus_iface(rctx->sbus_conn, rctx);
+    if (ret != EOK) {
+        goto fail;
+    }
+
     ret = nss_register_backend_iface(nctx->rctx->sbus_conn, nctx);
     if (ret != EOK) {
         goto fail;

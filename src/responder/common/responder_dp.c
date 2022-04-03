@@ -251,7 +251,7 @@ sss_dp_get_account_send(TALLOC_CTX *mem_ctx,
         }
     }
 
-    ret = tmp_name(rctx, dom->conn_name);
+    ret = responder_check_domain_conn(rctx, dom->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "BUG: The Data Provider connection %s for %s is not available!\n",
@@ -384,7 +384,7 @@ sss_dp_resolver_get_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = tmp_name(rctx, dom->conn_name);
+    ret = responder_check_domain_conn(rctx, dom->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "BUG: The Data Provider connection %s for %s is not available!\n",
