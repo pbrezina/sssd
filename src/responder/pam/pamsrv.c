@@ -402,6 +402,11 @@ static int pam_process_init(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
+    ret = sss_resp_register_sbus_iface(rctx->sbus_conn, rctx);
+    if (ret != EOK) {
+        goto done;
+    }
+
     ret = sss_resp_register_service_iface(rctx);
     if (ret != EOK) {
         goto done;

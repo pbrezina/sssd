@@ -105,6 +105,19 @@ sbus_opath_object_name(TALLOC_CTX *mem_ctx,
                        const char *prefix);
 
 /**
+ * Escape a single object path component. Use @sbus_opath_compose
+ * if you want to create the whole object path.
+ *
+ * @param mem_ctx           Memory context.
+ * @param component         Component to escape.
+ *
+ * @return Escaped component or NULL on failure.
+ */
+char *
+sbus_opath_escape(TALLOC_CTX *mem_ctx,
+                  const char *component);
+
+/**
  * Unescape a single object path component. Use @sbus_opath_decompose
  * if you want to parse the whole object path.
  *

@@ -916,7 +916,7 @@ static char *confdb_get_domain_hostname(TALLOC_CTX *mem_ctx,
 }
 
 char *
-opath_escape(TALLOC_CTX *mem_ctx,
+sbus_opath_escape(TALLOC_CTX *mem_ctx,
                   const char *component)
 {
     size_t n;
@@ -987,7 +987,7 @@ char *confdb_get_domain_bus(TALLOC_CTX *mem_ctx,
     /* There is only one bus that belongs to the top level domain. */
     head = get_domains_head(domain);
 
-    safe_name = opath_escape(mem_ctx, head->name);
+    safe_name = sbus_opath_escape(mem_ctx, head->name);
     if (safe_name == NULL) {
         return NULL;
     }
@@ -1682,7 +1682,6 @@ static int confdb_get_domain_internal(struct confdb_ctx *cdb,
         ret = ENOMEM;
         goto done;
     }
-    DEBUG(SSSDBG_DEFAULT, "domain.conn_name: %s\n", domain->conn_name);
 
     *_domain = domain;
     ret = EOK;

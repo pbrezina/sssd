@@ -28,37 +28,6 @@
 #include "sss_iface/sss_iface_async.h"
 
 char *
-sss_iface_domain_address(TALLOC_CTX *mem_ctx)
-{
-    return talloc_asprintf(mem_ctx, SSS_MASTER_ADDRESS);
-}
-
-char *
-sss_iface_domain_bus(TALLOC_CTX *mem_ctx,
-                     struct sss_domain_info *domain)
-{
-    struct sss_domain_info *head;
-    char *safe_name;
-    char *bus_name;
-
-
-    /* There is only one bus that belongs to the top level domain. */
-    head = get_domains_head(domain);
-
-    safe_name = sbus_opath_escape(mem_ctx, head->name);
-    if (safe_name == NULL) {
-        return NULL;
-    }
-
-    /* Parts of bus names must not start with digit thus we concatenate
-     * the name with underscore instead of period. */
-    bus_name = talloc_asprintf(mem_ctx, "sssd.domain_%s", safe_name);
-    talloc_free(safe_name);
-
-    return bus_name;
-}
-
-char *
 sss_iface_proxy_bus(TALLOC_CTX *mem_ctx,
                     uint32_t id)
 {
@@ -188,24 +157,6 @@ sss_monitor_service_init_done(struct tevent_req *req)
 }
 
 errno_t
-monitor_common_res_init(TALLOC_CTX *mem_ctx,
-                        struct sbus_request *sbus_req,
-                        void *no_data)
-{
-    int ret;
-
-    ret = res_init();
-    if (ret != 0) {
-        return EIO;
-    }
-
-    return EOK;
-}
-
-static void
-sss_monitor_provider_init_done(struct tevent_req *req);
-
-errno_t
 sss_monitor_provider_init(struct sbus_connection *conn,
                           const char *svc_name,
                           uint16_t svc_version,
@@ -221,26 +172,22 @@ sss_monitor_provider_init(struct sbus_connection *conn,
         return ENOMEM;
     }
 
-    tevent_req_set_callback(req, sss_monitor_provider_init_done, conn);
+    tevent_req_set_callback(req, sss_monitor_service_init_done, conn);
 
     return EOK;
 }
 
-static void
-sss_monitor_provider_init_done(struct tevent_req *req)
+errno_t
+monitor_common_res_init(TALLOC_CTX *mem_ctx,
+                        struct sbus_request *sbus_req,
+                        void *no_data)
 {
-    uint16_t version;
-    errno_t ret;
+    int ret;
 
-    ret = sbus_call_monitor_RegisterService_recv(req, &version);
-    talloc_zfree(req);
-
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to register client in monitor "
-              "[%d]: %s\n", ret, sss_strerror(ret));
-        return;
+    ret = res_init();
+    if (ret != 0) {
+        return EIO;
     }
 
-    DEBUG(SSSDBG_CONF_SETTINGS, "Got id ack and version (%d) from Monitor\n",
-          version);
+    return EOK;
 }

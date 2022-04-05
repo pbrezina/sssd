@@ -285,6 +285,11 @@ int ifp_process_init(TALLOC_CTX *mem_ctx,
         goto fail;
     }
 
+    ret = sss_resp_register_sbus_iface(rctx->sbus_conn, rctx);
+    if (ret != EOK) {
+        goto fail;
+    }
+
     ret = ifp_register_service_iface(ifp_ctx, rctx);
     if (ret != EOK) {
         goto fail;

@@ -362,13 +362,13 @@ proxy_cli_init(struct pc_ctx *ctx)
         {NULL, NULL}
     };
 
-    sbus_address = sss_iface_domain_address(tmp_ctx);
+    sbus_address = talloc_asprintf(tmp_ctx, SSS_MASTER_ADDRESS);
     if (sbus_address == NULL) {
         ret = ENOMEM;
         goto done;
     }
 
-    sbus_busname = sss_iface_domain_bus(tmp_ctx, ctx->domain);
+    sbus_busname = confdb_get_domain_bus(tmp_ctx, ctx->domain);
     if (sbus_busname == NULL) {
         ret = ENOMEM;
         goto done;

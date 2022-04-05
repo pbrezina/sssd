@@ -748,6 +748,12 @@ sbus_opath_escape(TALLOC_CTX *mem_ctx,
                   const char *component);
 
 /**
+ * Return domain bus name.
+ */
+char *
+confdb_get_domain_bus(TALLOC_CTX *mem_ctx,
+                      struct sss_domain_info *domain);
+/**
  * @}
  */
 #endif
