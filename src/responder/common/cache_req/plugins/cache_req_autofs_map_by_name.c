@@ -23,7 +23,6 @@
 
 #include "db/sysdb.h"
 #include "db/sysdb_autofs.h"
-#include "sss_iface/sss_iface.h"
 #include "util/util.h"
 #include "providers/data_provider.h"
 #include "responder/common/cache_req/cache_req_plugin.h"
@@ -69,7 +68,9 @@ cache_req_autofs_map_by_name_dp_send(TALLOC_CTX *mem_ctx,
                                      struct sss_domain_info *domain,
                                      struct ldb_result *result)
 {
-    errno_t ret = responder_check_domain_conn(cr->rctx, domain->conn_name);
+    errno_t ret;
+
+    ret = responder_check_domain_conn(cr->rctx, domain->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "BUG: The Data Provider connection %s for %s is not available!\n",

@@ -22,8 +22,6 @@
 #include "config.h"
 
 #include <ctype.h>
-#include <talloc.h>
-#include "util/debug.h"
 #include "util/util.h"
 #include "confdb/confdb.h"
 #include "confdb/confdb_private.h"

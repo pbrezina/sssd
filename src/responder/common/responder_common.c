@@ -33,7 +33,6 @@
 #include <popt.h>
 #include <dbus/dbus.h>
 
-#include "util/debug.h"
 #include "util/util.h"
 #include "util/strtonum.h"
 #include "db/sysdb.h"

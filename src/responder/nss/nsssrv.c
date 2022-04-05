@@ -498,7 +498,6 @@ int nss_process_init(TALLOC_CTX *mem_ctx,
     nctx->rctx = rctx;
     nctx->rctx->pvt_ctx = nctx;
 
-    DEBUG(SSSDBG_DEFAULT, "MYSTAMP: I AM GOING TO nss_get_config()\n");
     ret = nss_get_config(nctx, cdb);
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE, "fatal error getting nss config\n");

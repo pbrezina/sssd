@@ -18,15 +18,11 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "util/debug.h"
 #include "util/util.h"
 #include "responder/common/responder.h"
 #include "providers/data_provider.h"
 #include "db/sysdb.h"
 #include "sss_iface/sss_iface_async.h"
-#include <strings.h>
-#include <talloc.h>
-#include "sbus/sbus_private.h"
 
 /* ========== Get subdomains for a domain ================= */
 struct get_subdomains_state {
