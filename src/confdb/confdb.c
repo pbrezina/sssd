@@ -22,6 +22,7 @@
 #include "config.h"
 
 #include <ctype.h>
+#include "sbus/sbus_opath.h"
 #include "util/util.h"
 #include "confdb/confdb.h"
 #include "confdb/confdb_private.h"
@@ -911,67 +912,6 @@ static char *confdb_get_domain_hostname(TALLOC_CTX *mem_ctx,
     }
 
     return talloc_strdup(mem_ctx, sys);
-}
-
-char *
-sbus_opath_escape(TALLOC_CTX *mem_ctx,
-                  const char *component)
-{
-    size_t n;
-    char *safe_path = NULL;
-    TALLOC_CTX *tmp_ctx = NULL;
-
-    /* The path must be valid */
-    if (component == NULL) {
-        return NULL;
-    }
-
-    tmp_ctx = talloc_new(NULL);
-    if (tmp_ctx == NULL) {
-        return NULL;
-    }
-
-    safe_path = talloc_strdup(tmp_ctx, "");
-    if (safe_path == NULL) {
-        goto done;
-    }
-
-    /* Special case for an empty string */
-    if (strcmp(component, "") == 0) {
-        /* the for loop would just fall through */
-        safe_path = talloc_asprintf_append_buffer(safe_path, "_");
-        if (safe_path == NULL) {
-            goto done;
-        }
-    }
-
-    for (n = 0; component[n]; n++) {
-        int c = component[n];
-        /* D-Bus spec says:
-         * *
-         * * Each element must only contain the ASCII characters
-         * "[A-Z][a-z][0-9]_"
-         * */
-        if ((c >= 'A' && c <= 'Z')
-                || (c >= 'a' && c <= 'z')
-                || (c >= '0' && c <= '9')) {
-            safe_path = talloc_asprintf_append_buffer(safe_path, "%c", c);
-            if (safe_path == NULL) {
-                goto done;
-            }
-        } else {
-            safe_path = talloc_asprintf_append_buffer(safe_path, "_%02x", c);
-            if (safe_path == NULL) {
-                goto done;
-            }
-        }
-    }
-
-    safe_path = talloc_steal(mem_ctx, safe_path);
-
-done:
-    talloc_free(tmp_ctx);
-    return safe_path;
 }
 
 char *confdb_get_domain_bus(TALLOC_CTX *mem_ctx,

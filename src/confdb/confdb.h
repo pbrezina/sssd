@@ -735,20 +735,12 @@ int confdb_certmap_to_sysdb(struct confdb_ctx *cdb,
                             struct sss_domain_info *dom);
 
 /**
- * Escape a single object path component. Use @sbus_opath_compose
- * if you want to create the whole object path.
- *
- * @param mem_ctx           Memory context.
- * @param component         Component to escape.
- *
- * @return Escaped component or NULL on failure.
- */
-char *
-sbus_opath_escape(TALLOC_CTX *mem_ctx,
-                  const char *component);
-
-/**
  * Return domain bus name.
+ *
+ * @param[in] domain The domain where the bus name is stored
+ *
+ * @return NULL - A safe name could not be created
+ * @return bus_name - A concatenated safe name for the domain's bus
  */
 char *
 confdb_get_domain_bus(TALLOC_CTX *mem_ctx,
