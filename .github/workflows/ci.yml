@@ -211,17 +211,18 @@ jobs:
         pip3 install -r ./sssd/src/tests/multihost/requirements.txt
 
     - name: Create multihost configuration
-      run: |
-        cat <<EOF > mhc.yml
-        root_password: 'Secret123'
-        domains:
-        - name: tier0.tests
-          type: sssd
-          hosts:
-          - name: client
-            external_hostname: client.test
-            role: master
-        EOF
+      uses: next-actions/write-file@master
+      with:
+        path: mhc.yml
+        contents: |
+          root_password: 'Secret123'
+          domains:
+          - name: tier0.tests
+            type: sssd
+            hosts:
+            - name: client
+              external_hostname: client.test
+              role: master
 
     - name: Run basic multihost tests
       run: |
