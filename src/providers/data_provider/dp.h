@@ -126,7 +126,8 @@ dp_init_send(TALLOC_CTX *mem_ctx,
              const char *sbus_name);
 
 errno_t dp_init_recv(TALLOC_CTX *mem_ctx,
-                     struct tevent_req *req);
+                     struct tevent_req *req,
+                     struct sbus_connection **_conn);
 
 bool _dp_target_enabled(struct data_provider *provider,
                         const char *module_name,

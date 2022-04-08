@@ -42,7 +42,6 @@ get_subdomains_send(TALLOC_CTX *mem_ctx,
     struct get_subdomains_state *state;
     struct tevent_req *subreq;
     struct tevent_req *req;
-    struct be_conn *be_conn;
     errno_t ret;
 
     req = tevent_req_create(mem_ctx, &state, struct get_subdomains_state);
@@ -65,19 +64,20 @@ get_subdomains_send(TALLOC_CTX *mem_ctx,
         goto done;
     }
 
-    ret = sss_dp_get_domain_conn(rctx, dom->conn_name, &be_conn);
+    ret = responder_check_domain_conn(rctx, dom->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
-              "BUG: The Data Provider connection for %s is not available!\n",
-              dom->name);
+              "BUG: The Data Provider connection %s for %s is not available!\n",
+              dom->conn_name, dom->name);
         ret = EIO;
         goto done;
     }
 
-    subreq = sbus_call_dp_dp_getDomains_send(state, be_conn->conn,
-                                             be_conn->bus_name,
+    subreq = sbus_call_dp_dp_getDomains_send(state, rctx->sbus_conn,
+                                             dom->conn_name,
                                              SSS_BUS_PATH, hint);
-    if (subreq == NULL) {
+
+   if (subreq == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");
         ret = ENOMEM;
         goto done;
@@ -701,7 +701,6 @@ sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
     struct sss_dp_get_account_domain_state *state;
     struct tevent_req *subreq;
     struct tevent_req *req;
-    struct be_conn *be_conn;
     uint32_t entry_type;
     char *filter;
     uint32_t dp_flags;
@@ -713,11 +712,11 @@ sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
         return NULL;
     }
 
-    ret = sss_dp_get_domain_conn(rctx, dom->conn_name, &be_conn);
+    ret = responder_check_domain_conn(rctx, dom->conn_name);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
-              "BUG: The Data Provider connection for %s is not available!\n",
-              dom->name);
+              "BUG: The Data Provider connection %s for %s is not available!\n",
+              dom->conn_name, dom->name);
         ret = EIO;
         goto done;
     }
@@ -747,8 +746,8 @@ sss_dp_get_account_domain_send(TALLOC_CTX *mem_ctx,
 
     dp_flags = fast_reply ? DP_FAST_REPLY : 0;
 
-    subreq = sbus_call_dp_dp_getAccountDomain_send(state, be_conn->conn,
-                                                   be_conn->bus_name,
+    subreq = sbus_call_dp_dp_getAccountDomain_send(state, rctx->sbus_conn,
+                                                   dom->conn_name,
                                                    SSS_BUS_PATH, dp_flags,
                                                    entry_type, filter,
                                                    rctx->client_id_num);
