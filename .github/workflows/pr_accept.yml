@@ -1,0 +1,66 @@
+name: "Accept Pull Request"
+on:
+  pull_request:
+    types:
+    - closed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  accept:
+    name: Mark Pull Request as Accepted
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Add trailers to commit message
+      uses: actions/github-script@v4
+      with:
+        script: |
+          const { Octokit } = require('@octokit/rest');
+          const octokit = new Octokit({
+            auth: process.env.GITHUB_TOKEN,
+          });
+
+          const prNumber = context.payload.pull_request.number;
+          const pr = await octokit.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: prNumber,
+          });
+
+          const commitSha = context.payload.pull_request.merge_commit_sha;
+          const commit = await octokit.git.getCommit({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            commit_sha: commitSha,
+          });
+
+          const reviewers = pr.data.requested_reviewers.map((reviewer) => {
+            if (reviewer.email) {
+              return `${reviewer.login} <${reviewer.email}>`;
+            } else {
+              return `@${reviewer.login}`;
+            }
+          });
+
+          const trailers = [
+            `Reviewed-by: ${reviewers.join(', ')}`,
+            `Pull-Request: ${pr.data.html_url}`,
+          ];
+
+          const messageLines = commit.data.message.split('\n');
+          messageLines.splice(messageLines.length - 1, 0, ...trailers);
+          const newMessage = messageLines.join('\n');
+
+          await octokit.git.updateCommit({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            commit_sha: commitSha,
+            body: newMessage,
+          });
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
