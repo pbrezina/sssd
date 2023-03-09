@@ -1,0 +1,37 @@
+name: "Accept Pull Request"
+on:
+  pull_request_review:
+    types:
+    - submitted
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  accept:
+    name: Mark Pull Request as Accepted
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        fetch-depth: 0
+
+    - name: Count available reviews
+      uses: github-actions-tools/gh-reviews-count@v0.0.2
+      with:
+        pull_number: ${{ github.event.pull_request.number }}
+      id: count
+
+    - run: echo "The approved reviews count is ${APPROVED}"
+      env:
+        APPROVED: ${{ steps.count.outputs.approved }}
+
+    - run: |
+        git config --global user.email "you@example.com"
+        git config --global user.name "Your Name"
+        git checkout ${GITHUB_REF#refs/heads/} || git checkout -b ${GITHUB_REF#refs/heads/} && git pull
+        git commit -a --amend -m "Pull-Request: ${{ github.event.pull_request.html_url }}"
+        git push
