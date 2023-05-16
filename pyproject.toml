@@ -1,6 +1,3 @@
-[tool.mypy]
-exclude = "docs"
-
 [[tool.mypy.overrides]]
 module = "jc.*"
 ignore_missing_imports = true
