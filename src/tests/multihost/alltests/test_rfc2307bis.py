@@ -13,6 +13,7 @@ import pytest
 from sssd.testlib.common.utils import sssdTools
 from constants import ds_instance_name
 
+
 @pytest.mark.usefixtures('setup_sssd')
 @pytest.mark.rfc2307bis
 class Testrfc2307bis(object):

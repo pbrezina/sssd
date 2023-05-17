@@ -37,8 +37,10 @@ from sssd_group import call_sssd_getgrnam, call_sssd_getgrgid
 from files_ops import PasswdOps, GroupOps
 from util import unindent
 
+
 def have_files_provider():
     return os.environ['FILES_PROVIDER'] == "enabled"
+
 
 # Sync this with files_ops.c
 FILES_REALLOC_CHUNK = 64

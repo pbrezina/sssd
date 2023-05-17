@@ -269,7 +269,7 @@ class TestADMisc:
             ssh.sendline('Secret123')
             ssh.prompt(timeout=5)
             ssh.sendline('ssh -v -o StrictHostKeyChecking=no -o GSSAPIAuthentication=yes '
-                          '-o PasswordAuthentication=no '
+                         '-o PasswordAuthentication=no '
                          f'-o PubkeyAuthentication=no -K -l {ad_user} '
                          f'{multihost.client[0].sys_hostname} id')
             ssh.prompt(timeout=30)

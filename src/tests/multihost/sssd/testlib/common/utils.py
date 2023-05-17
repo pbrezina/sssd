@@ -2082,14 +2082,14 @@ class ADDNS(object):  # pylint: disable=useless-object-inheritance
     def get_zones(self):
         """ Returns a list of all the forward and reverse zones  on the server excluding msdcs """
         zones = self.ad_host.run_command("dnscmd.exe /EnumZones").stdout_text
-        zone_list = re.sub("\n\s*\n", "\n", re.sub("(.*?)Cache(.*?)\n|(.*?)Zone(.*?)\n|(.*?)Enumerated(.*?)\n|"
+        zone_list = re.sub("\n\\s*\n", "\n", re.sub("(.*?)Cache(.*?)\n|(.*?)Zone(.*?)\n|(.*?)Enumerated(.*?)\n|"
                            "(.*?)_msdcs(.*?)\n|(.*?)Command(.*?)\n", "", zones))
         return zone_list
 
     def print_zone(self, zone):
         """ Prints all the contents of a zone file, takes domain.com or 1.168.192.in-addr.arpa string """
         zone_out = self.ad_host.run_command(f"dnscmd.exe /zoneprint {zone}").stdout_text
-        zone = re.sub("\n\s*\n", "\n", re.sub("[;_](.*?)\n|.*?(NS|SOA|DnsZones|@).*?\n", "", zone_out))
+        zone = re.sub("\n\\s*\n", "\n", re.sub("[;_](.*?)\n|.*?(NS|SOA|DnsZones|@).*?\n", "", zone_out))
 
         return zone
 
@@ -2152,4 +2152,3 @@ class ADDNS(object):  # pylint: disable=useless-object-inheritance
             net = str(ip.split(".")[2]) + '.' + str(ip.split(".")[1]) + '.' + str(ip.split(".")[0]) + '.in-addr.arpa'
             ptr = str(ip.split(".")[3])
             self.ad_host.run_command(f"dnscmd.exe /recorddelete {net} {ptr} PTR /f", raiseonerr=False)
-

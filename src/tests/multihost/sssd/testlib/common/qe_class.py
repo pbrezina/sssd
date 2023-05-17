@@ -4,7 +4,6 @@ Module with extensions to the pytest_multihost
 
 import time
 import logging
-import pytest
 import pytest_multihost.config
 import pytest_multihost.host
 from .exceptions import SSSDException

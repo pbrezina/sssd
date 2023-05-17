@@ -356,7 +356,7 @@ class TestAutoFs(object):
         client = multihost.client[0]
         tools = sssdTools(multihost.client[0])
         tools.sssd_conf("domain/example1", {'ldap_autofs_search_base':
-                                                f'ou=mount,{ds_suffix}'}, action='update')
+                                            f'ou=mount,{ds_suffix}'}, action='update')
         ldap_params = {'autofs_provider': None}
         tools.sssd_conf(f'domain/{ds_instance_name}', ldap_params)
         tools.clear_sssd_cache()
@@ -672,7 +672,7 @@ class TestAutoFs(object):
         user_info = {'cn': '/folder1/folder2/projects'.encode('utf-8'),
                      'objectClass': ['nisObject'.encode('utf-8'),
                                      'top'.encode('utf-8')],
-                     'nisMapEntry':f'-fstype=nfs,rw {master_server}:/export/projects'.encode('utf-8'),
+                     'nisMapEntry': f'-fstype=nfs,rw {master_server}:/export/projects'.encode('utf-8'),
                      'nisMapName': 'auto.direct'.encode('utf-8')}
         ldap_inst.add_entry(user_info, user_dn)
 
@@ -709,7 +709,7 @@ class TestAutoFs(object):
         client.run_command("automount -m")
         time.sleep(2)
         find_logs(multihost, "/var/log/sssd/sssd_autofs.log", "Obtaining autofs map auto.master")
-        find_logs(multihost, log_sssd, "Requested refresh for: auto.master" )
+        find_logs(multihost, log_sssd, "Requested refresh for: auto.master")
         find_logs(multihost, log_sssd, f"Searching for automount map entries with base [ou=mount,{ds_suffix}]")
         find_logs(multihost, log_sssd, f"{master_server}:/export/shared2/key1")
         time.sleep(30)
@@ -724,12 +724,12 @@ class TestAutoFs(object):
         time.sleep(10)
         clear_only_domain_log(multihost)
         client.run_command("> /var/log/sssd/sssd_autofs.log")
-        ## Add a new map auto.share3
+        # Add a new map auto.share3
         user_dn = f'cn=/share3,nisMapName=auto.master,ou=mount,{ds_suffix}'
         user_info = {'cn': '/share3'.encode('utf-8'),
                      'objectClass': ['nisObject'.encode('utf-8'),
                                      'top'.encode('utf-8')],
-                     'nisMapEntry':'auto.share3'.encode('utf-8'),
+                     'nisMapEntry': 'auto.share3'.encode('utf-8'),
                      'nisMapName': 'auto.master'.encode('utf-8')}
         ldap_inst.add_entry(user_info, user_dn)
         user_dn = f'nisMapName=auto.share3,ou=mount,{ds_suffix}'
@@ -738,10 +738,10 @@ class TestAutoFs(object):
                      'nisMapName': 'auto.share3'.encode('utf-8')}
         ldap_inst.add_entry(user_info, user_dn)
         user_dn = f'cn=key1,nisMapName=auto.share3,ou=mount,{ds_suffix}'
-        user_info = {'cn':'key1'.encode('utf-8'),
+        user_info = {'cn': 'key1'.encode('utf-8'),
                      'objectClass': ['nisObject'.encode('utf-8'),
                                      'top'.encode('utf-8')],
-                     'nisMapEntry':f'-fstype=nfs,rw {master_server}:/export/shared3/key1'.encode('utf-8'),
+                     'nisMapEntry': f'-fstype=nfs,rw {master_server}:/export/shared3/key1'.encode('utf-8'),
                      'nisMapName': 'auto.share3'.encode('utf-8')}
         ldap_inst.add_entry(user_info, user_dn)
         client.run_command("service autofs restart")
@@ -750,7 +750,7 @@ class TestAutoFs(object):
         find_logs(multihost, log_sssd, "Requested refresh for: auto.master")
         find_logs(multihost, log_sssd, f"Searching for automount map entries with base [ou=mount,{ds_suffix}]")
         find_logs(multihost, log_sssd, f"[cn=/share3,nisMapName=auto.master,ou=mount,{ds_suffix}]")
-        find_logs(multihost, log_sssd, f"Adding autofs entry [/share3] - [auto.share3]")
+        find_logs(multihost, log_sssd, "Adding autofs entry [/share3] - [auto.share3]")
 
     @staticmethod
     def test_bz876531_bz894428(multihost, backupsssdconf, ldap_autofs):

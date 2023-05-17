@@ -171,7 +171,7 @@ class TestADTrust(object):
         assert ad_user not in cmd.stdout_text,\
             f"{ad_user} information is fetched"
         assert cmd1.returncode != 0, 'User information returned'
-        assert ad_grp not in cmd1.stdout_text,\
+        assert ad_group not in cmd1.stdout_text,\
             f"{ad_user} is not available in {ad_user} information"
 
     @staticmethod
@@ -694,7 +694,7 @@ class TestADTrust(object):
         multihost.master[0].run_command(add_user_override, raiseonerr=False)
 
         # Add a external group named as a ext_group
-        create_ext_grp = f'ipa group-add --external ext_group'
+        create_ext_grp = 'ipa group-add --external ext_group'
         multihost.master[0].run_command(create_ext_grp, raiseonerr=False)
 
         # Add a user in external group named as a ext_group
@@ -703,7 +703,7 @@ class TestADTrust(object):
 
         # Make ext_group a member of the admins group, as a result the members of ext_group will be
         # members of admin too.
-        add_ext_grp_to_admin = f'ipa group-add-member admins --groups=ext_group'
+        add_ext_grp_to_admin = 'ipa group-add-member admins --groups=ext_group'
         multihost.master[0].run_command(add_ext_grp_to_admin, raiseonerr=False)
 
         ipa_master.clear_sssd_cache()
@@ -724,13 +724,13 @@ class TestADTrust(object):
 
         # Check the lookup from ips-server first.
         assert lookup_id_master.returncode == 0, f"Lookup is failed for user1@{domain} on ipa-server"
-        assert f"admins" in lookup_id_master.stdout_text, "admins name was not resolved on ipa-server."
+        assert "admins" in lookup_id_master.stdout_text, "admins name was not resolved on ipa-server."
 
         # Check the lookup from sssd client.
         assert lookup_id_client.returncode == 0, f"Lookup is failed for user1@{domain} on ipa-client"
-        assert f"group1@{domain}" in lookup_id_client.stdout_text, f"group1 name was not resolved" \
-                                                                   f" on ipa-client."
-        assert f"admins" in lookup_id_client.stdout_text, "admins name was not resolved on ipa-client."
+        assert "group1@{domain}" in lookup_id_client.stdout_text, "group1 name was not resolved" \
+                                                                  " on ipa-client."
+        assert "admins" in lookup_id_client.stdout_text, "admins name was not resolved on ipa-client."
 
     @staticmethod
     def test_search_filter_for_override_usrgrp(multihost, create_aduser_group):
@@ -793,7 +793,7 @@ class TestADTrust(object):
         multihost.client[0].run_command(python_cmd, raiseonerr=False)
 
         # Updated log message from sssd domain log
-        log_message = f'Found override for object with filter'
+        log_message = 'Found override for object with filter'
 
         # Download sssd log
         log_file = multihost.client[0].get_file_contents(f"/var/log/sssd/sssd_{domain_name}.log").decode('utf-8')
