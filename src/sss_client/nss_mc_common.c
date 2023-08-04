@@ -55,6 +55,27 @@ do { \
     } \
 } while(0)
 
+static errno_t sss_nss_mc_validate(struct sss_cli_mc_ctx *ctx)
+{
+    struct stat fdstat;
+
+    /* No mc ctx initialized?*/
+    if (ctx == NULL || ctx->fd < 0) {
+        return EINVAL;
+    }
+
+    if (fstat(ctx->fd, &fdstat) == -1) {
+        return errno;
+    }
+
+    /* Invalid size. */
+    if (fdstat.st_size != ctx->mmap_size) {
+        return ERANGE;
+    }
+
+    return EOK;
+}
+
 errno_t sss_nss_check_header(struct sss_cli_mc_ctx *ctx)
 {
     struct sss_mc_header h;
@@ -62,6 +83,11 @@ errno_t sss_nss_check_header(struct sss_cli_mc_ctx *ctx)
     int count;
     int ret;
     struct stat fdstat;
+
+    ret = sss_nss_mc_validate(ctx);
+    if (ret != EOK) {
+        return ret;
+    }
 
     /* retry barrier protected reading max 5 times then give up */
     for (count = 5; count > 0; count--) {
