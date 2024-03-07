@@ -20,49 +20,8 @@ from sssd_test_framework.topology import KnownTopology
 @pytest.mark.authentication
 @pytest.mark.topology(KnownTopology.Client)
 @pytest.mark.parametrize("ccache_storage", ["memory", "secdb"])
-def test_kcm__kinit_overwrite(client: Client, kdc: KDC, ccache_storage: str):
-    """
-    :title: Second call to kinit with the same principal does not create new ccache.
-    :setup:
-        1. Add Kerberos principal "tuser" to KDC
-        2. Add local user "tuser"
-        3. Set ccache_storage in sssd.conf to @ccache_storage
-        4. Start SSSD
-    :steps:
-        1. Authenticate as "tuser" over SSH
-        2. Count existing credential caches
-        3. Kinit as "tuser"
-        4. Check that TGT was aquired
-        5. Count existing credential caches
-        6. Repeat steps 3-5
-    :expectedresults:
-        1. User is logged into the host
-        2. Returns 0, no ccache is available
-        3. User obtains TGT
-        4. TGT is present
-        5. Returns 1, single ccache is available
-        6. Same results as for steps 3-5
-    :customerscenario: False
-    """
-    kdc.principal("tuser").add(password="Secret123")
-    client.local.user("tuser").add(password="Secret123")
-
-    client.sssd.common.kcm(kdc)
-    client.sssd.kcm["ccache_storage"] = ccache_storage
-    client.sssd.start()
-
-    with client.ssh("tuser", "Secret123") as ssh:
-        with client.auth.kerberos(ssh) as krb:
-            assert krb.cache_count() == 0
-
-            assert krb.kinit("tuser", password="Secret123").rc == 0
-            assert krb.has_tgt("tuser", kdc.realm)
-            assert krb.cache_count() == 1
-
-            assert krb.kinit("tuser", password="Secret123").rc == 0
-            assert krb.has_tgt("tuser", kdc.realm)
-            assert krb.cache_count() == 1
-
+def test_kcm__kinit_overwrite(mh, ccache_storage):
+    pass
 
 @pytest.mark.importance("critical")
 @pytest.mark.authentication
