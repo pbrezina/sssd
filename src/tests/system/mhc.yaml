@@ -7,6 +7,11 @@ provisioned_topologies:
 domains:
 - id: sssd
   hosts:
+  - hostname: vagrant.test
+    ssh:
+      host: 192.168.121.48
+    role: vagrant
+
   - hostname: client.test
     role: client
     artifacts:
