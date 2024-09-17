@@ -1,8 +1,8 @@
 flaky
 pytest
 git+https://github.com/next-actions/pytest-importance
-git+https://github.com/next-actions/pytest-mh
+git+https://github.com/pbrezina/pytest-mh@all
 git+https://github.com/next-actions/pytest-ticket
 git+https://github.com/next-actions/pytest-tier
 git+https://github.com/next-actions/pytest-output
-git+https://github.com/SSSD/sssd-test-framework
+git+https://github.com/pbrezina/sssd-test-framework@new-mh
