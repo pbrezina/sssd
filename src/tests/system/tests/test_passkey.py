@@ -86,6 +86,8 @@ def umockdev_ipaotpd_update(ipa: IPA, request: pytest.FixtureRequest):
     error while running the umockdev-run command while authenticating the user.
     """
     ipa.fs.append("/usr/lib/systemd/system/ipa-otpd@.service", "Environment=LD_PRELOAD=/opt/random.so")
+    ipa.host.conn.run("getent passwd sssd || useradd sssd")
+    ipa.host.conn.run("chown sssd:sssd -R /etc")
     ipa.svc.restart("ipa")
 
 
