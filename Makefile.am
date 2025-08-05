@@ -3852,6 +3852,7 @@ test_passkey_CFLAGS = \
     $(NULL)
 test_passkey_LDFLAGS = \
     -Wl,-wrap,sleep \
+    -Wl,-wrap,time \
     -Wl,-wrap,tcgetattr \
     -Wl,-wrap,tcsetattr \
     -Wl,-wrap,getline \
