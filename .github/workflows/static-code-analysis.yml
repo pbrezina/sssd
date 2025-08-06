@@ -123,17 +123,25 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-latest
 <<<<<<< HEAD
+<<<<<<< HEAD
     needs: [codeql, python-system-tests, pre-commit]
 =======
     needs: [codeql, pre-commit]
 >>>>>>> 680547625 (ci: add pre-commit configuration)
+=======
+    needs: [codeql, python-system-tests, pre-commit]
+>>>>>>> a092e2a5f (ci: add python-system-tests as requirement to the result job)
     steps:
       - name: Fail on failure
         if: |
           needs.codeql.result != 'success'
 <<<<<<< HEAD
+<<<<<<< HEAD
           || needs.python-system-tests.result != 'success'
 =======
 >>>>>>> 680547625 (ci: add pre-commit configuration)
+=======
+          || needs.python-system-tests.result != 'success'
+>>>>>>> a092e2a5f (ci: add python-system-tests as requirement to the result job)
           || needs.pre-commit.result != 'success'
         run: exit 1
