@@ -66,7 +66,6 @@ struct pam_items {
     char *first_factor;
     char *passkey_key;
     char *passkey_prompt_pin;
-    uint32_t passkey_attempts;
     bool password_prompting;
 
     bool user_name_hint;
