@@ -1,0 +1,16 @@
+name: Backport
+on:
+  pull_request_target:
+    types:
+      - closed
+      - labeled
+jobs:
+  backport:
+    name: Backport
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged
+    steps:
+      - uses: next-actions/backport@master
+        with:
+          user: sssd-bot
+          token: ${{ secrets.BOT_TOKEN }}
