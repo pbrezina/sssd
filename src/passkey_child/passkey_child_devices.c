@@ -30,10 +30,9 @@
 errno_t
 list_devices(int timeout, fido_dev_info_t *dev_list, size_t *dev_number)
 {
-    time_t end_time = time(NULL) + timeout;
     errno_t ret;
 
-    while (time(NULL) < end_time) {
+    for (int i = 0; i < timeout; i += FREQUENCY) {
         ret = fido_dev_info_manifest(dev_list, DEVLIST_SIZE, dev_number);
         if (ret != FIDO_OK) {
             DEBUG(SSSDBG_OP_FAILURE,
@@ -46,8 +45,10 @@ list_devices(int timeout, fido_dev_info_t *dev_list, size_t *dev_number)
             break;
         }
 
-        DEBUG(SSSDBG_TRACE_FUNC, "No device available, retrying.\n");
-        sleep(FREQUENCY);
+        if (i < (timeout - 1)) {
+            DEBUG(SSSDBG_TRACE_FUNC, "No device available, retrying.\n");
+            sleep(FREQUENCY);
+        }
     }
 
     return ret;
