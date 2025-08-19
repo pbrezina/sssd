@@ -1,11 +1,43 @@
-name: Context testing
-on: pull_request
+name: Add empty commit on PR close
+
+on:
+  pull_request:
+    types:
+      - closed
 
 jobs:
-  dump_contexts_to_log:
+  add-commit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # This permission is required to push a commit to the repository
+
     steps:
-      - name: Dump GitHub context
-        env:
-          GITHUB_CONTEXT: ${{ toJson(github) }}
-        run: echo "$GITHUB_CONTEXT"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch the entire history of the repository
+          # This is necessary for a successful git push
+          fetch-depth: 0
+          # The pull request head branch is checked out
+          # This is the branch that was merged or closed
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Configure Git
+        run: |
+          # Set the user name and email for the commit
+          # This ensures the commit is correctly attributed to the bot
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add empty commit
+        run: |
+          # The '--allow-empty' flag creates a commit with no changes
+          # The commit message clearly states the purpose
+          git commit --allow-empty -m "docs: Add empty update commit"
+
+      - name: Push commit to branch
+        run: |
+          # Push the new commit to the origin repository
+          # The 'HEAD' reference points to the current branch
+          # The new commit will be pushed to the same branch the PR was on
+          git push origin HEAD
