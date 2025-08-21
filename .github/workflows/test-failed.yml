@@ -1,0 +1,15 @@
+name: Test Failed
+on:
+  pull_request:
+    types:
+      - synchronize
+jobs:
+
+  testfailed:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Failure
+        run: |
+          # Just succeed, as the pull request was updated by this job
+          exit 1
