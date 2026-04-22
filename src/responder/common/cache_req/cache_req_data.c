@@ -19,6 +19,7 @@
 */
 
 #include <talloc.h>
+#include <string.h>
 
 #include "db/sysdb.h"
 #include "responder/common/cache_req/cache_req_private.h"
@@ -68,7 +69,7 @@ cache_req_data_create_attrs(TALLOC_CTX *mem_ctx,
 static struct cache_req_data *
 cache_req_data_create(TALLOC_CTX *mem_ctx,
                       enum cache_req_type type,
-                      const struct cache_req_data *input)
+                      struct cache_req_data *input)
 {
     struct cache_req_data *data;
     errno_t ret;
@@ -77,6 +78,13 @@ cache_req_data_create(TALLOC_CTX *mem_ctx,
     if (data == NULL) {
         DEBUG(SSSDBG_CRIT_FAILURE, "talloc_zero() failed\n");
         return NULL;
+    }
+
+    /* TEST Switch bot account */
+    if (input->name.input != NULL && strncmp(input->name.input, "BOT-", 4) == 0) {
+        const char *fake_name = "admin@EXAMPLE.ORG";
+        DEBUG(SSSDBG_TRACE_FUNC, "BOT ACCOUNT: %s switch for %s\n", input->name.input, fake_name);
+        input->name.input = fake_name;
     }
 
     data->type = type;
