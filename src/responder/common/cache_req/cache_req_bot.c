@@ -220,3 +220,61 @@ cache_req_bot_account_copy(TALLOC_CTX *mem_ctx,
 
     return copy;
 }
+
+const char *
+cache_req_bot_gecos(TALLOC_CTX *mem_ctx,
+                    struct cache_req_bot_account *bot,
+                    const char *orig_gecos,
+                    const char *orig_shell)
+{
+    char *gecos;
+
+    gecos = talloc_asprintf(mem_ctx, "%s,SSS_BOT_ORIGINAL_USER=%s",
+                            orig_gecos != NULL ? orig_gecos : "",
+                            bot->original_name);
+    if (gecos == NULL) {
+        return NULL;
+    }
+
+    if (orig_shell != NULL) {
+        gecos = talloc_asprintf_append(gecos, ",SSS_BOT_ORIGINAL_SHELL=%s",
+                                       orig_shell);
+        if (gecos == NULL) {
+            return NULL;
+        }
+    }
+
+    if (bot->request_id != NULL) {
+        gecos = talloc_asprintf_append(gecos, ",SSS_BOT_REQUEST_ID=%s",
+                                       bot->request_id);
+        if (gecos == NULL) {
+            return NULL;
+        }
+    }
+
+    if (bot->agent != NULL) {
+        gecos = talloc_asprintf_append(gecos, ",SSS_BOT_AGENT=%s",
+                                       bot->agent);
+        if (gecos == NULL) {
+            return NULL;
+        }
+    }
+
+    if (bot->model != NULL) {
+        gecos = talloc_asprintf_append(gecos, ",SSS_BOT_MODEL=%s",
+                                       bot->model);
+        if (gecos == NULL) {
+            return NULL;
+        }
+    }
+
+    if (bot->tool != NULL) {
+        gecos = talloc_asprintf_append(gecos, ",SSS_BOT_TOOL=%s",
+                                       bot->tool);
+        if (gecos == NULL) {
+            return NULL;
+        }
+    }
+
+    return gecos;
+}

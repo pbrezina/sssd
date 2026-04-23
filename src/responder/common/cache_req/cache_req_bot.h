@@ -55,4 +55,18 @@ struct cache_req_bot_account *
 cache_req_bot_account_copy(TALLOC_CTX *mem_ctx,
                            struct cache_req_bot_account *bot);
 
+/**
+ * Build a GECOS string with bot account fields appended.
+ *
+ * The original GECOS is preserved and SSS_BOT_* fields are appended
+ * as comma-separated KEY=VALUE pairs.
+ *
+ * @return Allocated string on success, NULL on error.
+ */
+const char *
+cache_req_bot_gecos(TALLOC_CTX *mem_ctx,
+                    struct cache_req_bot_account *bot,
+                    const char *orig_gecos,
+                    const char *orig_shell);
+
 #endif /* _CACHE_REQ_BOT_H_ */
