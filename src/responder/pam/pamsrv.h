@@ -112,6 +112,8 @@ struct pam_auth_req {
 
     bool passkey_data_exists;
     uint32_t client_id_num;
+
+    struct cache_req_bot_account *bot_account;
 };
 
 struct pam_resp_auth_type {

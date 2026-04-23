@@ -282,8 +282,8 @@ sss_nss_protocol_fill_pwent(struct sss_nss_ctx *nss_ctx,
         to_sized_string(&pwfield, sss_nss_get_pwfield(nss_ctx, result->domain));
 
         ret = sss_nss_get_pwent(tmp_ctx, nss_ctx, result->domain, msg,
-                            result->bot_account, &uid, &gid,
-                            &name, &gecos, &homedir, &shell);
+                                result->bot_account, &uid, &gid,
+                                &name, &gecos, &homedir, &shell);
         if (ret != EOK) {
             continue;
         }

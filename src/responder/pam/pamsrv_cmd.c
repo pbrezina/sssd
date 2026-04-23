@@ -41,6 +41,7 @@
 #include "responder/pam/pamsrv_passkey.h"
 #include "responder/pam/pam_helpers.h"
 #include "responder/common/cache_req/cache_req.h"
+#include "responder/common/cache_req/cache_req_bot.h"
 
 enum pam_verbosity {
     PAM_VERBOSITY_NO_MESSAGES = 0,
@@ -1585,6 +1586,31 @@ void pam_reply(struct pam_auth_req *preq)
         }
     }
 
+    /*
+     * Export the original user name to sss-confined-shell for bot accounts
+     */
+    if (pd->cmd == SSS_PAM_OPEN_SESSION && pd->pam_status == PAM_SUCCESS
+            && preq->bot_account != NULL) {
+        char *bot_env;
+
+        bot_env = talloc_asprintf(preq, "SSS_BOT_ORIGINAL_USER=%s",
+                                  preq->bot_account->original_name);
+        if (bot_env == NULL) {
+            DEBUG(SSSDBG_CRIT_FAILURE, "talloc_asprintf failed.\n");
+            ret = ENOMEM;
+            goto done;
+        }
+
+        ret = pam_add_response(pd, SSS_PAM_ENV_ITEM,
+                               strlen(bot_env) + 1, (uint8_t *)bot_env);
+        talloc_free(bot_env);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_CRIT_FAILURE,
+                  "pam_add_response failed for bot account env.\n");
+            goto done;
+        }
+    }
+
     resp_c = 0;
     resp_size = 0;
     resp = pd->resp_list;
@@ -2661,6 +2687,8 @@ static void pam_check_user_search_done(struct pam_auth_req *preq, int ret,
         preq->user_obj = result->msgs[0];
         pd_set_primary_name(preq->user_obj, preq->pd);
         preq->domain = result->domain;
+        preq->bot_account = cache_req_bot_account_copy(preq,
+                                                       result->bot_account);
 
         ret = pam_initgr_cache_set(pctx->rctx->ev,
                                    pctx->id_table,
