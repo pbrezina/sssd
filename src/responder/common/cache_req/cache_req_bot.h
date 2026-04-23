@@ -27,7 +27,11 @@
 #define CACHE_REQ_BOT_SHELL "/usr/bin/sss-confined-shell"
 
 struct cache_req_bot_account {
-    const char *original_name;  /* real user extracted from JSON "n" field */
+    const char *original_name;  /* "n": real user name (required) */
+    const char *request_id;     /* "r": request id (optional) */
+    const char *agent;          /* "a": AI agent (optional) */
+    const char *model;          /* "m": AI model (optional) */
+    const char *tool;           /* "t": MCP tool (optional) */
 };
 
 /**

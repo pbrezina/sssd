@@ -86,7 +86,7 @@ cache_req_bot_account_parse(TALLOC_CTX *mem_ctx, const char *input_name)
 
     bot = talloc_zero(tmp_ctx, struct cache_req_bot_account);
     if (bot == NULL) {
-        ret = EINVAL;
+        ret = ENOMEM;
         goto done;
     }
 
@@ -94,6 +94,43 @@ cache_req_bot_account_parse(TALLOC_CTX *mem_ctx, const char *input_name)
     if (bot->original_name == NULL) {
         ret = ENOMEM;
         goto done;
+    }
+
+    /* Extract optional fields. */
+    name_obj = json_object_get(root, "r");
+    if (name_obj != NULL && json_is_string(name_obj)) {
+        bot->request_id = talloc_strdup(bot, json_string_value(name_obj));
+        if (bot->request_id == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+    }
+
+    name_obj = json_object_get(root, "a");
+    if (name_obj != NULL && json_is_string(name_obj)) {
+        bot->agent = talloc_strdup(bot, json_string_value(name_obj));
+        if (bot->agent == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+    }
+
+    name_obj = json_object_get(root, "m");
+    if (name_obj != NULL && json_is_string(name_obj)) {
+        bot->model = talloc_strdup(bot, json_string_value(name_obj));
+        if (bot->model == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+    }
+
+    name_obj = json_object_get(root, "t");
+    if (name_obj != NULL && json_is_string(name_obj)) {
+        bot->tool = talloc_strdup(bot, json_string_value(name_obj));
+        if (bot->tool == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
     }
 
     DEBUG(SSSDBG_TRACE_FUNC,
@@ -136,6 +173,38 @@ cache_req_bot_account_copy(TALLOC_CTX *mem_ctx,
     if (copy->original_name == NULL) {
         talloc_free(copy);
         return NULL;
+    }
+
+    if (bot->request_id != NULL) {
+        copy->request_id = talloc_strdup(copy, bot->request_id);
+        if (copy->request_id == NULL) {
+            talloc_free(copy);
+            return NULL;
+        }
+    }
+
+    if (bot->agent != NULL) {
+        copy->agent = talloc_strdup(copy, bot->agent);
+        if (copy->agent == NULL) {
+            talloc_free(copy);
+            return NULL;
+        }
+    }
+
+    if (bot->model != NULL) {
+        copy->model = talloc_strdup(copy, bot->model);
+        if (copy->model == NULL) {
+            talloc_free(copy);
+            return NULL;
+        }
+    }
+
+    if (bot->tool != NULL) {
+        copy->tool = talloc_strdup(copy, bot->tool);
+        if (copy->tool == NULL) {
+            talloc_free(copy);
+            return NULL;
+        }
     }
 
     return copy;

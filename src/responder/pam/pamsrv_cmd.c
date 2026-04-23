@@ -1232,6 +1232,102 @@ done:
     return ret;
 }
 
+static errno_t
+pam_reply_bot_add_env(struct pam_data *pd, TALLOC_CTX *tmp_ctx,
+                      const char *name, const char *value)
+{
+    char *env;
+    errno_t ret;
+
+    env = talloc_asprintf(tmp_ctx, "%s=%s", name, value);
+    if (env == NULL) {
+        return ENOMEM;
+    }
+
+    ret = pam_add_response(pd, SSS_PAM_ENV_ITEM,
+                           strlen(env) + 1, (uint8_t *)env);
+    talloc_free(env);
+
+    return ret;
+}
+
+/*
+ * Export bot account information as PAM environment variables
+ * so that sss-confined-shell can access them.
+ */
+static int pam_reply_bot_export_env(struct pam_auth_req *preq)
+{
+    TALLOC_CTX *tmp_ctx;
+    struct cache_req_bot_account *bot = preq->bot_account;
+    const char *shell;
+    errno_t ret;
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        return ENOMEM;
+    }
+
+    ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                "SSS_BOT_ORIGINAL_USER",
+                                bot->original_name);
+    if (ret != EOK) {
+        goto done;
+    }
+
+    shell = sss_resp_get_shell_override(preq->user_obj,
+                                        preq->cctx->rctx, preq->domain);
+    if (shell != NULL) {
+        ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                    "SSS_BOT_ORIGINAL_SHELL",
+                                    shell);
+        if (ret != EOK) {
+            goto done;
+        }
+    }
+
+    if (bot->request_id != NULL) {
+        ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                    "SSS_BOT_REQUEST_ID",
+                                    bot->request_id);
+        if (ret != EOK) {
+            goto done;
+        }
+    }
+
+    if (bot->agent != NULL) {
+        ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                    "SSS_BOT_AGENT",
+                                    bot->agent);
+        if (ret != EOK) {
+            goto done;
+        }
+    }
+
+    if (bot->model != NULL) {
+        ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                    "SSS_BOT_MODEL",
+                                    bot->model);
+        if (ret != EOK) {
+            goto done;
+        }
+    }
+
+    if (bot->tool != NULL) {
+        ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                    "SSS_BOT_TOOL",
+                                    bot->tool);
+        if (ret != EOK) {
+            goto done;
+        }
+    }
+
+    ret = EOK;
+
+done:
+    talloc_free(tmp_ctx);
+    return ret;
+}
+
 void pam_reply(struct pam_auth_req *preq)
 {
     struct cli_ctx *cctx;
@@ -1587,26 +1683,14 @@ void pam_reply(struct pam_auth_req *preq)
     }
 
     /*
-     * Export the original user name to sss-confined-shell for bot accounts
+     * Export bot account information to sss-confined-shell
      */
     if (pd->cmd == SSS_PAM_OPEN_SESSION && pd->pam_status == PAM_SUCCESS
             && preq->bot_account != NULL) {
-        char *bot_env;
-
-        bot_env = talloc_asprintf(preq, "SSS_BOT_ORIGINAL_USER=%s",
-                                  preq->bot_account->original_name);
-        if (bot_env == NULL) {
-            DEBUG(SSSDBG_CRIT_FAILURE, "talloc_asprintf failed.\n");
-            ret = ENOMEM;
-            goto done;
-        }
-
-        ret = pam_add_response(pd, SSS_PAM_ENV_ITEM,
-                               strlen(bot_env) + 1, (uint8_t *)bot_env);
-        talloc_free(bot_env);
+        ret = pam_reply_bot_export_env(preq);
         if (ret != EOK) {
             DEBUG(SSSDBG_CRIT_FAILURE,
-                  "pam_add_response failed for bot account env.\n");
+                  "failed to export bot account env variables.\n");
             goto done;
         }
     }
