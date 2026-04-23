@@ -1279,6 +1279,13 @@ static int pam_reply_bot_export_env(struct pam_auth_req *preq)
     }
 
     ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                "SSS_BOT_NAME",
+                                bot->bot_name);
+    if (ret != EOK) {
+        goto done;
+    }
+
+    ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
                                 "SSS_BOT_ORIGINAL_USER",
                                 bot->original_name);
     if (ret != EOK) {
