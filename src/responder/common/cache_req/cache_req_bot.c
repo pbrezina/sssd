@@ -101,6 +101,12 @@ cache_req_bot_account_parse(TALLOC_CTX *mem_ctx, const char *input_name)
         goto done;
     }
 
+    bot->bot_name = talloc_strdup(bot, input_name);
+    if (bot->bot_name == NULL) {
+        ret = ENOMEM;
+        goto done;
+    }
+
     bot->original_name = talloc_strdup(bot, real_name);
     if (bot->original_name == NULL) {
         ret = ENOMEM;
@@ -180,6 +186,12 @@ cache_req_bot_account_copy(TALLOC_CTX *mem_ctx,
         return NULL;
     }
 
+    copy->bot_name = talloc_strdup(copy, bot->bot_name);
+    if (copy->bot_name == NULL) {
+        talloc_free(copy);
+        return NULL;
+    }
+
     copy->original_name = talloc_strdup(copy, bot->original_name);
     if (copy->original_name == NULL) {
         talloc_free(copy);
@@ -219,62 +231,4 @@ cache_req_bot_account_copy(TALLOC_CTX *mem_ctx,
     }
 
     return copy;
-}
-
-const char *
-cache_req_bot_gecos(TALLOC_CTX *mem_ctx,
-                    struct cache_req_bot_account *bot,
-                    const char *orig_gecos,
-                    const char *orig_shell)
-{
-    char *gecos;
-
-    gecos = talloc_asprintf(mem_ctx, "%s,SSS_BOT_ORIGINAL_USER=%s",
-                            orig_gecos != NULL ? orig_gecos : "",
-                            bot->original_name);
-    if (gecos == NULL) {
-        return NULL;
-    }
-
-    if (orig_shell != NULL) {
-        gecos = talloc_asprintf_append(gecos, ",SSS_BOT_ORIGINAL_SHELL=%s",
-                                       orig_shell);
-        if (gecos == NULL) {
-            return NULL;
-        }
-    }
-
-    if (bot->request_id != NULL) {
-        gecos = talloc_asprintf_append(gecos, ",SSS_BOT_REQUEST_ID=%s",
-                                       bot->request_id);
-        if (gecos == NULL) {
-            return NULL;
-        }
-    }
-
-    if (bot->agent != NULL) {
-        gecos = talloc_asprintf_append(gecos, ",SSS_BOT_AGENT=%s",
-                                       bot->agent);
-        if (gecos == NULL) {
-            return NULL;
-        }
-    }
-
-    if (bot->model != NULL) {
-        gecos = talloc_asprintf_append(gecos, ",SSS_BOT_MODEL=%s",
-                                       bot->model);
-        if (gecos == NULL) {
-            return NULL;
-        }
-    }
-
-    if (bot->tool != NULL) {
-        gecos = talloc_asprintf_append(gecos, ",SSS_BOT_TOOL=%s",
-                                       bot->tool);
-        if (gecos == NULL) {
-            return NULL;
-        }
-    }
-
-    return gecos;
 }

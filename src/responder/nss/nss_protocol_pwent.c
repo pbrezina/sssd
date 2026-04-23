@@ -219,25 +219,24 @@ sss_nss_get_pwent(TALLOC_CTX *mem_ctx,
         return ret;
     }
 
-    /* For bot accounts, append bot fields to the GECOS so that
-     * sss-confined-shell can read them from the passwd entry. */
+    /* Convert to sized strings. */
     if (bot_account != NULL) {
-        const char *orig_shell;
-
-        orig_shell = sss_resp_get_shell_override(msg, nss_ctx->rctx, domain);
-        gecos = cache_req_bot_gecos(mem_ctx, bot_account, gecos, orig_shell);
-        if (gecos == NULL) {
+        /* For bot accounts, return the BOT principal name instead of the
+         * real user name so that SSH passes it to PAM and the PAM responder
+         * can parse the bot account fields from it. */
+        *_name = talloc_zero(mem_ctx, struct sized_string);
+        if (*_name == NULL) {
             return ENOMEM;
         }
-    }
-
-    /* Convert to sized strings. */
-    ret = sized_output_name(mem_ctx, nss_ctx->rctx, name, domain, _name);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE,
-              "sized_output_name failed, skipping [%d]: %s\n",
-              ret, sss_strerror(ret));
-        return ret;
+        to_sized_string(*_name, bot_account->bot_name);
+    } else {
+        ret = sized_output_name(mem_ctx, nss_ctx->rctx, name, domain, _name);
+        if (ret != EOK) {
+            DEBUG(SSSDBG_CRIT_FAILURE,
+                  "sized_output_name failed, skipping [%d]: %s\n",
+                  ret, sss_strerror(ret));
+            return ret;
+        }
     }
 
     to_sized_string(_gecos, gecos == NULL ? "" : gecos);

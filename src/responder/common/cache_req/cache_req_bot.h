@@ -27,6 +27,7 @@
 #define CACHE_REQ_BOT_SHELL "/usr/bin/sss-confined-shell"
 
 struct cache_req_bot_account {
+    const char *bot_name;       /* original BOT-... input name */
     const char *original_name;  /* "n": real user name (required) */
     const char *request_id;     /* "r": request id (optional) */
     const char *agent;          /* "a": AI agent (optional) */
@@ -54,19 +55,5 @@ cache_req_bot_account_parse(TALLOC_CTX *mem_ctx, const char *input_name);
 struct cache_req_bot_account *
 cache_req_bot_account_copy(TALLOC_CTX *mem_ctx,
                            struct cache_req_bot_account *bot);
-
-/**
- * Build a GECOS string with bot account fields appended.
- *
- * The original GECOS is preserved and SSS_BOT_* fields are appended
- * as comma-separated KEY=VALUE pairs.
- *
- * @return Allocated string on success, NULL on error.
- */
-const char *
-cache_req_bot_gecos(TALLOC_CTX *mem_ctx,
-                    struct cache_req_bot_account *bot,
-                    const char *orig_gecos,
-                    const char *orig_shell);
 
 #endif /* _CACHE_REQ_BOT_H_ */
