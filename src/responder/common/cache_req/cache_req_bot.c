@@ -37,6 +37,7 @@ cache_req_bot_account_parse(TALLOC_CTX *mem_ctx, const char *input_name)
     json_t *name_obj;
     json_error_t json_err;
     const char *b64;
+    const char *at;
     const char *real_name;
     errno_t ret;
 
@@ -56,6 +57,16 @@ cache_req_bot_account_parse(TALLOC_CTX *mem_ctx, const char *input_name)
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
         return NULL;
+    }
+
+    /* Strip @REALM suffix if present, it is not part of the payload. */
+    at = strchr(b64, '@');
+    if (at != NULL) {
+        b64 = talloc_strndup(tmp_ctx, b64, at - b64);
+        if (b64 == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
     }
 
     decoded = sss_base64_decode(tmp_ctx, b64, &decoded_len);
