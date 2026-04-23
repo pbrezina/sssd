@@ -98,6 +98,7 @@ enum cache_req_behavior {
 /* Input data. */
 
 struct cache_req_data;
+struct cache_req_bot_account;
 
 struct cache_req_data *
 cache_req_data_attr(TALLOC_CTX *mem_ctx,
@@ -230,6 +231,11 @@ struct cache_req_result {
      * name such as "BUILTIN", or "LOCAL AUTHORITY".
      */
     const char *well_known_domain;
+
+    /**
+     * If non-NULL, this result was looked up via a BOT account.
+     */
+    struct cache_req_bot_account *bot_account;
 };
 
 /**

@@ -24,6 +24,7 @@
 
 #include "util/util.h"
 #include "responder/common/cache_req/cache_req_private.h"
+#include "responder/common/cache_req/cache_req_bot.h"
 
 errno_t
 cache_req_add_result(TALLOC_CTX *mem_ctx,
@@ -112,6 +113,8 @@ cache_req_create_and_add_result(TALLOC_CTX *mem_ctx,
     if (item == NULL) {
         return ENOMEM;
     }
+
+    item->bot_account = cache_req_bot_account_copy(item, cr->data->bot_account);
 
     ret = cache_req_add_result(mem_ctx, item, _results, _num_results);
     if (ret != EOK) {

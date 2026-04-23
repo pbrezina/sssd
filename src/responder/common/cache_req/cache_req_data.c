@@ -23,6 +23,7 @@
 
 #include "db/sysdb.h"
 #include "responder/common/cache_req/cache_req_private.h"
+#include "responder/common/cache_req/cache_req_bot.h"
 
 static const char **
 cache_req_data_create_attrs(TALLOC_CTX *mem_ctx,
@@ -80,11 +81,10 @@ cache_req_data_create(TALLOC_CTX *mem_ctx,
         return NULL;
     }
 
-    /* TEST Switch bot account */
-    if (input->name.input != NULL && strncmp(input->name.input, "BOT-", 4) == 0) {
-        const char *fake_name = "admin@EXAMPLE.ORG";
-        DEBUG(SSSDBG_TRACE_FUNC, "BOT ACCOUNT: %s switch for %s\n", input->name.input, fake_name);
-        input->name.input = fake_name;
+    /* Check if this is a BOT account and switch to the real user name. */
+    data->bot_account = cache_req_bot_account_parse(data, input->name.input);
+    if (data->bot_account != NULL) {
+        input->name.input = data->bot_account->original_name;
     }
 
     data->type = type;

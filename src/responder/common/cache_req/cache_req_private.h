@@ -114,6 +114,9 @@ struct cache_req_data {
 
     /* if set, only domains with MPG_HYBRID are searched */
     bool hybrid_lookup;
+
+    /* if set, the input name was a BOT account */
+    struct cache_req_bot_account *bot_account;
 };
 
 struct tevent_req *

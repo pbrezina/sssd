@@ -586,6 +586,7 @@ SSSD_CACHE_REQ_OBJ = \
 	src/responder/common/cache_req/cache_req_result.c \
 	src/responder/common/cache_req/cache_req_search.c \
 	src/responder/common/cache_req/cache_req_data.c \
+	src/responder/common/cache_req/cache_req_bot.c \
 	src/responder/common/cache_req/cache_req_domain.c \
 	src/responder/common/cache_req/cache_req_sr_overlay.c \
 	src/responder/common/cache_req/plugins/cache_req_common.c \
@@ -1502,6 +1503,7 @@ sssd_nss_SOURCES = \
 sssd_nss_LDADD = \
     $(LIBADD_DL) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     libsss_idmap.la \
     libsss_cert.la \
     $(SSSD_INTERNAL_LTLIBS) \
@@ -1564,6 +1566,7 @@ sssd_sudo_SOURCES = \
 sssd_sudo_LDADD = \
     $(LIBADD_DL) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_iface.la \
     libsss_sbus.la \
@@ -1578,6 +1581,7 @@ sssd_autofs_SOURCES = \
 sssd_autofs_LDADD = \
     $(LIBADD_DL) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_iface.la \
     libsss_sbus.la \
@@ -1597,6 +1601,7 @@ sssd_ssh_SOURCES = \
 sssd_ssh_LDADD = \
     $(LIBADD_DL) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_cert.la \
     libsss_certmap.la \
@@ -1618,6 +1623,7 @@ sssd_pac_LDADD = \
     $(LIBADD_DL) \
     $(NDR_KRB5PAC_LIBS) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     libsss_idmap.la \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_iface.la \
@@ -1694,6 +1700,7 @@ sssd_ifp_CFLAGS = \
 sssd_ifp_LDADD = \
     $(LIBADD_DL) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_cert.la \
     libifp_iface.la \
@@ -1760,6 +1767,7 @@ sssd_kcm_LDADD = \
     $(LIBADD_DL) \
     $(KRB5_LIBS) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(UUID_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_iface.la \
@@ -2547,6 +2555,7 @@ nss_srv_tests_LDADD = \
     $(LIBADD_DL) \
     $(CMOCKA_LIBS) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_test_common.la \
     libsss_cert.la \
@@ -2710,6 +2719,7 @@ ssh_srv_tests_LDADD = \
     $(LIBADD_DL) \
     $(CMOCKA_LIBS) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_test_common.la \
     libsss_iface.la \
@@ -2733,6 +2743,7 @@ responder_get_domains_tests_LDADD = \
     $(LIBADD_DL) \
     $(CMOCKA_LIBS) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_test_common.la \
     libsss_iface.la \
@@ -2804,6 +2815,7 @@ test_negcache_LDADD = \
     $(LIBADD_DL) \
     $(CMOCKA_LIBS) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_test_common.la \
     libsss_idmap.la \
@@ -3233,6 +3245,7 @@ ifp_tests_LDADD = \
     $(LIBADD_DL) \
     $(CMOCKA_LIBS) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_test_common.la \
     libsss_iface.la \
@@ -3461,6 +3474,7 @@ responder_cache_req_tests_LDADD = \
     $(LIBADD_DL) \
     $(CMOCKA_LIBS) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_test_common.la \
     libsss_iface.la \
@@ -3995,6 +4009,7 @@ test_kcm_queue_LDADD = \
     $(LIBADD_DL) \
     $(CMOCKA_LIBS) \
     $(SSSD_LIBS) \
+    $(JANSSON_LIBS) \
     $(SSSD_INTERNAL_LTLIBS) \
     libsss_test_common.la \
     libsss_iface.la \
@@ -4060,6 +4075,7 @@ test_kcm_renewals_LDADD = \
 	$(CARES_LIBS) \
 	$(CMOCKA_LIBS) \
 	$(SSSD_LIBS) \
+	$(JANSSON_LIBS) \
 	$(SSSD_INTERNAL_LTLIBS) \
 	libsss_test_common.la \
 	libsss_iface.la \

@@ -19,6 +19,7 @@
 */
 
 #include "responder/nss/nss_protocol.h"
+#include "responder/common/cache_req/cache_req_bot.h"
 #include "util/sss_nss.h"
 
 static uint32_t
@@ -134,9 +135,15 @@ sss_nss_get_shell(struct sss_nss_ctx *nss_ctx,
                   struct ldb_message *msg,
                   const char *name,
                   uint32_t uid,
+                  struct cache_req_bot_account *bot_account,
                   const char **_shell)
 {
     const char *shell = NULL;
+
+    if (bot_account != NULL) {
+        *_shell = CACHE_REQ_BOT_SHELL;
+        return EOK;
+    }
 
     if (nss_ctx->rctx->sr_conf.scope != SESSION_RECORDING_SCOPE_NONE) {
         const char *sr_enabled;
@@ -170,6 +177,7 @@ sss_nss_get_pwent(TALLOC_CTX *mem_ctx,
                   struct sss_nss_ctx *nss_ctx,
                   struct sss_domain_info *domain,
                   struct ldb_message *msg,
+                  struct cache_req_bot_account *bot_account,
                   uint32_t *_uid,
                   uint32_t *_gid,
                   struct sized_string **_name,
@@ -202,7 +210,8 @@ sss_nss_get_pwent(TALLOC_CTX *mem_ctx,
     gecos = sss_view_ldb_msg_find_attr_as_string(domain, msg, SYSDB_GECOS,
                                                  NULL);
     homedir = sss_nss_get_homedir(mem_ctx, nss_ctx, domain, msg, name, upn, uid);
-    ret = sss_nss_get_shell(nss_ctx, domain, msg, name, uid, &shell);
+    ret = sss_nss_get_shell(nss_ctx, domain, msg, name, uid,
+                            bot_account, &shell);
     if (ret != EOK) {
         DEBUG(SSSDBG_CRIT_FAILURE,
               "failed retrieving shell for %s[%u], skipping [%d]: %s\n",
@@ -272,7 +281,8 @@ sss_nss_protocol_fill_pwent(struct sss_nss_ctx *nss_ctx,
         /* Password field content. */
         to_sized_string(&pwfield, sss_nss_get_pwfield(nss_ctx, result->domain));
 
-        ret = sss_nss_get_pwent(tmp_ctx, nss_ctx, result->domain, msg, &uid, &gid,
+        ret = sss_nss_get_pwent(tmp_ctx, nss_ctx, result->domain, msg,
+                            result->bot_account, &uid, &gid,
                             &name, &gecos, &homedir, &shell);
         if (ret != EOK) {
             continue;
