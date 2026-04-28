@@ -31,6 +31,8 @@ enum nss_status _nss_sss_getpwnam_r(const char *name, struct passwd *result,
                                     char *buffer, size_t buflen, int *errnop);
 
 #define DEFAULT_BUFSIZE 4096
+#define BOT_PREFIX "BOT-"
+#define BOT_PREFIX_LEN (sizeof(BOT_PREFIX) - 1)
 
 static krb5_error_code sss_userok(krb5_context context,
                                   krb5_localauth_moddata data,
@@ -78,6 +80,19 @@ static krb5_error_code sss_userok(krb5_context context,
     }
 
     princ_uid = pwd.pw_uid;
+
+    /* For BOT principals, SSSD returns the bot principal as pw_name
+     * (e.g. "BOT-XYZ@REALM") instead of the real user name. Require
+     * that the login name matches this returned name exactly so that
+     * a BOT ticket cannot be used to log in as the underlying real user.
+     * Regular (non-BOT) principals are not affected and continue to use
+     * the UID-based comparison below, which allows user aliases. */
+    if (strncasecmp(princ_str, BOT_PREFIX, BOT_PREFIX_LEN) == 0) {
+        if (pwd.pw_name == NULL || strcasecmp(pwd.pw_name, lname) != 0) {
+            ret = EPERM;
+            goto done;
+        }
+    }
 
     ret = getpwnam_r(lname, &pwd, buffer, buflen, &result);
     if (ret != 0 || result == NULL) {
