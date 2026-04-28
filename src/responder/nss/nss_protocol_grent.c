@@ -453,7 +453,8 @@ sss_nss_protocol_fill_initgr(struct sss_nss_ctx *nss_ctx,
 
     if (nss_ctx->initgr_mc_ctx
                 && ((cmd_ctx->flags & SSS_NSS_EX_FLAG_INVALIDATE_CACHE) == 0)
-                && (nss_ctx->initgr_mc_ctx != NULL)) {
+                && (nss_ctx->initgr_mc_ctx != NULL)
+                && (result->bot_account == NULL)) {
         to_sized_string(&rawname, cmd_ctx->rawname);
         to_sized_string(&canonical_name, sss_get_name_from_msg(domain, user));
 
