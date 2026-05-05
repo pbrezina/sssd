@@ -136,10 +136,22 @@ static krb5_error_code sss_an2ln(krb5_context context,
     int nss_errno;
     int ret;
     char *str;
+    int is_bot = 0;
 
     kerr = krb5_unparse_name(context, aname, &princ_str);
     if (kerr != 0) {
         return kerr;
+    }
+
+    /* For BOT principals, translate back to the original account.
+     * This is a PoC with hardcoded value. */
+    if (strncasecmp(princ_str, BOT_PREFIX, BOT_PREFIX_LEN) == 0) {
+        krb5_free_unparsed_name(context, princ_str);
+        princ_str = strdup("admin@EXAMPLE.ORG");
+        if (princ_str == NULL) {
+            return ENOMEM;
+        }
+        is_bot = 1;
     }
 
     buflen = DEFAULT_BUFSIZE;
@@ -176,7 +188,11 @@ static krb5_error_code sss_an2ln(krb5_context context,
     ret = 0;
 
 done:
-    krb5_free_unparsed_name(context, princ_str);
+    if (is_bot) {
+        free(princ_str);
+    } else {
+        krb5_free_unparsed_name(context, princ_str);
+    }
     free(buffer);
 
     return ret;
