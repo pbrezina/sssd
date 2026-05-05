@@ -107,7 +107,11 @@ cache_req_bot_account_parse(TALLOC_CTX *mem_ctx, const char *input_name)
         goto done;
     }
 
-    bot->original_name = talloc_strdup(bot, real_name);
+    if (at != NULL) {
+        bot->original_name = talloc_asprintf(bot, "%s%s", real_name, at);
+    } else {
+        bot->original_name = talloc_strdup(bot, real_name);
+    }
     if (bot->original_name == NULL) {
         ret = ENOMEM;
         goto done;
