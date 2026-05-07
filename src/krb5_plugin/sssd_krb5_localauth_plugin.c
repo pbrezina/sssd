@@ -143,6 +143,12 @@ static krb5_error_code sss_an2ln(krb5_context context,
         return kerr;
     }
 
+    /* Skip service principals (e.g. host/server@REALM). */
+    if (strchr(princ_str, '/') != NULL) {
+        ret = KRB5_LNAME_NOTRANS;
+        goto done;
+    }
+
     /* For BOT principals, translate back to the original account.
      * This is a PoC with hardcoded value. */
     if (strncasecmp(princ_str, BOT_PREFIX, BOT_PREFIX_LEN) == 0) {
