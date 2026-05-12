@@ -31,6 +31,9 @@
 enum nss_status _nss_sss_getpwnam_r(const char *name, struct passwd *result,
                                     char *buffer, size_t buflen, int *errnop);
 
+enum nss_status _nss_sss_getpwuid_r(uid_t uid, struct passwd *result,
+                                    char *buffer, size_t buflen, int *errnop);
+
 #define DEFAULT_BUFSIZE 4096
 #define BOT_PREFIX "BOT-"
 #define BOT_PREFIX_LEN (sizeof(BOT_PREFIX) - 1)
@@ -226,6 +229,8 @@ static krb5_error_code sss_an2ln(krb5_context context,
 {
     krb5_error_code kerr;
     char *princ_str;
+    char *bot_short_name = NULL;
+    uid_t bot_uid;
     struct passwd pwd = { 0 };
     char *buffer = NULL;
     size_t buflen;
@@ -233,7 +238,6 @@ static krb5_error_code sss_an2ln(krb5_context context,
     int nss_errno;
     int ret;
     char *str;
-    int is_bot = 0;
 
     kerr = krb5_unparse_name(context, aname, &princ_str);
     if (kerr != 0) {
@@ -246,17 +250,6 @@ static krb5_error_code sss_an2ln(krb5_context context,
         goto done;
     }
 
-    /* For BOT principals, translate back to the original account.
-     * This is a PoC with hardcoded value. */
-    if (strncasecmp(princ_str, BOT_PREFIX, BOT_PREFIX_LEN) == 0) {
-        krb5_free_unparsed_name(context, princ_str);
-        princ_str = strdup("admin@EXAMPLE.ORG");
-        if (princ_str == NULL) {
-            return ENOMEM;
-        }
-        is_bot = 1;
-    }
-
     buflen = DEFAULT_BUFSIZE;
     buffer = malloc(buflen);
     if (buffer == NULL) {
@@ -264,8 +257,17 @@ static krb5_error_code sss_an2ln(krb5_context context,
         goto done;
     }
 
-    nss_status = _nss_sss_getpwnam_r(princ_str, &pwd, buffer, buflen,
-                                     &nss_errno);
+    /* For BOT principals, parse the UID from the principal name and
+     * look up the original user by UID. For regular principals, look
+     * up by name as before. */
+    if (sss_bot_parse_princ(princ_str, &bot_short_name, &bot_uid) == 0) {
+        nss_status = _nss_sss_getpwuid_r(bot_uid, &pwd, buffer, buflen,
+                                         &nss_errno);
+    } else {
+        nss_status = _nss_sss_getpwnam_r(princ_str, &pwd, buffer, buflen,
+                                         &nss_errno);
+    }
+
     if (nss_status != NSS_STATUS_SUCCESS) {
         if (nss_status == NSS_STATUS_NOTFOUND) {
             ret = KRB5_LNAME_NOTRANS;
@@ -291,11 +293,8 @@ static krb5_error_code sss_an2ln(krb5_context context,
     ret = 0;
 
 done:
-    if (is_bot) {
-        free(princ_str);
-    } else {
-        krb5_free_unparsed_name(context, princ_str);
-    }
+    krb5_free_unparsed_name(context, princ_str);
+    free(bot_short_name);
     free(buffer);
 
     return ret;
