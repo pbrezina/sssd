@@ -29,6 +29,7 @@
 
 struct cache_req_bot_account {
     const char *bot_name;       /* original BOT-... input name */
+    const char *bot_short_name; /* bot_name without @REALM suffix */
     uint32_t uid;               /* uidNumber extracted from the BOT name */
 };
 

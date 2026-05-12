@@ -228,7 +228,7 @@ sss_nss_get_pwent(TALLOC_CTX *mem_ctx,
         if (*_name == NULL) {
             return ENOMEM;
         }
-        to_sized_string(*_name, bot_account->bot_name);
+        to_sized_string(*_name, bot_account->bot_short_name);
     } else {
         ret = sized_output_name(mem_ctx, nss_ctx->rctx, name, domain, _name);
         if (ret != EOK) {

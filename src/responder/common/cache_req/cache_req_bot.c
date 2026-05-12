@@ -132,6 +132,16 @@ cache_req_bot_account_parse(TALLOC_CTX *mem_ctx, const char *input_name)
         return NULL;
     }
 
+    if (at != NULL) {
+        bot->bot_short_name = talloc_strndup(bot, input_name, at - input_name);
+    } else {
+        bot->bot_short_name = bot->bot_name;
+    }
+    if (bot->bot_short_name == NULL) {
+        talloc_free(bot);
+        return NULL;
+    }
+
     bot->uid = (uint32_t)uid_val;
 
     DEBUG(SSSDBG_TRACE_FUNC,
@@ -158,6 +168,12 @@ cache_req_bot_account_copy(TALLOC_CTX *mem_ctx,
 
     copy->bot_name = talloc_strdup(copy, bot->bot_name);
     if (copy->bot_name == NULL) {
+        talloc_free(copy);
+        return NULL;
+    }
+
+    copy->bot_short_name = talloc_strdup(copy, bot->bot_short_name);
+    if (copy->bot_short_name == NULL) {
         talloc_free(copy);
         return NULL;
     }

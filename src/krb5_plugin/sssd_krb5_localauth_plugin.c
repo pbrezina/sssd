@@ -81,17 +81,34 @@ static krb5_error_code sss_userok(krb5_context context,
 
     princ_uid = pwd.pw_uid;
 
-    /* For BOT principals, SSSD returns the bot principal as pw_name
-     * (e.g. "BOT-XYZ@REALM") instead of the real user name. Require
-     * that the login name matches this returned name exactly so that
-     * a BOT ticket cannot be used to log in as the underlying real user.
+    /* For BOT principals, SSSD returns the bot principal without @REALM
+     * as pw_name (e.g. "BOT-12345-abcd"). Require that the login name
+     * matches this returned name exactly so that a BOT ticket cannot be
+     * used to log in as the underlying real user. Strip @REALM from
+     * lname as well for a consistent comparison.
      * Regular (non-BOT) principals are not affected and continue to use
      * the UID-based comparison below, which allows user aliases. */
     if (strncasecmp(princ_str, BOT_PREFIX, BOT_PREFIX_LEN) == 0) {
-        if (pwd.pw_name == NULL || strcasecmp(pwd.pw_name, lname) != 0) {
+        char *bot_lname = strdup(lname);
+        char *at_pos;
+
+        if (bot_lname == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+
+        at_pos = strchr(bot_lname, '@');
+        if (at_pos != NULL) {
+            *at_pos = '\0';
+        }
+
+        if (pwd.pw_name == NULL
+                || strcasecmp(pwd.pw_name, bot_lname) != 0) {
+            free(bot_lname);
             ret = EPERM;
             goto done;
         }
+        free(bot_lname);
     }
 
     ret = getpwnam_r(lname, &pwd, buffer, buflen, &result);
