@@ -19,6 +19,7 @@
 */
 
 #include <nss.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <pwd.h>
 #include <string.h>
@@ -34,6 +35,92 @@ enum nss_status _nss_sss_getpwnam_r(const char *name, struct passwd *result,
 #define BOT_PREFIX "BOT-"
 #define BOT_PREFIX_LEN (sizeof(BOT_PREFIX) - 1)
 
+/**
+ * Parse a BOT principal name.
+ *
+ * If @princ matches "BOT-<uidNumber>-<random>[@REALM]", extract the
+ * short name (without @REALM) and the uidNumber.
+ *
+ * @return 0 on success, non-zero if not a BOT principal or on error.
+ *         On success, caller must free *_short_name.
+ */
+static int sss_bot_parse_princ(const char *princ,
+                               char **_short_name, uid_t *_uid)
+{
+    const char *uid_start;
+    const char *last_dash;
+    const char *at;
+    const char *p;
+    char *uid_str;
+    char *endptr;
+    unsigned long uid_val;
+    size_t uid_len;
+    size_t short_len;
+
+    if (princ == NULL
+            || strncasecmp(princ, BOT_PREFIX, BOT_PREFIX_LEN) != 0) {
+        return ENOENT;
+    }
+
+    uid_start = princ + BOT_PREFIX_LEN;
+    if (*uid_start == '\0') {
+        return EINVAL;
+    }
+
+    at = strchr(uid_start, '@');
+
+    /* Find last '-' before @REALM (or end of string). */
+    last_dash = NULL;
+    if (at != NULL) {
+        for (p = uid_start; p < at; p++) {
+            if (*p == '-') {
+                last_dash = p;
+            }
+        }
+    } else {
+        last_dash = strrchr(uid_start, '-');
+    }
+
+    if (last_dash == NULL || last_dash == uid_start) {
+        return EINVAL;
+    }
+
+    /* Verify the random suffix is not empty. */
+    if (at != NULL ? (last_dash + 1 >= at) : (*(last_dash + 1) == '\0')) {
+        return EINVAL;
+    }
+
+    /* Extract and parse uidNumber. */
+    uid_len = last_dash - uid_start;
+    if (uid_len == 0) {
+        return EINVAL;
+    }
+
+    uid_str = strndup(uid_start, uid_len);
+    if (uid_str == NULL) {
+        return ENOMEM;
+    }
+
+    errno = 0;
+    uid_val = strtoul(uid_str, &endptr, 10);
+    if (errno != 0 || *endptr != '\0' || uid_val == 0) {
+        free(uid_str);
+        return EINVAL;
+    }
+    free(uid_str);
+
+    /* Short name = principal without @REALM. */
+    short_len = at != NULL ? (size_t)(at - princ) : strlen(princ);
+    *_short_name = strndup(princ, short_len);
+    if (*_short_name == NULL) {
+        return ENOMEM;
+    }
+
+    *_uid = (uid_t)uid_val;
+
+    return 0;
+}
+
 static krb5_error_code sss_userok(krb5_context context,
                                   krb5_localauth_moddata data,
                                   krb5_const_principal aname,
@@ -41,6 +128,8 @@ static krb5_error_code sss_userok(krb5_context context,
 {
     krb5_error_code kerr;
     char *princ_str;
+    char *bot_short_name = NULL;
+    uid_t bot_uid;
     struct passwd pwd = { 0 };
     char *buffer = NULL;
     size_t buflen;
@@ -81,34 +170,24 @@ static krb5_error_code sss_userok(krb5_context context,
 
     princ_uid = pwd.pw_uid;
 
-    /* For BOT principals, SSSD returns the bot principal without @REALM
-     * as pw_name (e.g. "BOT-12345-abcd"). Require that the login name
-     * matches this returned name exactly so that a BOT ticket cannot be
-     * used to log in as the underlying real user. Strip @REALM from
-     * lname as well for a consistent comparison.
+    /* For BOT principals, verify that:
+     * 1. The login name matches the BOT short name (without @REALM).
+     * 2. The UID encoded in the BOT principal matches the resolved user.
+     * This prevents a BOT ticket from being used to log in as the
+     * underlying real user and catches UID mismatches.
      * Regular (non-BOT) principals are not affected and continue to use
      * the UID-based comparison below, which allows user aliases. */
-    if (strncasecmp(princ_str, BOT_PREFIX, BOT_PREFIX_LEN) == 0) {
-        char *bot_lname = strdup(lname);
-        char *at_pos;
-
-        if (bot_lname == NULL) {
-            ret = ENOMEM;
-            goto done;
-        }
-
-        at_pos = strchr(bot_lname, '@');
-        if (at_pos != NULL) {
-            *at_pos = '\0';
-        }
-
-        if (pwd.pw_name == NULL
-                || strcasecmp(pwd.pw_name, bot_lname) != 0) {
-            free(bot_lname);
+    if (sss_bot_parse_princ(princ_str, &bot_short_name, &bot_uid) == 0) {
+        if (princ_uid != bot_uid) {
             ret = EPERM;
             goto done;
         }
-        free(bot_lname);
+
+        if (pwd.pw_name == NULL
+                || strcasecmp(bot_short_name, lname) != 0) {
+            ret = EPERM;
+            goto done;
+        }
     }
 
     ret = getpwnam_r(lname, &pwd, buffer, buflen, &result);
@@ -130,6 +209,7 @@ static krb5_error_code sss_userok(krb5_context context,
 
 done:
     krb5_free_unparsed_name(context, princ_str);
+    free(bot_short_name);
     free(buffer);
 
     if (ret != 0) {
