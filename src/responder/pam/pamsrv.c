@@ -42,6 +42,7 @@
 #include "responder/pam/pamsrv.h"
 #include "responder/common/negcache.h"
 #include "sss_iface/sss_iface_async.h"
+#include "responder/pam/pamsrv_bot_iface.h"
 
 #define DEFAULT_PAM_FD_LIMIT 8192
 #define ALL_UIDS_ALLOWED "all"
@@ -240,6 +241,15 @@ static int pam_process_init(TALLOC_CTX *mem_ctx,
     if (ret != EOK) {
         DEBUG(SSSDBG_FATAL_FAILURE,
               "Could not create initgroups hash table: [%s]\n",
+              strerror(ret));
+        goto done;
+    }
+
+    /* Create table for BOT account indicators */
+    ret = sss_hash_create(pctx, 0, &pctx->bot_indicators_table);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              "Could not create BOT indicators hash table: [%s]\n",
               strerror(ret));
         goto done;
     }
@@ -469,6 +479,11 @@ static int pam_process_init(TALLOC_CTX *mem_ctx,
     }
 
     ret = sss_resp_register_service_iface(rctx);
+    if (ret != EOK) {
+        goto done;
+    }
+
+    ret = pam_register_bot_iface(rctx->sbus_conn, pctx);
     if (ret != EOK) {
         goto done;
     }

@@ -330,6 +330,19 @@ sbus_call_nss_memcache_UpdateInitgroups_recv
     (struct tevent_req *req);
 
 struct tevent_req *
+sbus_call_pam_bot_Register_send
+    (TALLOC_CTX *mem_ctx,
+     struct sbus_connection *conn,
+     const char *busname,
+     const char *object_path,
+     const char * arg_bot_name,
+     const char ** arg_indicators);
+
+errno_t
+sbus_call_pam_bot_Register_recv
+    (struct tevent_req *req);
+
+struct tevent_req *
 sbus_call_service_clearEnumCache_send
     (TALLOC_CTX *mem_ctx,
      struct sbus_connection *conn,

@@ -801,6 +801,34 @@
         (handler_send), (handler_recv), (data)); \
 })
 
+/* Interface: sssd.pam.BotAccount */
+#define SBUS_IFACE_sssd_pam_BotAccount(methods, signals, properties) ({ \
+    sbus_interface("sssd.pam.BotAccount", NULL, \
+        (methods), (signals), (properties)); \
+})
+
+/* Method: sssd.pam.BotAccount.Register */
+#define SBUS_METHOD_SYNC_sssd_pam_BotAccount_Register(handler, data) ({ \
+    SBUS_CHECK_SYNC((handler), (data), const char *, const char **); \
+    sbus_method_sync("Register", \
+        &_sbus_sss_args_sssd_pam_BotAccount_Register, \
+        NULL, \
+        _sbus_sss_invoke_in_sas_out__send, \
+        NULL, \
+        (handler), (data)); \
+})
+
+#define SBUS_METHOD_ASYNC_sssd_pam_BotAccount_Register(handler_send, handler_recv, data) ({ \
+    SBUS_CHECK_SEND((handler_send), (data), const char *, const char **); \
+    SBUS_CHECK_RECV((handler_recv)); \
+    sbus_method_async("Register", \
+        &_sbus_sss_args_sssd_pam_BotAccount_Register, \
+        NULL, \
+        _sbus_sss_invoke_in_sas_out__send, \
+        NULL, \
+        (handler_send), (handler_recv), (data)); \
+})
+
 /* Interface: sssd.service */
 #define SBUS_IFACE_sssd_service(methods, signals, properties) ({ \
     sbus_interface("sssd.service", NULL, \

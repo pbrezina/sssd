@@ -42,6 +42,7 @@
 #include "responder/pam/pam_helpers.h"
 #include "responder/common/cache_req/cache_req.h"
 #include "responder/common/cache_req/cache_req_bot.h"
+#include "responder/pam/pamsrv_bot_iface.h"
 
 enum pam_verbosity {
     PAM_VERBOSITY_NO_MESSAGES = 0,
@@ -1262,10 +1263,12 @@ pam_reply_bot_add_env(struct pam_data *pd, TALLOC_CTX *tmp_ctx,
  * Export bot account information as PAM environment variables
  * so that sss-confined-shell can access them.
  */
-static int pam_reply_bot_export_env(struct pam_auth_req *preq)
+static int pam_reply_bot_export_env(struct pam_auth_req *preq,
+                                    struct pam_ctx *pctx)
 {
     TALLOC_CTX *tmp_ctx;
     struct cache_req_bot_account *bot = preq->bot_account;
+    struct pam_bot_indicators *ind;
     const char *original_name;
     const char *shell;
     errno_t ret;
@@ -1306,6 +1309,43 @@ static int pam_reply_bot_export_env(struct pam_auth_req *preq)
         if (ret != EOK) {
             goto done;
         }
+    }
+
+    /* Export auth indicator metadata if available. */
+    ind = pam_bot_indicators_lookup(pctx, bot->bot_short_name);
+    if (ind != NULL) {
+        if (ind->agent != NULL) {
+            ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                        "SSS_BOT_AGENT", ind->agent);
+            if (ret != EOK) {
+                goto done;
+            }
+        }
+        if (ind->model != NULL) {
+            ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                        "SSS_BOT_MODEL", ind->model);
+            if (ret != EOK) {
+                goto done;
+            }
+        }
+        if (ind->tool != NULL) {
+            ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                        "SSS_BOT_TOOL", ind->tool);
+            if (ret != EOK) {
+                goto done;
+            }
+        }
+        if (ind->request_id != NULL) {
+            ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                        "SSS_BOT_REQUEST_ID",
+                                        ind->request_id);
+            if (ret != EOK) {
+                goto done;
+            }
+        }
+
+        /* Remove after consumption. */
+        pam_bot_indicators_delete(pctx, bot->bot_short_name);
     }
 
     ret = EOK;
@@ -1674,7 +1714,7 @@ void pam_reply(struct pam_auth_req *preq)
      */
     if (pd->cmd == SSS_PAM_OPEN_SESSION && pd->pam_status == PAM_SUCCESS
             && preq->bot_account != NULL) {
-        ret = pam_reply_bot_export_env(preq);
+        ret = pam_reply_bot_export_env(preq, pctx);
         if (ret != EOK) {
             DEBUG(SSSDBG_CRIT_FAILURE,
                   "failed to export bot account env variables.\n");

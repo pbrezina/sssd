@@ -48,6 +48,7 @@ _sbus_sss_declare_invoker(s, as);
 _sbus_sss_declare_invoker(s, b);
 _sbus_sss_declare_invoker(s, qus);
 _sbus_sss_declare_invoker(s, s);
+_sbus_sss_declare_invoker(sas, );
 _sbus_sss_declare_invoker(sqq, q);
 _sbus_sss_declare_invoker(ss, o);
 _sbus_sss_declare_invoker(ssau, );

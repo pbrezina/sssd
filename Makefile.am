@@ -1524,6 +1524,7 @@ sssd_pam_SOURCES = \
     src/responder/pam/pam_prompting_config.c \
     src/sss_client/pam_sss_prompt_config.c \
     src/responder/pam/pam_helpers.c \
+    src/responder/pam/pamsrv_bot_iface.c \
     $(SSSD_RESPONDER_OBJ)
 if BUILD_PASSKEY
     sssd_pam_SOURCES += src/responder/pam/pamsrv_passkey.c
@@ -2584,6 +2585,7 @@ pam_srv_tests_SOURCES = \
     src/responder/pam/pamsrv_dp.c \
     src/responder/pam/pam_prompting_config.c \
     src/sss_client/pam_sss_prompt_config.c \
+    src/responder/pam/pamsrv_bot_iface.c \
     $(NULL)
 if BUILD_SAMBA
     pam_srv_tests_SOURCES += src/providers/ad/ad_pac_common.c
@@ -2636,6 +2638,7 @@ test_pamsrv_json_SOURCES = \
     src/responder/pam/pamsrv_dp.c \
     src/responder/pam/pam_prompting_config.c \
     src/sss_client/pam_sss_prompt_config.c \
+    src/responder/pam/pamsrv_bot_iface.c \
     src/tests/cmocka/test_pamsrv_json.c \
     $(NULL)
 if BUILD_PASSKEY
@@ -5094,10 +5097,12 @@ sssd_pac_plugin_la_SOURCES = \
     src/sss_client/krb5_authdata_int.h
 sssd_pac_plugin_la_CFLAGS = \
     $(AM_CFLAGS) \
-    $(KRB5_CFLAGS)
+    $(KRB5_CFLAGS) \
+    $(DBUS_CFLAGS)
 sssd_pac_plugin_la_LIBADD = \
     $(CLIENT_LIBS) \
-    $(KRB5_LIBS)
+    $(KRB5_LIBS) \
+    $(DBUS_LIBS)
 sssd_pac_plugin_la_LDFLAGS = \
     -avoid-version \
     -module

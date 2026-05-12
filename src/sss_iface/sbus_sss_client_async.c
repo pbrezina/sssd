@@ -733,6 +733,90 @@ sbus_method_in_s_out_s_recv
     return EOK;
 }
 
+struct sbus_method_in_sas_out__state {
+    struct _sbus_sss_invoker_args_sas in;
+};
+
+static void sbus_method_in_sas_out__done(struct tevent_req *subreq);
+
+static struct tevent_req *
+sbus_method_in_sas_out__send
+    (TALLOC_CTX *mem_ctx,
+     struct sbus_connection *conn,
+     sbus_invoker_keygen keygen,
+     const char *bus,
+     const char *path,
+     const char *iface,
+     const char *method,
+     const char * arg0,
+     const char ** arg1)
+{
+    struct sbus_method_in_sas_out__state *state;
+    struct tevent_req *subreq;
+    struct tevent_req *req;
+    errno_t ret;
+
+    req = tevent_req_create(mem_ctx, &state, struct sbus_method_in_sas_out__state);
+    if (req == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create tevent request!\n");
+        return NULL;
+    }
+
+    state->in.arg0 = arg0;
+    state->in.arg1 = arg1;
+
+    subreq = sbus_call_method_send(state, conn, NULL, keygen,
+                                   (sbus_invoker_writer_fn)_sbus_sss_invoker_write_sas,
+                                   bus, path, iface, method, &state->in);
+    if (subreq == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "Unable to create subrequest!\n");
+        ret = ENOMEM;
+        goto done;
+    }
+
+    tevent_req_set_callback(subreq, sbus_method_in_sas_out__done, req);
+
+    ret = EAGAIN;
+
+done:
+    if (ret != EAGAIN) {
+        tevent_req_error(req, ret);
+        tevent_req_post(req, conn->ev);
+    }
+
+    return req;
+}
+
+static void sbus_method_in_sas_out__done(struct tevent_req *subreq)
+{
+    struct sbus_method_in_sas_out__state *state;
+    struct tevent_req *req;
+    DBusMessage *reply;
+    errno_t ret;
+
+    req = tevent_req_callback_data(subreq, struct tevent_req);
+    state = tevent_req_data(req, struct sbus_method_in_sas_out__state);
+
+    ret = sbus_call_method_recv(state, subreq, &reply);
+    talloc_zfree(subreq);
+    if (ret != EOK) {
+        tevent_req_error(req, ret);
+        return;
+    }
+
+    tevent_req_done(req);
+    return;
+}
+
+static errno_t
+sbus_method_in_sas_out__recv
+    (struct tevent_req *req)
+{
+    TEVENT_REQ_RETURN_ON_ERROR(req);
+
+    return EOK;
+}
+
 struct sbus_method_in_sqq_out_q_state {
     struct _sbus_sss_invoker_args_sqq in;
     struct _sbus_sss_invoker_args_q *out;
@@ -2168,6 +2252,26 @@ sbus_call_nss_memcache_UpdateInitgroups_recv
     (struct tevent_req *req)
 {
     return sbus_method_in_ssau_out__recv(req);
+}
+
+struct tevent_req *
+sbus_call_pam_bot_Register_send
+    (TALLOC_CTX *mem_ctx,
+     struct sbus_connection *conn,
+     const char *busname,
+     const char *object_path,
+     const char * arg_bot_name,
+     const char ** arg_indicators)
+{
+    return sbus_method_in_sas_out__send(mem_ctx, conn, NULL,
+        busname, object_path, "sssd.pam.BotAccount", "Register", arg_bot_name, arg_indicators);
+}
+
+errno_t
+sbus_call_pam_bot_Register_recv
+    (struct tevent_req *req)
+{
+    return sbus_method_in_sas_out__recv(req);
 }
 
 struct tevent_req *

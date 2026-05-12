@@ -191,4 +191,13 @@
             <arg name="gid" type="u" key="1" />
         </signal>
     </interface>
+
+    <interface name="sssd.pam.BotAccount">
+        <annotation name="codegen.Name" value="pam_bot" />
+        <annotation name="codegen.SyncCaller" value="true" />
+        <method name="Register">
+            <arg name="bot_name" type="s" direction="in" />
+            <arg name="indicators" type="as" direction="in" />
+        </method>
+    </interface>
 </node>

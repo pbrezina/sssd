@@ -106,7 +106,8 @@ static int sss_bot_parse_princ(const char *princ,
 
     errno = 0;
     uid_val = strtoul(uid_str, &endptr, 10);
-    if (errno != 0 || *endptr != '\0' || uid_val == 0) {
+    if (errno != 0 || *endptr != '\0' || uid_val == 0
+            || uid_val != (uid_t)uid_val) {
         free(uid_str);
         return EINVAL;
     }
@@ -191,6 +192,12 @@ static krb5_error_code sss_userok(krb5_context context,
             ret = EPERM;
             goto done;
         }
+
+        /* BOT checks passed. Skip the getpwnam_r check below which
+         * would fail because the BOT short name doesn't exist as a
+         * system user. */
+        ret = 0;
+        goto done;
     }
 
     ret = getpwnam_r(lname, &pwd, buffer, buflen, &result);

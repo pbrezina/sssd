@@ -64,6 +64,28 @@ enum nss_status _nss_sss_getpwnam_r(const char *name, struct passwd *result,
     return test_data->status;
 }
 
+enum nss_status _nss_sss_getpwuid_r(uid_t uid, struct passwd *result,
+                                    char *buffer, size_t buflen, int *errnop)
+{
+    struct _nss_sss_getpwnam_r_test_data *test_data;
+
+    assert_non_null(result);
+    assert_non_null(buffer);
+    assert_int_not_equal(buflen, 0);
+    assert_non_null(errnop);
+
+    test_data = sss_mock_ptr_type(struct _nss_sss_getpwnam_r_test_data *);
+
+    result->pw_uid = test_data->uid;
+    if (test_data->name != NULL) {
+        assert_true(buflen > strlen(test_data->name));
+        strncpy(buffer, test_data->name, buflen);
+        result->pw_name = buffer;
+    }
+
+    return test_data->status;
+}
+
 int getpwnam_r(const char *name, struct passwd *pwd,
                char *buffer, size_t buflen, struct passwd **result)
 {

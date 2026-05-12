@@ -59,6 +59,14 @@ sbus_call_systemd_StopUnit
      const char ** _arg_job);
 
 errno_t
+sbus_call_pam_bot_Register
+    (struct sbus_sync_connection *conn,
+     const char *busname,
+     const char *object_path,
+     const char * arg_bot_name,
+     const char ** arg_indicators);
+
+errno_t
 sbus_get_service_debug_level
     (struct sbus_sync_connection *conn,
      const char *busname,

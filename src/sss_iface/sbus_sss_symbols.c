@@ -374,6 +374,18 @@ _sbus_sss_args_sssd_nss_MemoryCache_InvalidateGroupById[] = {
 };
 
 const struct sbus_method_arguments
+_sbus_sss_args_sssd_pam_BotAccount_Register = {
+    .input = (const struct sbus_argument[]){
+        {.type = "s", .name = "bot_name"},
+        {.type = "as", .name = "indicators"},
+        {NULL}
+    },
+    .output = (const struct sbus_argument[]){
+        {NULL}
+    }
+};
+
+const struct sbus_method_arguments
 _sbus_sss_args_sssd_service_clearEnumCache = {
     .input = (const struct sbus_argument[]){
         {NULL}

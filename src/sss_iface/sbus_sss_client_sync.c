@@ -30,6 +30,45 @@
 #include "sss_iface/sbus_sss_client_properties.h"
 
 static errno_t
+sbus_method_in_sas_out_
+    (struct sbus_sync_connection *conn,
+     const char *bus,
+     const char *path,
+     const char *iface,
+     const char *method,
+     const char * arg0,
+     const char ** arg1)
+{
+    TALLOC_CTX *tmp_ctx;
+    struct _sbus_sss_invoker_args_sas in;
+    DBusMessage *reply;
+    errno_t ret;
+
+    tmp_ctx = talloc_new(NULL);
+    if (tmp_ctx == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, "Out of memory!\n");
+        return ENOMEM;
+    }
+
+    in.arg0 = arg0;
+    in.arg1 = arg1;
+
+    ret = sbus_sync_call_method(tmp_ctx, conn, NULL,
+                                (sbus_invoker_writer_fn)_sbus_sss_invoker_write_sas,
+                                bus, path, iface, method, &in, &reply);
+    if (ret != EOK) {
+        goto done;
+    }
+
+    ret = EOK;
+
+done:
+    talloc_free(tmp_ctx);
+
+    return ret;
+}
+
+static errno_t
 sbus_method_in_ss_out_o
     (TALLOC_CTX *mem_ctx,
      struct sbus_sync_connection *conn,
@@ -129,6 +168,18 @@ sbus_call_systemd_StopUnit
      return sbus_method_in_ss_out_o(mem_ctx, conn,
           busname, object_path, "org.freedesktop.systemd1.Manager", "StopUnit", arg_name, arg_mode,
           _arg_job);
+}
+
+errno_t
+sbus_call_pam_bot_Register
+    (struct sbus_sync_connection *conn,
+     const char *busname,
+     const char *object_path,
+     const char * arg_bot_name,
+     const char ** arg_indicators)
+{
+     return sbus_method_in_sas_out_(conn,
+          busname, object_path, "sssd.pam.BotAccount", "Register", arg_bot_name, arg_indicators);
 }
 
 static errno_t
