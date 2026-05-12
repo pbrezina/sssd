@@ -19,27 +19,24 @@
 */
 
 #include <string.h>
-#include <jansson.h>
+#include <stdlib.h>
+#include <errno.h>
 #include <talloc.h>
 
 #include "util/util.h"
-#include "util/crypto/sss_crypto.h"
 #include "responder/common/cache_req/cache_req_bot.h"
 
 struct cache_req_bot_account *
 cache_req_bot_account_parse(TALLOC_CTX *mem_ctx, const char *input_name)
 {
-    TALLOC_CTX *tmp_ctx;
     struct cache_req_bot_account *bot;
-    unsigned char *decoded;
-    size_t decoded_len;
-    json_t *root = NULL;
-    json_t *name_obj;
-    json_error_t json_err;
-    const char *b64;
+    const char *uid_start;
+    const char *last_dash;
     const char *at;
-    const char *real_name;
-    errno_t ret;
+    char *uid_str;
+    char *endptr;
+    unsigned long uid_val;
+    size_t uid_len;
 
     if (input_name == NULL
             || strncmp(input_name, CACHE_REQ_BOT_PREFIX,
@@ -48,129 +45,98 @@ cache_req_bot_account_parse(TALLOC_CTX *mem_ctx, const char *input_name)
     }
 
     /* Skip the "BOT-" prefix. */
-    b64 = input_name + strlen(CACHE_REQ_BOT_PREFIX);
-    if (*b64 == '\0') {
+    uid_start = input_name + strlen(CACHE_REQ_BOT_PREFIX);
+    if (*uid_start == '\0') {
         DEBUG(SSSDBG_MINOR_FAILURE, "BOT account name has empty payload\n");
         return NULL;
     }
 
-    tmp_ctx = talloc_new(NULL);
-    if (tmp_ctx == NULL) {
+    /* Strip @REALM suffix if present. Find the boundary of the
+     * BOT-<uid>-<random> part (before any @REALM). */
+    at = strchr(uid_start, '@');
+
+    /* Find the last '-' before @REALM (or end of string).
+     * This separates the uidNumber from the random suffix:
+     *   BOT-<uidNumber>-<random>[@REALM]
+     */
+    if (at != NULL) {
+        /* Search within uid_start..at for the last '-' */
+        last_dash = NULL;
+        for (const char *p = uid_start; p < at; p++) {
+            if (*p == '-') {
+                last_dash = p;
+            }
+        }
+    } else {
+        last_dash = strrchr(uid_start, '-');
+    }
+
+    if (last_dash == NULL || last_dash == uid_start) {
+        DEBUG(SSSDBG_MINOR_FAILURE,
+              "BOT account name has invalid format (no random suffix): %s\n",
+              input_name);
         return NULL;
     }
 
-    /* Strip @REALM suffix if present, it is not part of the payload. */
-    at = strchr(b64, '@');
+    /* Verify the random suffix is not empty. */
     if (at != NULL) {
-        b64 = talloc_strndup(tmp_ctx, b64, at - b64);
-        if (b64 == NULL) {
-            ret = ENOMEM;
-            goto done;
+        if (last_dash + 1 >= at) {
+            DEBUG(SSSDBG_MINOR_FAILURE,
+                  "BOT account name has empty random suffix: %s\n",
+                  input_name);
+            return NULL;
+        }
+    } else {
+        if (*(last_dash + 1) == '\0') {
+            DEBUG(SSSDBG_MINOR_FAILURE,
+                  "BOT account name has empty random suffix: %s\n",
+                  input_name);
+            return NULL;
         }
     }
 
-    decoded = sss_base64_decode(tmp_ctx, b64, &decoded_len);
-    if (decoded == NULL) {
+    /* Extract uidNumber string (between "BOT-" and last "-"). */
+    uid_len = last_dash - uid_start;
+    if (uid_len == 0) {
         DEBUG(SSSDBG_MINOR_FAILURE,
-              "Failed to base64-decode BOT account payload\n");
-        ret = EINVAL;
-        goto done;
+              "BOT account name has empty uidNumber: %s\n", input_name);
+        return NULL;
     }
 
-    root = json_loadb((const char *)decoded, decoded_len, 0, &json_err);
-    if (root == NULL) {
-        DEBUG(SSSDBG_MINOR_FAILURE,
-              "Failed to parse BOT account JSON: %s\n", json_err.text);
-        ret = EINVAL;
-        goto done;
+    uid_str = strndup(uid_start, uid_len);
+    if (uid_str == NULL) {
+        return NULL;
     }
 
-    name_obj = json_object_get(root, "n");
-    if (name_obj == NULL || !json_is_string(name_obj)) {
+    /* Parse uidNumber. */
+    errno = 0;
+    uid_val = strtoul(uid_str, &endptr, 10);
+    if (errno != 0 || *endptr != '\0' || uid_val == 0
+            || uid_val > UINT32_MAX) {
         DEBUG(SSSDBG_MINOR_FAILURE,
-              "BOT account JSON missing \"n\" string field\n");
-        ret = EINVAL;
-        goto done;
+              "BOT account name has invalid uidNumber [%s]: %s\n",
+              uid_str, input_name);
+        free(uid_str);
+        return NULL;
     }
+    free(uid_str);
 
-    real_name = json_string_value(name_obj);
-
-    bot = talloc_zero(tmp_ctx, struct cache_req_bot_account);
+    bot = talloc_zero(mem_ctx, struct cache_req_bot_account);
     if (bot == NULL) {
-        ret = ENOMEM;
-        goto done;
+        return NULL;
     }
 
     bot->bot_name = talloc_strdup(bot, input_name);
     if (bot->bot_name == NULL) {
-        ret = ENOMEM;
-        goto done;
-    }
-
-    if (at != NULL) {
-        bot->original_name = talloc_asprintf(bot, "%s%s", real_name, at);
-    } else {
-        bot->original_name = talloc_strdup(bot, real_name);
-    }
-    if (bot->original_name == NULL) {
-        ret = ENOMEM;
-        goto done;
-    }
-
-    /* Extract optional fields. */
-    name_obj = json_object_get(root, "r");
-    if (name_obj != NULL && json_is_string(name_obj)) {
-        bot->request_id = talloc_strdup(bot, json_string_value(name_obj));
-        if (bot->request_id == NULL) {
-            ret = ENOMEM;
-            goto done;
-        }
-    }
-
-    name_obj = json_object_get(root, "a");
-    if (name_obj != NULL && json_is_string(name_obj)) {
-        bot->agent = talloc_strdup(bot, json_string_value(name_obj));
-        if (bot->agent == NULL) {
-            ret = ENOMEM;
-            goto done;
-        }
-    }
-
-    name_obj = json_object_get(root, "m");
-    if (name_obj != NULL && json_is_string(name_obj)) {
-        bot->model = talloc_strdup(bot, json_string_value(name_obj));
-        if (bot->model == NULL) {
-            ret = ENOMEM;
-            goto done;
-        }
-    }
-
-    name_obj = json_object_get(root, "t");
-    if (name_obj != NULL && json_is_string(name_obj)) {
-        bot->tool = talloc_strdup(bot, json_string_value(name_obj));
-        if (bot->tool == NULL) {
-            ret = ENOMEM;
-            goto done;
-        }
-    }
-
-    DEBUG(SSSDBG_TRACE_FUNC,
-          "BOT account [%s] resolved to user [%s]\n",
-          input_name, bot->original_name);
-
-    bot = talloc_steal(mem_ctx, bot);
-    ret = EOK;
-
-done:
-    if (root != NULL) {
-        json_decref(root);
-    }
-
-    talloc_free(tmp_ctx);
-
-    if (ret != EOK) {
+        talloc_free(bot);
         return NULL;
     }
+
+    bot->uid = (uint32_t)uid_val;
+
+    DEBUG(SSSDBG_TRACE_FUNC,
+          "BOT account [%s] resolved to uid [%"PRIu32"]\n",
+          input_name, bot->uid);
 
     return bot;
 }
@@ -196,43 +162,7 @@ cache_req_bot_account_copy(TALLOC_CTX *mem_ctx,
         return NULL;
     }
 
-    copy->original_name = talloc_strdup(copy, bot->original_name);
-    if (copy->original_name == NULL) {
-        talloc_free(copy);
-        return NULL;
-    }
-
-    if (bot->request_id != NULL) {
-        copy->request_id = talloc_strdup(copy, bot->request_id);
-        if (copy->request_id == NULL) {
-            talloc_free(copy);
-            return NULL;
-        }
-    }
-
-    if (bot->agent != NULL) {
-        copy->agent = talloc_strdup(copy, bot->agent);
-        if (copy->agent == NULL) {
-            talloc_free(copy);
-            return NULL;
-        }
-    }
-
-    if (bot->model != NULL) {
-        copy->model = talloc_strdup(copy, bot->model);
-        if (copy->model == NULL) {
-            talloc_free(copy);
-            return NULL;
-        }
-    }
-
-    if (bot->tool != NULL) {
-        copy->tool = talloc_strdup(copy, bot->tool);
-        if (copy->tool == NULL) {
-            talloc_free(copy);
-            return NULL;
-        }
-    }
+    copy->uid = bot->uid;
 
     return copy;
 }

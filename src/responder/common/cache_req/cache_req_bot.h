@@ -21,6 +21,7 @@
 #ifndef _CACHE_REQ_BOT_H_
 #define _CACHE_REQ_BOT_H_
 
+#include <stdint.h>
 #include <talloc.h>
 
 #define CACHE_REQ_BOT_PREFIX "BOT-"
@@ -28,18 +29,14 @@
 
 struct cache_req_bot_account {
     const char *bot_name;       /* original BOT-... input name */
-    const char *original_name;  /* "n": real user name (required) */
-    const char *request_id;     /* "r": request id (optional) */
-    const char *agent;          /* "a": AI agent (optional) */
-    const char *model;          /* "m": AI model (optional) */
-    const char *tool;           /* "t": MCP tool (optional) */
+    uint32_t uid;               /* uidNumber extracted from the BOT name */
 };
 
 /**
  * Parse a bot account name.
  *
- * If @input_name starts with "BOT-", the remainder is base64-decoded
- * and parsed as JSON. The "n" field is extracted as the real user name.
+ * If @input_name matches "BOT-<uidNumber>-<random>[@REALM]",
+ * the uidNumber is extracted as the real user's POSIX UID.
  *
  * @return Allocated structure on success, NULL if not a bot account
  *         or on parse error.

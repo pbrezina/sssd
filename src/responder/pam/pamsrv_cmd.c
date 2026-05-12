@@ -1266,12 +1266,15 @@ static int pam_reply_bot_export_env(struct pam_auth_req *preq)
 {
     TALLOC_CTX *tmp_ctx;
     struct cache_req_bot_account *bot = preq->bot_account;
+    const char *original_name;
     const char *shell;
     errno_t ret;
 
+    original_name = sss_get_name_from_msg(preq->domain, preq->user_obj);
+
     DEBUG(SSSDBG_TRACE_FUNC,
           "BOT account: exporting env variables for [%s] -> [%s]\n",
-          bot->bot_name, bot->original_name);
+          bot->bot_name, original_name != NULL ? original_name : "<NULL>");
 
     tmp_ctx = talloc_new(NULL);
     if (tmp_ctx == NULL) {
@@ -1285,11 +1288,13 @@ static int pam_reply_bot_export_env(struct pam_auth_req *preq)
         goto done;
     }
 
-    ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
-                                "SSS_BOT_ORIGINAL_USER",
-                                bot->original_name);
-    if (ret != EOK) {
-        goto done;
+    if (original_name != NULL) {
+        ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
+                                    "SSS_BOT_ORIGINAL_USER",
+                                    original_name);
+        if (ret != EOK) {
+            goto done;
+        }
     }
 
     shell = sss_resp_get_shell_override(preq->user_obj,
@@ -1298,42 +1303,6 @@ static int pam_reply_bot_export_env(struct pam_auth_req *preq)
         ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
                                     "SSS_BOT_ORIGINAL_SHELL",
                                     shell);
-        if (ret != EOK) {
-            goto done;
-        }
-    }
-
-    if (bot->request_id != NULL) {
-        ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
-                                    "SSS_BOT_REQUEST_ID",
-                                    bot->request_id);
-        if (ret != EOK) {
-            goto done;
-        }
-    }
-
-    if (bot->agent != NULL) {
-        ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
-                                    "SSS_BOT_AGENT",
-                                    bot->agent);
-        if (ret != EOK) {
-            goto done;
-        }
-    }
-
-    if (bot->model != NULL) {
-        ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
-                                    "SSS_BOT_MODEL",
-                                    bot->model);
-        if (ret != EOK) {
-            goto done;
-        }
-    }
-
-    if (bot->tool != NULL) {
-        ret = pam_reply_bot_add_env(preq->pd, tmp_ctx,
-                                    "SSS_BOT_TOOL",
-                                    bot->tool);
         if (ret != EOK) {
             goto done;
         }
@@ -2793,9 +2762,9 @@ static void pam_check_user_search_done(struct pam_auth_req *preq, int ret,
                                                        result->bot_account);
         if (preq->bot_account != NULL) {
             DEBUG(SSSDBG_TRACE_FUNC,
-                  "BOT account detected in PAM: [%s] -> [%s]\n",
+                  "BOT account detected in PAM: [%s] (uid %"PRIu32")\n",
                   preq->bot_account->bot_name,
-                  preq->bot_account->original_name);
+                  preq->bot_account->uid);
         }
 
         ret = pam_initgr_cache_set(pctx->rctx->ev,

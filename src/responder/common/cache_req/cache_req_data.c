@@ -81,10 +81,11 @@ cache_req_data_create(TALLOC_CTX *mem_ctx,
         return NULL;
     }
 
-    /* Check if this is a BOT account and switch to the real user name. */
+    /* Check if this is a BOT account and switch to user-by-id lookup. */
     data->bot_account = cache_req_bot_account_parse(data, input->name.input);
     if (data->bot_account != NULL) {
-        input->name.input = data->bot_account->original_name;
+        type = CACHE_REQ_USER_BY_ID;
+        input->id = data->bot_account->uid;
     }
 
     data->type = type;
