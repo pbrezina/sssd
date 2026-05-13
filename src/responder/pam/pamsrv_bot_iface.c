@@ -21,9 +21,11 @@
 #include <string.h>
 
 #include "util/util.h"
-#include "sss_iface/sss_iface_async.h"
+#include "responder/common/responder.h"
+#include "responder/common/responder_packet.h"
 #include "responder/pam/pamsrv.h"
 #include "responder/pam/pamsrv_bot_iface.h"
+#include "sss_client/sss_cli.h"
 
 #define PAM_BOT_INDICATOR_TIMEOUT 300 /* 5 minutes */
 
@@ -66,11 +68,9 @@ static void pam_bot_cache_remove(struct tevent_context *ev,
 }
 
 static errno_t
-pam_bot_register(TALLOC_CTX *mem_ctx,
-                 struct sbus_request *sbus_req,
-                 struct pam_ctx *pctx,
-                 const char *bot_name,
-                 const char **indicators)
+pam_bot_store_indicators(struct pam_ctx *pctx,
+                         const char *bot_name,
+                         const char **indicators)
 {
     struct pam_bot_indicators *ind;
     struct pam_bot_table_ctx *table_ctx;
@@ -182,6 +182,77 @@ pam_bot_register(TALLOC_CTX *mem_ctx,
     return EOK;
 }
 
+int pam_cmd_register_bot(struct cli_ctx *cctx)
+{
+    struct cli_protocol *pctx;
+    struct pam_ctx *pam_ctx;
+    uint8_t *body;
+    size_t body_len;
+    size_t pctr;
+    const char *bot_name;
+    const char **indicators = NULL;
+    size_t num_indicators = 0;
+    size_t i;
+    errno_t ret;
+
+    DEBUG(SSSDBG_CONF_SETTINGS, "entering pam_cmd_register_bot\n");
+
+    pctx = talloc_get_type(cctx->protocol_ctx, struct cli_protocol);
+    pam_ctx = talloc_get_type(cctx->rctx->pvt_ctx, struct pam_ctx);
+
+    sss_packet_get_body(pctx->creq->in, &body, &body_len);
+    if (body == NULL || body_len == 0) {
+        DEBUG(SSSDBG_CRIT_FAILURE, "BOT register: empty request body\n");
+        ret = EINVAL;
+        goto done;
+    }
+
+    /* Ensure body is null-terminated. */
+    if (body[body_len - 1] != '\0') {
+        DEBUG(SSSDBG_CRIT_FAILURE, "BOT register: body not null-terminated\n");
+        ret = EINVAL;
+        goto done;
+    }
+
+    /* First null-terminated string is bot_name. */
+    bot_name = (const char *)body;
+    pctr = strlen(bot_name) + 1;
+
+    /* Count remaining null-terminated strings (indicators). */
+    for (i = pctr; i < body_len; ) {
+        i += strlen((const char *)&body[i]) + 1;
+        num_indicators++;
+    }
+
+    if (num_indicators > 0) {
+        indicators = talloc_array(cctx, const char *, num_indicators + 1);
+        if (indicators == NULL) {
+            ret = ENOMEM;
+            goto done;
+        }
+
+        for (i = 0; i < num_indicators; i++) {
+            indicators[i] = (const char *)&body[pctr];
+            pctr += strlen(indicators[i]) + 1;
+        }
+        indicators[num_indicators] = NULL;
+    }
+
+    ret = pam_bot_store_indicators(pam_ctx, bot_name, indicators);
+
+done:
+    talloc_free(indicators);
+
+    if (ret != EOK) {
+        sss_cmd_send_error(cctx, ret);
+    } else {
+        sss_cmd_send_empty(cctx);
+    }
+    sss_cmd_done(cctx, NULL);
+
+    return EOK;
+}
+
 struct pam_bot_indicators *
 pam_bot_indicators_lookup(struct pam_ctx *pctx, const char *bot_name)
 {
@@ -208,29 +279,4 @@ void pam_bot_indicators_delete(struct pam_ctx *pctx, const char *bot_name)
     key.str = discard_const_p(char, bot_name);
 
     hash_delete(pctx->bot_indicators_table, &key);
-}
-
-errno_t pam_register_bot_iface(struct sbus_connection *conn,
-                               struct pam_ctx *pctx)
-{
-    errno_t ret;
-
-    SBUS_INTERFACE(iface_bot,
-        sssd_pam_BotAccount,
-        SBUS_METHODS(
-            SBUS_SYNC(METHOD, sssd_pam_BotAccount, Register,
-                      pam_bot_register, pctx)
-        ),
-        SBUS_SIGNALS(SBUS_NO_SIGNALS),
-        SBUS_PROPERTIES(SBUS_NO_PROPERTIES)
-    );
-
-    ret = sbus_connection_add_path(conn, SSS_BUS_PATH, &iface_bot);
-    if (ret != EOK) {
-        DEBUG(SSSDBG_FATAL_FAILURE,
-              "Unable to register BOT account interface [%d]: %s\n",
-              ret, sss_strerror(ret));
-    }
-
-    return ret;
 }

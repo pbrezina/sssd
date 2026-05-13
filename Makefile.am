@@ -5097,12 +5097,10 @@ sssd_pac_plugin_la_SOURCES = \
     src/sss_client/krb5_authdata_int.h
 sssd_pac_plugin_la_CFLAGS = \
     $(AM_CFLAGS) \
-    $(KRB5_CFLAGS) \
-    $(DBUS_CFLAGS)
+    $(KRB5_CFLAGS)
 sssd_pac_plugin_la_LIBADD = \
     $(CLIENT_LIBS) \
-    $(KRB5_LIBS) \
-    $(DBUS_LIBS)
+    $(KRB5_LIBS)
 sssd_pac_plugin_la_LDFLAGS = \
     -avoid-version \
     -module

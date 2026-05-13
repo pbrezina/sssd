@@ -26,16 +26,13 @@
 #include <krb5/krb5.h>
 #include <errno.h>
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
-#include <dbus/dbus.h>
-
 #include "krb5_authdata_int.h"
 #include "sss_cli.h"
 
-#define SSS_BUS_ADDRESS "unix:path=" PIPE_PATH "/private/sbus-master"
-#define SSS_BUS_PAM     "sssd.pam"
-#define SSS_BUS_PATH    "/sssd"
-#define SSS_BUS_IFACE   "sssd.pam.BotAccount"
+#define BOT_PREFIX "BOT-"
+#define BOT_PREFIX_LEN (sizeof(BOT_PREFIX) - 1)
 
 
 struct sssd_context {
@@ -207,16 +204,17 @@ sssdpac_send_indicators(krb5_context kcontext,
                         const krb5_ap_req *req,
                         struct sssd_context *sssdctx)
 {
-    DBusConnection *conn = NULL;
-    DBusMessage *msg = NULL;
-    DBusMessageIter iter;
-    DBusMessageIter array_iter;
-    DBusError error;
+    struct sss_cli_req_data req_data;
     krb5_error_code kerr;
     char *princ_str = NULL;
     char *at;
     char *short_name = NULL;
+    uint8_t *buf = NULL;
+    size_t buf_len;
+    size_t name_len;
+    size_t offset;
     size_t i;
+    int errnop;
 
     if (sssdctx->indicators == NULL || sssdctx->num_indicators == 0) {
         return;
@@ -239,44 +237,40 @@ sssdpac_send_indicators(krb5_context kcontext,
         goto done;
     }
 
-    /* Connect to SSSD's private D-Bus socket. */
-    dbus_error_init(&error);
-    conn = dbus_connection_open_private(SSS_BUS_ADDRESS, &error);
-    if (conn == NULL) {
-        dbus_error_free(&error);
+    /* Only forward indicators for BOT principals. */
+    if (strncasecmp(short_name, BOT_PREFIX, BOT_PREFIX_LEN) != 0) {
         goto done;
     }
 
-    /* Build D-Bus method call: sssd.pam.BotAccount.Register(s, as) */
-    msg = dbus_message_new_method_call(SSS_BUS_PAM, SSS_BUS_PATH,
-                                       SSS_BUS_IFACE, "Register");
-    if (msg == NULL) {
-        goto done;
-    }
-
-    dbus_message_iter_init_append(msg, &iter);
-    dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &short_name);
-    dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
-                                     DBUS_TYPE_STRING_AS_STRING,
-                                     &array_iter);
+    /* Build request body: [bot_name\0][ind1\0][ind2\0]... */
+    name_len = strlen(short_name) + 1;
+    buf_len = name_len;
     for (i = 0; i < sssdctx->num_indicators; i++) {
-        const char *ind = sssdctx->indicators[i];
-        dbus_message_iter_append_basic(&array_iter, DBUS_TYPE_STRING, &ind);
+        buf_len += strlen(sssdctx->indicators[i]) + 1;
     }
-    dbus_message_iter_close_container(&iter, &array_iter);
 
-    /* Send and ignore reply. Non-fatal on error. */
-    dbus_connection_send(conn, msg, NULL);
-    dbus_connection_flush(conn);
+    buf = malloc(buf_len);
+    if (buf == NULL) {
+        goto done;
+    }
+
+    memcpy(buf, short_name, name_len);
+    offset = name_len;
+    for (i = 0; i < sssdctx->num_indicators; i++) {
+        size_t ind_len = strlen(sssdctx->indicators[i]) + 1;
+        memcpy(buf + offset, sssdctx->indicators[i], ind_len);
+        offset += ind_len;
+    }
+
+    req_data.len = buf_len;
+    req_data.data = buf;
+
+    /* Send to PAM responder. Non-fatal on error. */
+    sss_pam_make_request(SSS_PAM_REGISTER_BOT, &req_data,
+                         NULL, NULL, &errnop);
 
 done:
-    if (msg != NULL) {
-        dbus_message_unref(msg);
-    }
-    if (conn != NULL) {
-        dbus_connection_close(conn);
-        dbus_connection_unref(conn);
-    }
+    free(buf);
     free(short_name);
     krb5_free_unparsed_name(kcontext, princ_str);
 }

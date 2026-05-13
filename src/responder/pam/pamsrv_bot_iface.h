@@ -21,8 +21,7 @@
 #ifndef _PAMSRV_BOT_IFACE_H_
 #define _PAMSRV_BOT_IFACE_H_
 
-#include "sbus/sbus.h"
-
+struct cli_ctx;
 struct pam_ctx;
 
 struct pam_bot_indicators {
@@ -32,8 +31,7 @@ struct pam_bot_indicators {
     const char *request_id;
 };
 
-errno_t pam_register_bot_iface(struct sbus_connection *conn,
-                               struct pam_ctx *pctx);
+int pam_cmd_register_bot(struct cli_ctx *cctx);
 
 struct pam_bot_indicators *
 pam_bot_indicators_lookup(struct pam_ctx *pctx, const char *bot_name);
