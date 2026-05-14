@@ -70,6 +70,7 @@ struct so {
 #endif
 #ifdef HAVE_PAC_RESPONDER
     { "sssd_pac_plugin.so", { LIBPFX"sssd_pac_plugin.so", NULL } },
+    { "sssd_authdata_bot.so", { LIBPFX"sssd_authdata_bot.so", NULL } },
 #endif
 #ifdef HAVE_CIFS_IDMAP_PLUGIN
     { "cifs_idmap_sss.so", { LIBPFX"cifs_idmap_sss.so", NULL } },

@@ -26,19 +26,13 @@
 #include <krb5/krb5.h>
 #include <errno.h>
 #include <string.h>
-#include <strings.h>
 #include <stdlib.h>
 #include "krb5_authdata_int.h"
 #include "sss_cli.h"
 
-#define BOT_PREFIX "BOT-"
-#define BOT_PREFIX_LEN (sizeof(BOT_PREFIX) - 1)
-
 
 struct sssd_context {
     krb5_data data;
-    char **indicators;
-    size_t num_indicators;
 };
 
 static krb5_error_code
@@ -81,23 +75,6 @@ sssdpac_request_init(krb5_context kcontext,
     return 0;
 }
 
-static void
-sssdpac_free_indicators(struct sssd_context *sssdctx)
-{
-    size_t i;
-
-    if (sssdctx->indicators == NULL) {
-        return;
-    }
-
-    for (i = 0; i < sssdctx->num_indicators; i++) {
-        free(sssdctx->indicators[i]);
-    }
-    free(sssdctx->indicators);
-    sssdctx->indicators = NULL;
-    sssdctx->num_indicators = 0;
-}
-
 static krb5_error_code
 sssdpac_import_pac(struct sssd_context *sssdctx,
                    krb5_context kcontext,
@@ -124,39 +101,6 @@ sssdpac_import_pac(struct sssd_context *sssdctx,
 }
 
 static krb5_error_code
-sssdpac_import_indicators(struct sssd_context *sssdctx,
-                          krb5_authdata **authdata)
-{
-    size_t count;
-    size_t i;
-
-    /* Count entries. */
-    for (count = 0; authdata[count] != NULL; count++) {
-        /* just counting */
-    }
-
-    sssdpac_free_indicators(sssdctx);
-
-    sssdctx->indicators = calloc(count, sizeof(char *));
-    if (sssdctx->indicators == NULL) {
-        return ENOMEM;
-    }
-
-    for (i = 0; i < count; i++) {
-        sssdctx->indicators[i] = strndup((char *)authdata[i]->contents,
-                                         authdata[i]->length);
-        if (sssdctx->indicators[i] == NULL) {
-            sssdpac_free_indicators(sssdctx);
-            return ENOMEM;
-        }
-    }
-
-    sssdctx->num_indicators = count;
-
-    return 0;
-}
-
-static krb5_error_code
 sssdpac_import_authdata(krb5_context kcontext,
                         krb5_authdata_context context,
                         void *plugin_context,
@@ -171,14 +115,7 @@ sssdpac_import_authdata(krb5_context kcontext,
         return EINVAL;
     }
 
-    switch (authdata[0]->ad_type) {
-    case KRB5_AUTHDATA_WIN2K_PAC:
-        return sssdpac_import_pac(sssdctx, kcontext, authdata);
-    case KRB5_AUTHDATA_AUTH_INDICATOR:
-        return sssdpac_import_indicators(sssdctx, authdata);
-    default:
-        return EINVAL;
-    }
+    return sssdpac_import_pac(sssdctx, kcontext, authdata);
 }
 
 static void
@@ -194,85 +131,8 @@ sssdpac_request_fini(krb5_context kcontext,
             krb5_free_data_contents(kcontext, &sssdctx->data);
         }
 
-        sssdpac_free_indicators(sssdctx);
         free(sssdctx);
     }
-}
-
-static void
-sssdpac_send_indicators(krb5_context kcontext,
-                        const krb5_ap_req *req,
-                        struct sssd_context *sssdctx)
-{
-    struct sss_cli_req_data req_data;
-    krb5_error_code kerr;
-    char *princ_str = NULL;
-    char *at;
-    char *short_name = NULL;
-    uint8_t *buf = NULL;
-    size_t buf_len;
-    size_t name_len;
-    size_t offset;
-    size_t i;
-    int errnop;
-
-    if (sssdctx->indicators == NULL || sssdctx->num_indicators == 0) {
-        return;
-    }
-
-    /* Extract principal name and strip @REALM. */
-    kerr = krb5_unparse_name(kcontext, req->ticket->enc_part2->client,
-                             &princ_str);
-    if (kerr != 0) {
-        return;
-    }
-
-    at = strrchr(princ_str, '@');
-    if (at != NULL) {
-        short_name = strndup(princ_str, at - princ_str);
-    } else {
-        short_name = strdup(princ_str);
-    }
-    if (short_name == NULL) {
-        goto done;
-    }
-
-    /* Only forward indicators for BOT principals. */
-    if (strncasecmp(short_name, BOT_PREFIX, BOT_PREFIX_LEN) != 0) {
-        goto done;
-    }
-
-    /* Build request body: [bot_name\0][ind1\0][ind2\0]... */
-    name_len = strlen(short_name) + 1;
-    buf_len = name_len;
-    for (i = 0; i < sssdctx->num_indicators; i++) {
-        buf_len += strlen(sssdctx->indicators[i]) + 1;
-    }
-
-    buf = malloc(buf_len);
-    if (buf == NULL) {
-        goto done;
-    }
-
-    memcpy(buf, short_name, name_len);
-    offset = name_len;
-    for (i = 0; i < sssdctx->num_indicators; i++) {
-        size_t ind_len = strlen(sssdctx->indicators[i]) + 1;
-        memcpy(buf + offset, sssdctx->indicators[i], ind_len);
-        offset += ind_len;
-    }
-
-    req_data.len = buf_len;
-    req_data.data = buf;
-
-    /* Send to PAM responder. Non-fatal on error. */
-    sss_pam_make_request(SSS_PAM_REGISTER_BOT, &req_data,
-                         NULL, NULL, &errnop);
-
-done:
-    free(buf);
-    free(short_name);
-    krb5_free_unparsed_name(kcontext, princ_str);
 }
 
 static krb5_error_code sssdpac_verify(krb5_context kcontext,
@@ -293,11 +153,6 @@ static krb5_error_code sssdpac_verify(krb5_context kcontext,
     if (sssdctx == NULL) {
         return EINVAL;
     }
-
-    /* Forward auth indicators to PAM responder if available.
-     * Do this before the PAC check so indicators are sent even
-     * for tickets that carry only auth indicators and no PAC. */
-    sssdpac_send_indicators(kcontext, req, sssdctx);
 
     if (sssdctx->data.data == NULL) {
         /* No PAC data, nothing to verify. */
@@ -481,7 +336,6 @@ sssdpac_internalize(krb5_context kcontext,
 
 static krb5_authdatatype sssdpac_ad_types[] = {
     KRB5_AUTHDATA_WIN2K_PAC,
-    KRB5_AUTHDATA_AUTH_INDICATOR,
     0
 };
 

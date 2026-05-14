@@ -23,6 +23,7 @@ krb5_ser_pack_bytes(krb5_octet *, size_t, krb5_octet **, size_t *);
 #define AD_USAGE_KDC_ISSUED     0x08
 #define AD_USAGE_MASK           0x0F
 #define AD_INFORMATIONAL        0x10
+#define AD_CAMMAC_PROTECTED     0x20
 
 struct _krb5_authdata_context;
 typedef struct _krb5_authdata_context *krb5_authdata_context;

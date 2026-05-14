@@ -437,7 +437,8 @@ endif
 
 if BUILD_PAC_RESPONDER
 krb5authdata_plugin_LTLIBRARIES = \
-    sssd_pac_plugin.la
+    sssd_pac_plugin.la \
+    sssd_authdata_bot.la
 endif
 
 if BUILD_CIFS_IDMAP_PLUGIN
@@ -5102,6 +5103,21 @@ sssd_pac_plugin_la_LIBADD = \
     $(CLIENT_LIBS) \
     $(KRB5_LIBS)
 sssd_pac_plugin_la_LDFLAGS = \
+    -avoid-version \
+    -module
+
+sssd_authdata_bot_la_SOURCES = \
+    src/sss_client/sssd_authdata_bot.c \
+    src/sss_client/common.c \
+    src/sss_client/sss_cli.h \
+    src/sss_client/krb5_authdata_int.h
+sssd_authdata_bot_la_CFLAGS = \
+    $(AM_CFLAGS) \
+    $(KRB5_CFLAGS)
+sssd_authdata_bot_la_LIBADD = \
+    $(CLIENT_LIBS) \
+    $(KRB5_LIBS)
+sssd_authdata_bot_la_LDFLAGS = \
     -avoid-version \
     -module
 
