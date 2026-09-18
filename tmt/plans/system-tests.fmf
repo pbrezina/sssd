@@ -1,0 +1,179 @@
+summary: SSSD System Tests
+description: Run SSSD system tests on sssd-ci-containers.
+tag: system
+
+provision:
+  how: virtual
+  hardware:
+    memory: ">= 16 GB"
+
+prepare:
+  - name: Install and load kernel module for passkey testing
+    how: shell
+    script: |
+      set -ex -o pipefail
+
+      dnf install -y kernel-modules-extra-$(uname -r)
+      modprobe vhci_hcd
+
+  - name: Setup containers and install ci-* commands
+    how: shell
+    url: https://github.com/pbrezina/sssd-ci-containers.git
+    ref: tmt
+    script: $TMT_PREPARE_SHELL_URL_REPOSITORY/tmt/setup.sh
+
+  # - name: Install SSSD from the COPR build
+  #   how: shell
+  #   script: ci-install-copr --where "client ipa"
+
+  - name: Restart SSSD on the IPA server
+    how: shell
+    script: ci-exec --where ipa --user root -- systemctl restart sssd
+
+  # - name: Patch the SSH configuration on the client
+  #   how: shell
+  #   script: |
+  #   ci-exec --where client --user root <<'EOF'
+  #     #!/bin/bash
+  #     test -x /usr/bin/sss_ssh_knownhosts && \
+  #       sed -e 's/GlobalKnownHostsFile/#GlobalKnownHostsFile/' \
+  #         -e 's|ProxyCommand /usr/bin/sss_ssh_knownhostsproxy -p %p %h|KnownHostsCommand /usr/bin/sss_ssh_knownhosts %H|' \
+  #         -i /etc/ssh/ssh_config.d/04-ipa.conf
+  #   EOF
+
+  # - name: Wait for samba domain connectivity
+  #   how: shell
+  #   script: |
+  #   set -e -o pipefail
+  #   echo "Wait for samba domain connectivity..."
+  #   for i in $(seq 1 90); do
+  #     if ci-exec --where client --user root -- \
+  #        timeout 10s getent passwd Administrator@samba.test >/dev/null 2>&1; then
+  #     echo "Domain connectivity ready (${i}s)"
+  #     break
+  #     fi
+  #     if [ "$i" -eq 90 ]; then
+  #     echo "User resolution not ready after 90 attempts, proceeding with tests anyway"
+  #     fi
+  #     sleep 1
+  #   done
+
+  - name: Install system tests dependencies
+    how: shell
+    script: |
+      set -ex -o pipefail
+
+      # Build dependencies for python-ldap and the test framework.
+      dnf install -y \
+        cyrus-sasl-devel \
+        gcc \
+        git \
+        libssh-devel \
+        openldap-devel \
+        openssl-devel \
+        python3-devel \
+        python3-pip \
+        yq
+
+      # Install the python test dependencies into a virtual environment.
+      # It must live outside $TMT_TREE to avoid clean up between steps.
+      python3 -m venv /tmp/venv
+      source /tmp/venv/bin/activate
+      pip3 install -r "$TMT_TREE/src/tests/system/requirements.txt"
+
+  - name: Select tests from the pull request diff
+    how: shell
+    script: |
+      set -e -o pipefail
+
+      if [ -z "${PACKIT_PR_ID:-}" ]; then
+        echo "Not running against a pull request. Will run all tests."
+        exit 0
+      fi
+
+      DIFF=$(curl -sfL "https://github.com/SSSD/sssd/pull/${PACKIT_PR_ID}.diff")
+      FILES=$(echo "$DIFF" | grep -E '^diff --git' | sed -E 's|^diff --git a/(.*) b/.*|\1|')
+
+      # Find if any non-test function was modified, in that case we need to
+      # run all tests as we do not know where the function is used
+      if echo "$FILES" | grep -qv 'src/tests/system/tests'; then
+        echo "Non-test files were changed. Will run all tests."
+        exit 0
+      elif echo "$DIFF" | grep -qP '^(@@.+|\+|-)\s*def (?!test_)'; then
+        echo "Non-test function was modified. Will run all tests."
+        exit 0
+      fi
+
+      # Find all tests that were added
+      ADDED=`echo "$DIFF" | grep -P "^\+\s*def test_" | sed -E 's/.+def (test_[^(]+).+/\1/'`
+
+      # Find all tests that are used as tokens in diff
+      MODIFIED=`echo "$DIFF" | grep -E "^@@.+def test_" | sed -E 's/.+def (test_[^(]+).+/\1/'`
+
+      # Combine and sort
+      TESTS=`echo -e "$ADDED\n$MODIFIED" | sort | uniq`
+
+      echo "Following tests were added or modified (or token is present in diff):"
+      echo "$TESTS"
+
+      # Store only the -k expression. The execute step passes it as -k "$SELECT_TESTS"
+      # so an empty value (unset here) makes pytest run all tests. Do not embed the
+      # -k flag or quotes: this crosses to the test as a runtime env var, which the
+      # shell does not re-parse (unlike GitHub Actions text substitution in ci.yml).
+      if [ -n "$TESTS" ]; then
+        FILTER=`echo "$TESTS" | xargs | sed 's/ / or /g'`
+        echo "SELECT_TESTS=$FILTER" >> "$TMT_PLAN_ENVIRONMENT_FILE"
+        echo "Set SELECT_TESTS in TMT ENV:"
+        grep SELECT_TESTS "$TMT_PLAN_ENVIRONMENT_FILE"
+      fi
+
+discover:
+  how: shell
+  tests:
+    - name: /system
+      summary: Run the SSSD system test suite
+      order: 20
+      duration: 6h
+      test: |
+        set -e -o pipefail
+
+        cd "$TMT_TREE/src/tests/system"
+        source /tmp/venv/bin/activate
+        mkdir -p /tmp/artifacts
+
+        # Print the selected tests
+        echo "Filtering tests:"
+        if [ -n "${SELECT_TESTS:-}" ]; then
+          echo "$SELECT_TESTS" | sed 's/ or /\n/g' | sort | sed 's/^/  - /'
+        else
+          echo "  - <all>"
+        fi
+        echo ""
+
+        # Remove AD from mhc.yaml
+        yq -i 'del(.domains[0].hosts[] | select(.role == "ad"))' "$TMT_TREE/src/tests/system/mhc.yaml"
+
+        # Run the test
+        pytest \
+          --durations=0 \
+          --color=yes \
+          --show-capture=no \
+          --mh-config=./mhc.yaml \
+          --mh-artifacts-dir=/tmp/artifacts \
+          -k "${SELECT_TESTS:-}" \
+          -vvv . |& tee /tmp/artifacts/pytest.log
+
+execute:
+  how: tmt
+
+finish:
+  - name: Copy artifacts
+    how: shell
+    script: |
+      if [ -d "/tmp/artifacts" ] && [ "$(ls -A /tmp/artifacts 2>/dev/null)" ]; then
+        mkdir -p $TMT_PLAN_DATA/artifacts
+        cp -r /tmp/artifacts/* $TMT_PLAN_DATA/artifacts/
+        echo "Artifacts copied to: $TMT_PLAN_DATA/artifacts"
+      else
+        echo "No artifacts to copy"
+      fi
