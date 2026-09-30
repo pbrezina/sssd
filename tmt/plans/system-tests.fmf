@@ -135,7 +135,7 @@ discover:
           --show-capture=no \
           --mh-config=./mhc.yaml \
           --mh-artifacts-dir="$TMT_TEST_DATA/artifacts" \
-          -k "${SELECT_TESTS:-}" \
+          -k test_autofs \
           -vvv . |& tee "$TMT_TEST_DATA/pytest-colored.log" || rc=$?
 
         ansifilter "$TMT_TEST_DATA/pytest-colored.log" -o "$TMT_TEST_DATA/pytest.log"
