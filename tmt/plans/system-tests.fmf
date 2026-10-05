@@ -40,11 +40,32 @@ prepare:
       source /tmp/venv/bin/activate
       pip3 install -r "$TMT_TREE/src/tests/system/requirements.txt"
 
+      # TODO: drop once https://github.com/pbrezina/sssd-test-framework/tree/iparestore is merged upstream
+      pip3 install --force-reinstall --no-deps \
+        "git+https://github.com/pbrezina/sssd-test-framework.git@iparestore"
+
+      pip3 install --force-reinstall --no-deps \
+        "git+https://github.com/pbrezina/pytest-mh.git@prci-fixes"
+
   - name: Setup containers and install ci-* commands
     how: shell
     url: https://github.com/pbrezina/sssd-ci-containers.git
-    ref: tmt
+    ref: coredump
     script: $TMT_PREPARE_SHELL_URL_REPOSITORY/tmt/setup.sh
+
+  - name: Disable sshd PerSourcePenalties on the client
+    how: shell
+    script: |
+      # TODO: move to sssd-ci-containers once this is proven out. Tests
+      # repeatedly ssh to the client over loopback, including intentional
+      # auth failures (access control tests). OpenSSH's default
+      # PerSourcePenalties then drops unrelated subsequent connections from
+      # the same source before they reach PAM/SSSD, failing unrelated tests.
+      ci-exec --where client --user root <<'EOF'
+        set -ex
+        echo "PerSourcePenalties no" > /etc/ssh/sshd_config.d/00-no-per-source-penalties.conf
+        systemctl reload sshd
+      EOF
 
   - name: Install SSSD from the COPR build
     how: shell
