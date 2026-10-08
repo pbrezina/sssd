@@ -34,6 +34,8 @@ prepare:
         python3-pip \
         yq
 
+      dnf install -y gdb
+
       # Install the python test dependencies into a virtual environment.
       # It must live outside $TMT_TREE to avoid clean up between steps.
       python3 -m venv /tmp/venv
@@ -150,7 +152,7 @@ discover:
         # Run the test. Artifacts go into $TMT_TEST_DATA, which tmt links to
         # this test case in the results (unlike $TMT_PLAN_DATA, which is
         # shared across the whole plan and not tied to any individual test).
-        pytest \
+        MH_PYLIBSSH_DEBUG=1 pytest \
           --durations=0 \
           --color=yes \
           --show-capture=no \
@@ -160,6 +162,9 @@ discover:
           -vvv . |& tee "$TMT_TEST_DATA/pytest-colored.log" || rc=$?
 
         ansifilter "$TMT_TEST_DATA/pytest-colored.log" -o "$TMT_TEST_DATA/pytest.log"
+
+        coredumpctl debug -1 -A "-batch -iex 'set debuginfod enabled on' -iex 'set pagination off' -ex 'frame 0' -ex 'info args' -ex 'info locals'"
+
         exit "${rc:-0}"
 
 execute:
