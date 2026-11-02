@@ -43,6 +43,9 @@
 #define NC_DOMAIN_ACCT_LOCATE_PREFIX NC_ENTRY_PREFIX"DOM_LOCATE"
 #define NC_DOMAIN_ACCT_LOCATE_TYPE_PREFIX NC_ENTRY_PREFIX"DOM_LOCATE_TYPE"
 
+/* Maximum retained TDB capacity before the database is recreated. */
+#define NC_MAX_MAP_SIZE (1024 * 1024)
+
 /* Permanently filtered out ID range, as configured by filter_uids and
  * filter_gids. Ranges are kept in a plain list instead of being expanded into
  * one tdb entry per ID, so that a range as wide as "1000-60000" costs a single
@@ -61,6 +64,8 @@ struct sss_nc_ctx {
     uint32_t timeout;
     struct sss_nc_id_range *uid_ranges;
     struct sss_nc_id_range *gid_ranges;
+    struct confdb_ctx *cdb;
+    struct resp_ctx *rctx;
 };
 
 typedef int (*ncache_set_byname_fn_t)(struct sss_nc_ctx *, bool,
@@ -69,6 +74,8 @@ typedef int (*ncache_set_byname_fn_t)(struct sss_nc_ctx *, bool,
 static int sss_ncache_set_ent(struct sss_nc_ctx *ctx, bool permanent,
                               struct sss_domain_info *dom, const char *name,
                               ncache_set_byname_fn_t setter);
+
+static errno_t sss_ncache_recreate(struct sss_nc_ctx *ctx);
 
 static int string_to_tdb_data(char *str, TDB_DATA *ret)
 {
@@ -80,18 +87,27 @@ static int string_to_tdb_data(char *str, TDB_DATA *ret)
     return EOK;
 }
 
+static errno_t sss_ncache_init_db(struct sss_nc_ctx *ctx)
+{
+    errno = 0;
+    /* open a memory only tdb with default hash size */
+    ctx->tdb = tdb_open("memcache", 0, TDB_INTERNAL, O_RDWR|O_CREAT, 0);
+    if (!ctx->tdb) return errno != 0 ? errno : EIO;
+
+    return EOK;
+}
+
 int sss_ncache_init(TALLOC_CTX *memctx, uint32_t timeout,
                     struct sss_nc_ctx **_ctx)
 {
     struct sss_nc_ctx *ctx;
+    errno_t ret;
 
     ctx = talloc_zero(memctx, struct sss_nc_ctx);
     if (!ctx) return ENOMEM;
 
-    errno = 0;
-    /* open a memory only tdb with default hash size */
-    ctx->tdb = tdb_open("memcache", 0, TDB_INTERNAL, O_RDWR|O_CREAT, 0);
-    if (!ctx->tdb) return errno;
+    ret = sss_ncache_init_db(ctx);
+    if (ret != EOK) return ret;
 
     ctx->timeout = timeout;
 
@@ -189,10 +205,17 @@ static int sss_ncache_set_str(struct sss_nc_ctx *ctx, char *str, bool permanent)
     DEBUG(SSSDBG_TRACE_FUNC, "Adding [%s] to negative cache%s\n",
               str, permanent?" permanently":"");
 
+    if (tdb_map_size(ctx->tdb) > NC_MAX_MAP_SIZE) {
+        ret = sss_ncache_recreate(ctx);
+        if (ret != EOK) {
+            goto done;
+        }
+    }
+
     ret = tdb_store(ctx->tdb, key, data, TDB_REPLACE);
     if (ret != 0) {
         DEBUG(SSSDBG_CRIT_FAILURE, "Negative cache failed to set entry: [%s]\n",
-                  tdb_errorstr(ctx->tdb));
+              tdb_errorstr(ctx->tdb));
         ret = EFAULT;
     }
 
@@ -485,6 +508,34 @@ static void sss_ncache_free_id_ranges(struct sss_nc_id_range **ranges)
         DLIST_REMOVE(*ranges, range);
         talloc_free(range);
     }
+}
+
+static errno_t sss_ncache_recreate(struct sss_nc_ctx *ctx)
+{
+    errno_t ret;
+
+    DEBUG(SSSDBG_TRACE_FUNC,
+          "Recreating negative cache to reclaim TDB capacity\n");
+
+    /* Deleting entries does not shrink the map. Close the old database
+     * and open a new memory-only TDB with the default hash size. */
+    tdb_close(ctx->tdb);
+    sss_ncache_free_id_ranges(&ctx->uid_ranges);
+    sss_ncache_free_id_ranges(&ctx->gid_ranges);
+
+    ret = sss_ncache_init_db(ctx);
+    if (ret != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE,
+              "Failed to reopen negative cache: %d [%s]\n",
+              ret, sss_strerror(ret));
+        return ret;
+    }
+
+    if (ctx->rctx != NULL) {
+        return sss_ncache_prepopulate(ctx, ctx->cdb, ctx->rctx);
+    }
+
+    return EOK;
 }
 
 static int sss_ncache_set_uid_range(struct sss_nc_ctx *ctx,
@@ -1303,6 +1354,11 @@ errno_t sss_ncache_prepopulate(struct sss_nc_ctx *ncache,
     if (tmpctx == NULL) {
         return ENOMEM;
     }
+
+    /* Retain the contexts so a capacity-triggered reset can restore filters
+     * using the current domain list. Both outlive the responder's cache. */
+    ncache->cdb = cdb;
+    ncache->rctx = rctx;
 
     /* Populate domain-specific negative cache user entries */
     for (dom = domain_list; dom; dom = get_next_domain(dom, 0)) {
